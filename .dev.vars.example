@@ -1,0 +1,4 @@
+# Copy to .dev.vars and set your DeepSeek API key. Never commit .dev.vars.
+DEEPSEEK_API_KEY=
+# Optional: overrides the DEEPSEEK_MODEL var from wrangler.jsonc for local runs.
+# DEEPSEEK_MODEL=deepseek-flash

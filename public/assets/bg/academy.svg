@@ -1,0 +1,206 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="900" viewBox="0 0 1600 900" role="img" aria-label="暗色魔法学院大厅背景">
+  <defs>
+    <linearGradient id="st-night" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#07060f"/>
+      <stop offset="0.5" stop-color="#130f26"/>
+      <stop offset="1" stop-color="#0a0817"/>
+    </linearGradient>
+    <linearGradient id="st-wall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#221c3c"/>
+      <stop offset="0.55" stop-color="#171234"/>
+      <stop offset="1" stop-color="#0c0a1b"/>
+    </linearGradient>
+    <linearGradient id="st-floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a2246"/>
+      <stop offset="0.3" stop-color="#181330"/>
+      <stop offset="1" stop-color="#08060f"/>
+    </linearGradient>
+    <linearGradient id="st-column" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#0b0918"/>
+      <stop offset="0.4" stop-color="#2b2450"/>
+      <stop offset="0.65" stop-color="#1d1839"/>
+      <stop offset="1" stop-color="#07060f"/>
+    </linearGradient>
+    <linearGradient id="st-banner" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3c2a6d"/>
+      <stop offset="1" stop-color="#1a1030"/>
+    </linearGradient>
+    <radialGradient id="st-candle" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffe6b0" stop-opacity="0.95"/>
+      <stop offset="0.32" stop-color="#ffab4f" stop-opacity="0.5"/>
+      <stop offset="0.68" stop-color="#ff7a2f" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#ff7a2f" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="st-rose" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#d8e6ff" stop-opacity="0.85"/>
+      <stop offset="0.4" stop-color="#8fa2ff" stop-opacity="0.4"/>
+      <stop offset="0.75" stop-color="#5b5fd0" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#4a3fb0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="st-cauldron" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#9ff2e0" stop-opacity="0.55"/>
+      <stop offset="0.5" stop-color="#3fd4c0" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#1c8fa0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="st-reflect" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b9c8ff" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#b9c8ff" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="st-vignette" cx="0.5" cy="0.44" r="0.78">
+      <stop offset="0.42" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="0.78" stop-color="#000000" stop-opacity="0.42"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.86"/>
+    </radialGradient>
+    <filter id="st-blur" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="7"/>
+    </filter>
+    <filter id="st-blur-soft" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="2.4"/>
+    </filter>
+    <g id="st-candle">
+      <ellipse cx="0" cy="0" rx="46" ry="44" fill="url(#st-candle)"/>
+      <rect x="-3.4" y="-16" width="6.8" height="34" rx="3" fill="#efe3c8"/>
+      <rect x="-3.4" y="-16" width="2.6" height="34" rx="1.3" fill="#fff8e6" opacity="0.55"/>
+      <path d="M0 -26 C 4.4 -20.5 5.2 -17 0 -15.4 C -5.2 -17 -4.4 -20.5 0 -26 Z" fill="#ffd88a"/>
+    </g>
+    <g id="st-star">
+      <circle r="1.5" fill="#e8eeff"/>
+    </g>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#st-night)"/>
+
+  <g opacity="0.9">
+    <use href="#st-star" x="120" y="70"/><use href="#st-star" x="250" y="132"/><use href="#st-star" x="330" y="52"/>
+    <use href="#st-star" x="470" y="108"/><use href="#st-star" x="560" y="46"/><use href="#st-star" x="640" y="140"/>
+    <use href="#st-star" x="720" y="62"/><use href="#st-star" x="880" y="120"/><use href="#st-star" x="960" y="48"/>
+    <use href="#st-star" x="1080" y="96"/><use href="#st-star" x="1180" y="58"/><use href="#st-star" x="1290" y="128"/>
+    <use href="#st-star" x="1400" y="66"/><use href="#st-star" x="1490" y="118"/><use href="#st-star" x="160" y="196"/>
+    <use href="#st-star" x="1450" y="200"/><use href="#st-star" x="700" y="176"/><use href="#st-star" x="1030" y="188"/>
+  </g>
+
+  <path d="M0 120 C 220 96 420 150 640 120 C 860 92 1080 146 1300 118 C 1420 104 1520 122 1600 112 L1600 0 L0 0 Z" fill="#0c0a1c" opacity="0.85"/>
+
+  <rect y="300" width="1600" height="420" fill="url(#st-wall)"/>
+
+  <g opacity="0.5">
+    <path d="M0 356 H1600" stroke="#3a3160" stroke-width="2"/>
+    <path d="M0 660 H1600" stroke="#3a3160" stroke-width="2"/>
+    <g stroke="#2b2549" stroke-width="1.4">
+      <path d="M60 300 V715"/><path d="M140 300 V715"/><path d="M220 300 V715"/><path d="M1460 300 V715"/>
+      <path d="M1540 300 V715"/><path d="M1380 300 V715"/>
+    </g>
+  </g>
+
+  <g>
+    <circle cx="800" cy="330" r="210" fill="url(#st-rose)" filter="url(#st-blur)"/>
+    <circle cx="800" cy="330" r="128" fill="none" stroke="#6f78d8" stroke-width="7" opacity="0.75"/>
+    <circle cx="800" cy="330" r="104" fill="none" stroke="#9aa6ff" stroke-width="3" opacity="0.5"/>
+    <circle cx="800" cy="330" r="66" fill="none" stroke="#9aa6ff" stroke-width="2.6" opacity="0.45"/>
+    <g stroke="#8894f0" stroke-width="3.2" opacity="0.55">
+      <path d="M800 202 V458"/><path d="M672 330 H928"/>
+      <path d="M710 240 L890 420"/><path d="M890 240 L710 420"/>
+    </g>
+    <g fill="#cfe0ff" opacity="0.7">
+      <circle cx="800" cy="330" r="16"/>
+      <circle cx="800" cy="262" r="7.5"/><circle cx="800" cy="398" r="7.5"/>
+      <circle cx="732" cy="330" r="7.5"/><circle cx="868" cy="330" r="7.5"/>
+      <circle cx="752" cy="282" r="7.5"/><circle cx="848" cy="282" r="7.5"/>
+      <circle cx="752" cy="378" r="7.5"/><circle cx="848" cy="378" r="7.5"/>
+    </g>
+    <circle cx="800" cy="330" r="140" fill="none" stroke="#31294f" stroke-width="12" opacity="0.9"/>
+  </g>
+
+  <g opacity="0.92">
+    <g fill="url(#st-banner)">
+      <path d="M232 322 h96 l-8 232 -40 26 -40 -26 Z"/>
+      <path d="M1272 322 h96 l-8 232 -40 26 -40 -26 Z"/>
+    </g>
+    <g fill="#8c7bff" opacity="0.55">
+      <path d="M280 402 l30 52 -30 52 -30 -52 Z"/>
+      <path d="M1320 402 l30 52 -30 52 -30 -52 Z"/>
+    </g>
+    <g fill="#ffd98a" opacity="0.28">
+      <circle cx="280" cy="470" r="30" filter="url(#st-blur-soft)"/>
+      <circle cx="1320" cy="470" r="30" filter="url(#st-blur-soft)"/>
+    </g>
+  </g>
+
+  <g>
+    <path d="M120 715 V430 a80 80 0 0 1 160 0 V715 Z" fill="#0a0814" opacity="0.65"/>
+    <path d="M520 715 V420 a80 80 0 0 1 160 0 V715 Z" fill="#0a0814" opacity="0.65"/>
+    <path d="M920 715 V420 a80 80 0 0 1 160 0 V715 Z" fill="#0a0814" opacity="0.65"/>
+    <path d="M1320 715 V430 a80 80 0 0 1 160 0 V715 Z" fill="#0a0814" opacity="0.65"/>
+    <g fill="none" stroke="#4a3f7a" stroke-width="4" opacity="0.6">
+      <path d="M120 715 V430 a80 80 0 0 1 160 0 V715"/>
+      <path d="M520 715 V420 a80 80 0 0 1 160 0 V715"/>
+      <path d="M920 715 V420 a80 80 0 0 1 160 0 V715"/>
+      <path d="M1320 715 V430 a80 80 0 0 1 160 0 V715"/>
+    </g>
+    <g fill="#3a2f6b" opacity="0.45">
+      <path d="M170 715 V450 a30 30 0 0 1 60 0 V715 Z"/>
+      <path d="M570 715 V440 a30 30 0 0 1 60 0 V715 Z"/>
+      <path d="M970 715 V440 a30 30 0 0 1 60 0 V715 Z"/>
+      <path d="M1370 715 V450 a30 30 0 0 1 60 0 V715 Z"/>
+    </g>
+  </g>
+
+  <g>
+    <rect x="0" y="715" width="1600" height="185" fill="url(#st-floor)"/>
+    <g stroke="#2f2750" stroke-width="1.2" opacity="0.6">
+      <path d="M0 748 H1600"/><path d="M0 792 H1600"/><path d="M0 848 H1600"/>
+      <path d="M240 715 L120 900"/><path d="M560 715 L470 900"/><path d="M800 715 L800 900"/>
+      <path d="M1040 715 L1130 900"/><path d="M1360 715 L1480 900"/>
+    </g>
+    <path d="M700 715 h200 l60 185 h-320 Z" fill="url(#st-reflect)" opacity="0.5"/>
+    <ellipse cx="800" cy="800" rx="330" ry="34" fill="#5b52c8" opacity="0.14" filter="url(#st-blur)"/>
+  </g>
+
+  <g>
+    <g transform="translate(200,470)"><use href="#st-candle"/></g>
+    <g transform="translate(240,560)"><use href="#st-candle"/></g>
+    <g transform="translate(360,418)"><use href="#st-candle"/></g>
+    <g transform="translate(430,520)"><use href="#st-candle"/></g>
+    <g transform="translate(1180,432)"><use href="#st-candle"/></g>
+    <g transform="translate(1250,524)"><use href="#st-candle"/></g>
+    <g transform="translate(1370,470)"><use href="#st-candle"/></g>
+    <g transform="translate(1410,560)"><use href="#st-candle"/></g>
+    <g transform="translate(660,392)"><use href="#st-candle"/></g>
+    <g transform="translate(940,392)"><use href="#st-candle"/></g>
+  </g>
+
+  <g opacity="0.85">
+    <ellipse cx="800" cy="742" rx="150" ry="34" fill="url(#st-cauldron)" filter="url(#st-blur)"/>
+    <path d="M700 700 h200 a24 24 0 0 1 -24 24 h-152 a24 24 0 0 1 -24 -24 Z" fill="#241d40"/>
+    <path d="M712 700 h176 l-14 -14 h-148 Z" fill="#342a5e"/>
+    <ellipse cx="800" cy="700" rx="88" ry="14" fill="#2f6f7d" opacity="0.75"/>
+    <ellipse cx="800" cy="698" rx="60" ry="8" fill="#7fe6d6" opacity="0.5"/>
+  </g>
+
+  <g>
+    <rect x="1075" y="586" width="226" height="130" rx="6" fill="#150f2a"/>
+    <rect x="1075" y="560" width="226" height="30" rx="5" fill="#1e1739"/>
+    <g fill="#4b3f86" opacity="0.85">
+      <rect x="1088" y="570" width="10" height="112"/><rect x="1112" y="570" width="8" height="112"/>
+      <rect x="1136" y="570" width="10" height="112"/><rect x="1160" y="570" width="8" height="112"/>
+      <rect x="1184" y="570" width="10" height="112"/><rect x="1208" y="570" width="8" height="112"/>
+      <rect x="1232" y="570" width="10" height="112"/><rect x="1256" y="570" width="8" height="112"/>
+      <rect x="1280" y="570" width="10" height="112"/>
+    </g>
+    <g fill="#6c5bd8" opacity="0.4">
+      <rect x="1090" y="584" width="6" height="94"/><rect x="1114" y="596" width="5" height="82"/>
+      <rect x="1138" y="576" width="6" height="102"/><rect x="1162" y="600" width="5" height="78"/>
+      <rect x="1186" y="588" width="6" height="90"/><rect x="1210" y="592" width="5" height="86"/>
+      <rect x="1234" y="580" width="6" height="98"/><rect x="1258" y="598" width="5" height="80"/>
+    </g>
+    <rect x="1075" y="548" width="226" height="10" rx="4" fill="#2a2150"/>
+  </g>
+
+  <g>
+    <rect x="300" y="742" width="230" height="18" rx="6" fill="#1c1636"/>
+    <rect x="300" y="760" width="230" height="64" rx="6" fill="#150f2c"/>
+    <rect x="316" y="726" width="196" height="12" rx="4" fill="#2a2350"/>
+  </g>
+
+  <rect width="1600" height="900" fill="url(#st-vignette)"/>
+</svg>

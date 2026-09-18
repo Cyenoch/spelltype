@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="火焰术士头像">
+  <defs>
+    <radialGradient id="s2-bg" cx="0.5" cy="0.38" r="0.72">
+      <stop offset="0" stop-color="#a33c1c"/>
+      <stop offset="0.5" stop-color="#3c1208"/>
+      <stop offset="1" stop-color="#140604"/>
+    </radialGradient>
+    <linearGradient id="s2-robe" x1="0.2" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#e0713a"/>
+      <stop offset="0.45" stop-color="#8c2c12"/>
+      <stop offset="1" stop-color="#2a0d06"/>
+    </linearGradient>
+    <radialGradient id="s2-aura" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffc07a" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#ff5a1f" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" fill="url(#s2-bg)"/>
+  <circle cx="128" cy="128" r="98" fill="url(#s2-aura)"/>
+  <g fill="#ffcf95" opacity="0.55">
+    <circle cx="46" cy="58" r="2.4"/><circle cx="212" cy="50" r="2"/><circle cx="224" cy="146" r="2.6"/>
+    <circle cx="34" cy="178" r="2"/><circle cx="104" cy="28" r="1.8"/>
+  </g>
+  <g>
+    <path d="M128 18 C 150 56 172 78 172 106 C 172 134 152 152 128 152 C 104 152 84 134 84 106 C 84 78 106 56 128 18 Z" fill="#ff8a3d" opacity="0.28"/>
+    <path d="M64 118 C 60 74 92 42 128 42 C 164 42 196 74 192 118 C 178 96 156 88 128 88 C 100 88 78 96 64 118 Z" fill="#7d2510"/>
+    <path d="M52 112 C 58 76 90 40 128 40 C 166 40 198 76 204 112 L 194 112 C 186 84 160 62 128 62 C 96 62 70 84 62 112 Z" fill="#b8401a" opacity="0.75"/>
+    <path d="M104 46 C 96 28 106 18 118 24 C 118 14 140 12 140 26 C 152 20 164 34 154 48 Z" fill="#e06a2c" opacity="0.85"/>
+    <path d="M46 256 C 48 190 84 152 128 152 C 172 152 208 190 210 256 Z" fill="url(#s2-robe)"/>
+    <path d="M128 152 C 150 164 162 194 166 256 L128 256 Z" fill="#611f0d" opacity="0.85"/>
+    <path d="M128 160 C 136 190 134 224 128 250 C 122 224 120 190 128 160 Z" fill="#ffc27a" opacity="0.55"/>
+  </g>
+  <circle cx="128" cy="128" r="120" fill="none" stroke="#ff9a4d" stroke-width="6" opacity="0.5"/>
+  <circle cx="128" cy="128" r="110" fill="none" stroke="#e2611f" stroke-width="1.6" opacity="0.4"/>
+</svg>

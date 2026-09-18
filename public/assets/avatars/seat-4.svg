@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="雷霆行者头像">
+  <defs>
+    <radialGradient id="s4-bg" cx="0.5" cy="0.38" r="0.72">
+      <stop offset="0" stop-color="#8a7a14"/>
+      <stop offset="0.5" stop-color="#2e2a08"/>
+      <stop offset="1" stop-color="#0d1005"/>
+    </radialGradient>
+    <linearGradient id="s4-robe" x1="0.2" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#e8da5c"/>
+      <stop offset="0.45" stop-color="#6d6a17"/>
+      <stop offset="1" stop-color="#191c07"/>
+    </linearGradient>
+    <radialGradient id="s4-aura" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#f6ffb0" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#c8ff4d" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" fill="url(#s4-bg)"/>
+  <circle cx="128" cy="126" r="98" fill="url(#s4-aura)"/>
+  <g fill="#f4ffab" opacity="0.5">
+    <circle cx="48" cy="50" r="2.4"/><circle cx="208" cy="56" r="2"/><circle cx="230" cy="140" r="2.6"/>
+    <circle cx="32" cy="170" r="2"/><circle cx="92" cy="26" r="1.8"/>
+  </g>
+  <g>
+    <path d="M128 30 L152 44 L142 62 L166 74 L128 128 L90 74 L114 62 L104 44 Z" fill="#3f3d10" opacity="0.65"/>
+    <path d="M70 116 C 66 76 94 46 128 46 C 162 46 190 76 186 116 C 172 96 152 88 128 88 C 104 88 84 96 70 116 Z" fill="#5c5a16"/>
+    <path d="M58 108 C 62 70 92 40 128 40 C 164 40 194 70 198 108 L 188 108 C 182 80 158 60 128 60 C 98 60 74 80 68 108 Z" fill="#8f8b1f" opacity="0.8"/>
+    <path d="M144 54 L162 34 L158 50 L176 44 L150 68 Z" fill="#f2f27a" opacity="0.9"/>
+    <path d="M46 256 C 48 190 84 152 128 152 C 172 152 208 190 210 256 Z" fill="url(#s4-robe)"/>
+    <path d="M128 152 C 150 164 162 194 166 256 L128 256 Z" fill="#34330c" opacity="0.85"/>
+    <path d="M116 180 L136 196 L122 200 L140 232 L108 206 L124 202 Z" fill="#f7f7a5" opacity="0.9"/>
+  </g>
+  <circle cx="128" cy="128" r="120" fill="none" stroke="#e8e86a" stroke-width="6" opacity="0.5"/>
+  <circle cx="128" cy="128" r="110" fill="none" stroke="#a5a52b" stroke-width="1.6" opacity="0.4"/>
+</svg>

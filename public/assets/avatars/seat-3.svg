@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256" role="img" aria-label="寒霜咏者头像">
+  <defs>
+    <radialGradient id="s3-bg" cx="0.5" cy="0.38" r="0.72">
+      <stop offset="0" stop-color="#2b6ea8"/>
+      <stop offset="0.5" stop-color="#10263c"/>
+      <stop offset="1" stop-color="#050c16"/>
+    </radialGradient>
+    <linearGradient id="s3-robe" x1="0.2" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#67b8e6"/>
+      <stop offset="0.45" stop-color="#1f527e"/>
+      <stop offset="1" stop-color="#0a1c2c"/>
+    </linearGradient>
+    <radialGradient id="s3-aura" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#c9f2ff" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#59c6ff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="256" height="256" fill="url(#s3-bg)"/>
+  <circle cx="128" cy="128" r="98" fill="url(#s3-aura)"/>
+  <g fill="#d5f2ff" opacity="0.5">
+    <circle cx="44" cy="54" r="2.4"/><circle cx="210" cy="60" r="2"/><circle cx="226" cy="152" r="2.6"/>
+    <circle cx="36" cy="188" r="2"/><circle cx="150" cy="26" r="1.8"/>
+  </g>
+  <g stroke="#bfe9ff" stroke-width="3" opacity="0.55">
+    <path d="M52 40 L64 64"/><path d="M52 64 L64 40"/>
+    <path d="M200 176 L212 200"/><path d="M200 200 L212 176"/>
+  </g>
+  <g>
+    <path d="M84 104 L104 44 L128 70 L152 44 L172 104 C 158 88 146 84 128 84 C 110 84 98 88 84 104 Z" fill="#1d4a72"/>
+    <path d="M92 96 L106 56 L128 80 L150 56 L164 96 C 152 86 142 82 128 82 C 114 82 104 86 92 96 Z" fill="#2b6f9e" opacity="0.9"/>
+    <path d="M128 22 L136 46 L128 58 L120 46 Z" fill="#cfeeff" opacity="0.9"/>
+    <path d="M106 46 L110 32 L120 42 Z" fill="#9fdcff" opacity="0.8"/>
+    <path d="M150 46 L154 32 L164 42 Z" fill="#9fdcff" opacity="0.8"/>
+    <path d="M46 256 C 48 190 84 152 128 152 C 172 152 208 190 210 256 Z" fill="url(#s3-robe)"/>
+    <path d="M128 152 C 150 164 162 194 166 256 L128 256 Z" fill="#143a58" opacity="0.85"/>
+    <g fill="#d9f4ff" opacity="0.85">
+      <path d="M128 186 L136 202 L128 218 L120 202 Z"/>
+      <path d="M128 200 L133 210 L128 220 L123 210 Z" fill="#0d2434"/>
+    </g>
+  </g>
+  <circle cx="128" cy="128" r="120" fill="none" stroke="#8ddcff" stroke-width="6" opacity="0.5"/>
+  <circle cx="128" cy="128" r="110" fill="none" stroke="#3d9ad1" stroke-width="1.6" opacity="0.4"/>
+</svg>
