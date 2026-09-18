@@ -12,10 +12,17 @@
   "vars": {
     "DEEPSEEK_MODEL": "deepseek-flash",
   },
+  "routes": [
+    {
+      "pattern": "spelltype.bingzi.dev",
+      "custom_domain": true,
+    },
+  ],
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "spelltype",
+      "database_id": "ca44850c-e7ce-4737-9c52-2d871288eae4",
       "migrations_dir": "migrations",
     },
   ],
