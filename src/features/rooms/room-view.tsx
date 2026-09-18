@@ -5,12 +5,13 @@ import { PHASE_LABELS } from '../../ui/format';
 import { createBattleStage, type BattleStage } from '../../pixi/stage/battle-stage';
 import { createTypingEffects, type TypingEffects } from '../../pixi/typing-effects';
 import { toast } from '../../ui/toast';
-import { ui } from '../../ui/primitives';
 import type { CanvasState, RenderMode } from './battle/battle-view';
 import { BattlePanel } from './battle/battle-panel';
+import { BattleResults } from './battle/battle-results';
+import { BattleGeneration } from './battle/battle-generation';
 import { LobbyPanel, type LobbyActions } from './lobby/lobby-panel';
 import { RoomNotice } from './room-notice';
-import { createRoomSession } from './room-session';
+import { createRoomSession, type RoomLoad } from './room-session';
 import { styles } from './room-view.styles';
 
 const CONNECTION_LABELS: Record<'connecting' | 'reconnecting', string> = {
@@ -19,11 +20,11 @@ const CONNECTION_LABELS: Record<'connecting' | 'reconnecting', string> = {
 };
 
 /**
- * One room: authoritative snapshots in, lobby/combat surfaces out. The panel set
- * is mounted per room and never swapped by a phase change, so a snapshot can
- * never destroy the field a player is typing into.
+ * Authoritative snapshots select the lobby, combat or dedicated results screen.
+ * Lobby and combat stay mounted so typing and renderer hosts survive phase changes;
+ * settlement replaces their visible surface without destroying rematch resources.
  */
-export function RoomView(props: { roomId: string; ctx: AppContext }) {
+export function RoomView(props: { roomId: string; ctx: AppContext; initial: RoomLoad }) {
   const session = createRoomSession(props);
 
   const [canvasState, setCanvasState] = createSignal<CanvasState>('pending');
@@ -37,7 +38,9 @@ export function RoomView(props: { roomId: string; ctx: AppContext }) {
   let hosts: { canvas: HTMLElement; fx: HTMLElement } | null = null;
 
   const phase = () => session.snapshot()?.phase ?? 'lobby';
-  const inCombat = () => phase() === 'countdown' || phase() === 'playing' || phase() === 'finished';
+  const finished = createMemo(() => phase() === 'finished');
+  const generating = createMemo(() => phase() === 'generating');
+  const inCombat = () => phase() === 'countdown' || phase() === 'playing';
   const renderMode = (): RenderMode => (canvasState() === 'ready' ? 'canvas' : 'dom');
   const selfId = () => props.ctx.session.user?.id ?? '';
 
@@ -55,7 +58,7 @@ export function RoomView(props: { roomId: string; ctx: AppContext }) {
   const lobbyActions: LobbyActions = {
     onReady: (ready) => session.send({ type: 'ready', ready }, '准备状态未能送达，正在重连…'),
     onStart: () => session.send({ type: 'start' }, '开始指令未能送达，正在重连…'),
-    onLeave: () => session.leaveRoom(),
+    onLeave: () => void session.leaveRoom(),
     onCopyInvite: () => session.copyInvite(),
   };
 
@@ -131,7 +134,11 @@ export function RoomView(props: { roomId: string; ctx: AppContext }) {
         {(current) => <RoomNotice problem={current()} snapshot={session.snapshot()} />}
       </Show>
 
-      <div class={stylex.props(styles.roomHead).className} data-connection={session.connection()}>
+      <div
+        class={stylex.props(styles.roomHead).className}
+        data-connection={session.connection()}
+        hidden={!session.snapshot() || finished() || generating()}
+      >
         <span
           class={stylex.props(styles.phase, statusDimmed() && styles.phaseDim).className}
           data-testid="room-status"
@@ -140,12 +147,6 @@ export function RoomView(props: { roomId: string; ctx: AppContext }) {
         </span>
       </div>
 
-      <Show when={session.loading()}>
-        <div class={stylex.props(ui.panel).className} data-testid="room-loading">
-          <p class={stylex.props(ui.muted, styles.loadingText).className}>正在进入房间…</p>
-        </div>
-      </Show>
-
       <Show when={session.snapshot()}>
         {(room) => (
           <>
@@ -153,7 +154,7 @@ export function RoomView(props: { roomId: string; ctx: AppContext }) {
                 `hidden`: a rematch (finished → lobby → countdown) must keep the same
                 canvas hosts, the same renderers and the same typing field. */}
             <LobbyPanel
-              hidden={inCombat()}
+              hidden={inCombat() || finished() || generating()}
               snapshot={room()}
               selfId={selfId()}
               inviteUrl={props.ctx.inviteUrl(props.roomId)}
@@ -182,12 +183,31 @@ export function RoomView(props: { roomId: string; ctx: AppContext }) {
               }}
               onCommit={(commit) => session.commitInput(commit)}
               onPasteBlocked={() => toast('咒文对决禁止粘贴整段文本，请自己输入。', 'warn')}
-              onRematch={() => {
-                session.send({ type: 'rematch' }, '再来一局指令未能送达，正在重连…');
-                toast('已申请再来一局：所有人重新准备后，房主再次开始。', 'info');
-              }}
-              onLeave={() => session.leaveRoom()}
+              onLeave={() => void session.leaveRoom()}
             />
+            <Show when={generating()}>
+              <div data-testid="view-generation">
+                <BattleGeneration
+                  snapshot={room()}
+                  notice={session.battleNotice()}
+                  onLeave={() => void session.leaveRoom()}
+                />
+              </div>
+            </Show>
+            <Show when={finished()}>
+              <div data-testid="view-results">
+                <BattleResults
+                  snapshot={room()}
+                  self={room().players.find((player) => player.id === selfId())}
+                  players={room().players}
+                  onRematch={() => {
+                    session.send({ type: 'rematch' }, '再来一局指令未能送达，正在重连…');
+                    toast('已申请再来一局：所有人重新准备后，房主再次开始。', 'info');
+                  }}
+                  onLeave={() => void session.leaveRoom()}
+                />
+              </div>
+            </Show>
           </>
         )}
       </Show>

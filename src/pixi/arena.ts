@@ -4,10 +4,7 @@ import { ELEMENT_ORDER } from './assets';
 import type { SparkPool } from './particles';
 
 export interface ArenaTextures {
-  /** Arena backdrops; the first entry that loaded is used. */
-  skies: (Texture | null)[];
   sigil: Texture | null;
-  glow: Texture;
   ring: Texture;
 }
 
@@ -16,25 +13,18 @@ const MOTE_FLOOR = 220;
 const MAX_PARALLAX = 16;
 
 /**
- * The battlefield itself: a painterly arena backdrop, haze bands, drifting
- * sigils, a rune floor, foreground motes and the low-health / final-seconds
- * atmosphere.
- *
- * Depth comes from parallax rather than from stacking two different arenas on
- * top of each other, so the scene stays readable: the sky drifts least, the
- * haze a little more, the dust in front of the fighters most. Everything is
- * drawn at layout time and only transformed per frame, so the arena costs a
- * handful of draw calls and no vector rebuilds.
+ * Transparent battlefield atmosphere over the arena's shared DOM backdrop:
+ * haze, drifting sigils, a rune floor and foreground motes. The header and
+ * fighters use one continuous background rather than two independently cropped
+ * images. Atmospheric depth comes from parallax; geometry is drawn at layout
+ * time and only transformed per frame.
  */
 export class Arena {
   readonly back = new Container();
   readonly floor = new Container();
   readonly fore = new Container();
 
-  private readonly textures: ArenaTextures;
   private readonly motes: SparkPool;
-  private readonly sky = new Sprite();
-  private readonly skyFallback = new Graphics();
   private readonly haze = new Graphics();
   private readonly floorPlate = new Graphics();
   private readonly floorRune: Sprite;
@@ -42,7 +32,6 @@ export class Arena {
   private readonly sigils: Sprite[] = [];
   private readonly sigilPhase: number[] = [];
   private readonly sigilBaseY: number[] = [];
-  private skyTexture: Texture | null = null;
   private width = 1;
   private height = 1;
   private danger = 0;
@@ -54,11 +43,9 @@ export class Arena {
   private readonly reduced: () => boolean;
 
   constructor(textures: ArenaTextures, motes: SparkPool, reduced: () => boolean) {
-    this.textures = textures;
     this.motes = motes;
     this.reduced = reduced;
 
-    this.sky.anchor.set(0.5);
     // The rim is an atmosphere readout, dark with no danger and no final seconds.
     // Its own steady state is `0`, so it must not sit at the default alpha of 1
     // and paint the vignette bars before anything has called update().
@@ -69,7 +56,7 @@ export class Arena {
     this.floorRune.tint = ELEMENT_COLORS[ELEMENT_ORDER[0]];
     this.floorRune.alpha = 0.22;
 
-    this.back.addChild(this.skyFallback, this.sky, this.haze);
+    this.back.addChild(this.haze);
     for (let index = 0; index < SIGIL_COUNT; index += 1) {
       const sigil = new Sprite(textures.sigil ?? textures.ring);
       sigil.anchor.set(0.5);
@@ -84,46 +71,12 @@ export class Arena {
     this.fore.addChild(motes.view, this.rim);
   }
 
-  /** Selects one of the preloaded arena backdrops for a fresh match. */
-  setArena(index: number): void {
-    const loaded = this.textures.skies.filter((texture): texture is Texture => texture !== null);
-    const next =
-      loaded.length > 0 ? loaded[((index % loaded.length) + loaded.length) % loaded.length] : null;
-    if (next === this.skyTexture) return;
-    this.skyTexture = next;
-    if (next) {
-      this.sky.texture = next;
-      this.sky.visible = true;
-      this.skyFallback.visible = false;
-    } else {
-      this.sky.visible = false;
-      this.skyFallback.visible = true;
-    }
-    this.layout(this.width, this.height);
-  }
-
   layout(width: number, height: number): void {
     this.width = Math.max(1, width);
     this.height = Math.max(1, height);
     const { width: w, height: h } = this;
 
     const horizon = h * 0.86;
-    if (this.skyTexture) {
-      const texture = this.skyTexture;
-      const cover = Math.max(w / texture.width, h / texture.height) * 1.06;
-      this.sky.width = texture.width * cover;
-      this.sky.height = texture.height * cover;
-      this.sky.position.set(w / 2, h * 0.5);
-    } else {
-      this.skyFallback
-        .clear()
-        .rect(0, 0, w, h)
-        .fill({ color: 0x0b0817 })
-        .rect(0, h * 0.35, w, h * 0.35)
-        .fill({ color: 0x1a1233, alpha: 0.85 })
-        .rect(0, horizon - h * 0.18, w, h * 0.2)
-        .fill({ color: 0x2a1c46, alpha: 0.7 });
-    }
 
     this.haze
       .clear()

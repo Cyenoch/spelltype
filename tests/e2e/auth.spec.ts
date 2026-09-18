@@ -46,7 +46,7 @@ test('注册建立会话、刷新保持登录、登出后失效；未登录时�
   await expect(page.getByTestId('nav-username')).toHaveText(username);
   expect((await apiJson(context, '/api/profile')).status).toBe(200);
 
-  const roomId = await createRoom(page, { theme: '准入试炼', difficulty: 'easy' });
+  const roomId = await createRoom(page, { theme: '准入试炼' });
 
   await signOut(page);
   await page.reload();
@@ -57,16 +57,9 @@ test('注册建立会话、刷新保持登录、登出后失效；未登录时�
   expect((await apiJson(context, '/api/profile')).status).toBe(401);
   expect((await apiJson(context, `/api/rooms/${roomId}`)).status).toBe(401);
   expect(
-    (
-      await apiJson(context, '/api/rooms', {
-        method: 'POST',
-        data: { theme: '无权限', difficulty: 'easy' },
-      })
-    ).status,
+    (await apiJson(context, '/api/rooms', { method: 'POST', data: { theme: '无权限' } })).status,
   ).toBe(401);
-  expect(
-    (await apiJson(context, '/api/match', { method: 'POST', data: { difficulty: 'easy' } })).status,
-  ).toBe(401);
+  expect((await apiJson(context, '/api/match', { method: 'POST' })).status).toBe(401);
   expect(
     (await apiJson(context, '/api/rooms/0123456789abcdef01234567')).status,
   ).toBeGreaterThanOrEqual(400);
@@ -119,7 +112,7 @@ test('会话过期时服务端关闭房间连接且客户端不再重连，重�
   const hostName = uniqueName('sess');
   await signUp(hostPage, hostName);
 
-  const roomId = await createRoom(hostPage, { theme: '会话过期契约', difficulty: 'easy' });
+  const roomId = await createRoom(hostPage, { theme: '会话过期契约' });
   const other = await signedInContext(browser, 'sess2');
   await gotoApp(other.page, `/?room=${roomId}`);
   await waitForLobbyPlayers(hostPage, [hostName, other.username]);

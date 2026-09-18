@@ -73,7 +73,7 @@ export class Fighter {
   constructor(
     slot: number,
     textures: FighterTextures,
-    /** Tint of the health bar's catch-up fill and its frame end gems. */
+    /** Tint of the health frame's end gems. */
     flashTint: number,
   ) {
     this.slot = slot;

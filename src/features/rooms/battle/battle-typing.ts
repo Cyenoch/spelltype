@@ -1,7 +1,6 @@
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, untrack } from 'solid-js';
 import type { Element, Player, RoomSnapshot } from '../../../../shared/protocol';
 import type { ServerClock } from '../../../app/clock';
-import { motion } from '../../../ui/motion';
 import { TypingController, type TypingCommit, type TypingLocalState } from './typing';
 import type { BattleStage } from '../../../pixi/stage/battle-stage';
 import type { TypingEffects } from '../../../pixi/typing-effects';
@@ -63,7 +62,6 @@ export interface BattleTyping {
   onArtFailed(): void;
   /** The characters over the effect canvas and their particle bursts. */
   readonly glyphs: GlyphFeedback;
-  attachResultsPanel(el: HTMLElement): void;
   attachTextarea(el: HTMLTextAreaElement): void;
   attachColumn(el: HTMLElement): void;
   attachFxHost(el: HTMLElement): void;
@@ -81,7 +79,6 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
   let fxHost: HTMLElement | null = null;
   let canvasHost: HTMLElement | null = null;
   let column: HTMLElement | null = null;
-  let finalPanel: HTMLElement | null = null;
   let typing: TypingController | null = null;
 
   const [local, setLocal] = createSignal<TypingLocalState>(IDLE_LOCAL);
@@ -192,12 +189,6 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
     }
   }
 
-  /** The settled screen is brought into view once, after the panel has painted. */
-  const revealResults = () => {
-    if (!finalPanel || finalPanel.hidden) return;
-    finalPanel.scrollIntoView({ block: 'start', behavior: motion.reduced ? 'auto' : 'smooth' });
-  };
-
   /** Both renderer hosts must exist before the room is told to build them. */
   const notifyHosts = () => {
     if (canvasHost && fxHost) props.onHosts({ canvas: canvasHost, fx: fxHost });
@@ -288,9 +279,6 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
         setTip('');
       } else if (value === 'finished') {
         setTip('');
-        // The settled screen is brought into view once, after the panel has
-        // actually been painted, otherwise there is nothing to scroll to.
-        queueMicrotask(revealResults);
       }
     });
   });
@@ -326,9 +314,6 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
     artFailed,
     onArtFailed: () => setArtFailed(true),
     glyphs,
-    attachResultsPanel: (el) => {
-      finalPanel = el;
-    },
     attachTextarea: (el) => {
       textarea = el;
     },

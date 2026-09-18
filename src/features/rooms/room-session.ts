@@ -22,6 +22,9 @@ export interface RoomProblem {
   tone: 'warn' | 'error';
 }
 
+/** The route keeps the previous screen visible until the initial room read settles. */
+export type RoomLoad = { snapshot: RoomSnapshot } | { error: unknown };
+
 export interface RoomSession {
   snapshot(): RoomSnapshot | null;
   connection(): ConnectionState;
@@ -29,14 +32,19 @@ export interface RoomSession {
   problem(): RoomProblem | null;
   /** The one line the combat panel shows while an input or the socket failed. */
   battleNotice(): string | null;
-  loading(): boolean;
   /** Room-level repaint heartbeat; the clock keeps running while a tab is hidden. */
   tick(): number;
   reconnectedMarker(): number;
   reservationRemainingMs(): number | null;
   send(message: ClientMessage, failureHint: string): void;
   commitInput(commit: TypingCommit): boolean;
-  leaveRoom(): void;
+  /**
+   * Manual leave over an authenticated HTTP call. Resolves only after the server
+   * committed the departure (forfeit inside a live match, seat release before it);
+   * rejects honestly — with the player still in the room — when nothing was
+   * committed. Duplicate clicks while a request is in flight share one request.
+   */
+  leaveRoom(): Promise<void>;
   copyInvite(): void;
 }
 
@@ -45,17 +53,27 @@ export interface RoomSession {
  * problem line. Nothing here renders; the surfaces stay mounted per room so a
  * snapshot can never destroy the field a player is typing into.
  */
-export function createRoomSession(props: { roomId: string; ctx: AppContext }): RoomSession {
-  const [snapshot, setSnapshot] = createSignal<RoomSnapshot | null>(null);
+export function createRoomSession(props: {
+  roomId: string;
+  ctx: AppContext;
+  initial: RoomLoad;
+}): RoomSession {
+  const loaded = props.initial;
+  const [snapshot, setSnapshot] = createSignal<RoomSnapshot | null>(
+    'snapshot' in loaded ? loaded.snapshot : null,
+  );
   const [reconnectedMarker, setReconnectedMarker] = createSignal(0);
   const [connection, setConnection] = createSignal<ConnectionState>('idle');
   const [inputNotice, setInputNotice] = createSignal<string | null>(null);
   const [problem, setProblem] = createSignal<RoomProblem | null>(null);
-  const [loading, setLoading] = createSignal(true);
   const [tick, setTick] = createSignal(0);
 
   let socket: RoomConnection | null = null;
   let closed = false;
+  /** True from the moment a manual leave starts until it succeeds or fails. */
+  let leaving = false;
+  /** In-flight manual leave; duplicate clicks share it, a failure releases it. */
+  let leaveRequest: Promise<void> | null = null;
   let lastServerNow = 0;
   let persistenceWarned = false;
   let profileInvalidated = false;
@@ -92,6 +110,7 @@ export function createRoomSession(props: { roomId: string; ctx: AppContext }): R
   });
 
   const send = (message: ClientMessage, failureHint: string) => {
+    if (leaving) return;
     if (socket?.send(message)) return;
     toast(failureHint, 'warn');
     renderConnection(socket ? socket.currentState : 'closed');
@@ -103,6 +122,7 @@ export function createRoomSession(props: { roomId: string; ctx: AppContext }): R
    * dropped here, and the room rejects anything else as stale.
    */
   const commitInput = (commit: TypingCommit): boolean => {
+    if (leaving) return false;
     const current = snapshot();
     if (!current || current.matchId === null) return false;
     if (commit.matchId !== current.matchId) return false;
@@ -136,16 +156,46 @@ export function createRoomSession(props: { roomId: string; ctx: AppContext }): R
     toast(`请手动复制邀请链接：${url}`, 'warn');
   };
 
-  const leaveRoom = () => {
-    const quick = snapshot()?.mode === 'quick';
-    const delivered = socket?.leave() ?? false;
-    props.ctx.setPendingInvite(null);
-    void navigate({ to: '/', search: {} });
-    if (quick && !delivered) {
-      // The socket was down: release the queue/reservation over HTTP instead.
-      void parseResponse(client.api.match.$delete()).catch(() => undefined);
-    }
-    toast(quick ? '已离开快速匹配房间，可以重新匹配。' : '已离开房间。', 'info');
+  /**
+   * Manual leave waits for the server's own acknowledgment: `POST /api/rooms/:id/leave`
+   * is what commits the departure (forfeiting a live match, releasing a seat), so
+   * navigation, the success toast and the invite cleanup happen only after it. A
+   * lost response is ambiguous: keep the page and offer an idempotent retry.
+   * The server may legitimately close this socket while committing departure,
+   * so suppress only that close notification, not authoritative snapshots.
+   */
+  const leaveRoom = (): Promise<void> => {
+    if (leaveRequest) return leaveRequest;
+    const request = (async () => {
+      leaving = true;
+      try {
+        await parseResponse(
+          client.api.rooms[':roomId'].leave.$post({ param: { roomId: props.roomId } }),
+        );
+      } catch (error) {
+        // A transport error cannot tell whether departure committed. Keep live
+        // snapshots flowing and allow the same idempotent request to be retried.
+        leaving = false;
+        leaveRequest = null;
+        if (closed) return;
+        if (error instanceof DetailedError && error.statusCode === 401) {
+          props.ctx.handleAuthFailure('登录状态已失效，请重新登录。');
+          return;
+        }
+        toast(messageOf(error, '未能确认离开房间，请重试。'), 'error');
+        return;
+      }
+      // The departure is durable. The route may already be disposed (the player
+      // left some other way mid-request): never navigate a dead route.
+      if (closed) return;
+      props.ctx.setPendingInvite(null);
+      socket?.close();
+      const quick = snapshot()?.mode === 'quick';
+      toast(quick ? '已离开快速匹配房间，可以重新匹配。' : '已离开房间。', 'info');
+      void navigate({ to: '/', search: {} });
+    })();
+    leaveRequest = request;
+    return request;
   };
 
   function handleSnapshot(next: RoomSnapshot, reconnected: boolean, initial = false): void {
@@ -162,7 +212,6 @@ export function createRoomSession(props: { roomId: string; ctx: AppContext }): R
     });
     props.ctx.clock.sync(next.serverNow);
     if (initial) {
-      setLoading(false);
       props.ctx.setPendingInvite(next.id);
     }
 
@@ -192,7 +241,9 @@ export function createRoomSession(props: { roomId: string; ctx: AppContext }): R
   }
 
   function handleClosed(info: CloseInfo): void {
-    if (closed) return;
+    // A manual leave owns this socket's end: the server tears the seat down as
+    // the request commits, and none of that is a connection failure to report.
+    if (closed || leaving) return;
     if (info.authExpired) {
       props.ctx.handleAuthFailure('登录状态已失效，请重新登录。');
       return;
@@ -217,7 +268,6 @@ export function createRoomSession(props: { roomId: string; ctx: AppContext }): R
   }
 
   function showFatal(error: unknown): void {
-    setLoading(false);
     const message = messageOf(error, '无法进入这个房间。');
     setProblem({ message, tone: 'error' });
     toast(message, 'error');
@@ -234,30 +284,21 @@ export function createRoomSession(props: { roomId: string; ctx: AppContext }): R
       onReconnectAttempt: () => renderConnection('reconnecting'),
     });
 
-    void (async () => {
-      try {
-        const room = await parseResponse(
-          client.api.rooms[':roomId'].$get({ param: { roomId: props.roomId } }),
-        );
-        handleSnapshot(room, false, true);
-      } catch (error) {
-        if (error instanceof DetailedError && error.statusCode === 401) {
-          props.ctx.handleAuthFailure('登录已过期，请重新登录后再进入房间。');
-          return;
-        }
-        showFatal(error);
-        return;
+    if ('error' in loaded) {
+      if (loaded.error instanceof DetailedError && loaded.error.statusCode === 401) {
+        props.ctx.handleAuthFailure('登录已过期，请重新登录后再进入房间。');
+      } else {
+        showFatal(loaded.error);
       }
-      if (closed) return;
-      socket?.open();
-      if (timerId === null) {
-        timerId = window.setInterval(() => {
-          // The clock keeps running while a tab is hidden; only the repaint is skipped.
-          if (closed || document.visibilityState === 'hidden') return;
-          setTick((value) => value + 1);
-        }, 100);
-      }
-    })();
+      return;
+    }
+    handleSnapshot(loaded.snapshot, false, true);
+    socket.open();
+    timerId = window.setInterval(() => {
+      // The clock keeps running while a tab is hidden; only the repaint is skipped.
+      if (closed || document.visibilityState === 'hidden') return;
+      setTick((value) => value + 1);
+    }, 100);
   });
 
   onCleanup(() => {
@@ -274,7 +315,6 @@ export function createRoomSession(props: { roomId: string; ctx: AppContext }): R
     connection,
     problem: activeProblem,
     battleNotice,
-    loading,
     tick,
     reconnectedMarker,
     reservationRemainingMs,

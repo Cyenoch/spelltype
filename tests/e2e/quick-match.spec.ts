@@ -2,15 +2,21 @@
  * Quick matchmaking: the two players a ticket pairs, the visible cancellation, and the release of a
  * reservation that the opponent never joined.
  *
- * Matchmaking is global per difficulty, so every scenario here cancels what it queued (and the
- * suite's auto fixture is the net for a failing test). The queue's own lease/conflict rules are
- * asserted through the API the client calls.
+ * The queue is shared by every account, so every scenario here cancels what it queued (and the
+ * suite's auto fixture is the net for a failing test). The queue's own lease rules are asserted
+ * through the API the client calls.
  */
-import { expect } from '@playwright/test';
+import { expect, type Browser } from '@playwright/test';
 import { test } from '../support/test';
-import type { MatchTicket, RoomSnapshot } from '../../shared/protocol';
+import {
+  INITIAL_HEALTH,
+  type MatchTicket,
+  type Profile,
+  type RoomSnapshot,
+} from '../../shared/protocol';
 import { fixture } from '../support/runtime';
-import { apiJson } from '../support/api';
+import { apiJson, selfIdentity } from '../support/api';
+import { battlePhase, roomSnapshot, snapshotPlayer } from '../support/combat';
 import { gotoApp, openHome, settle, visibleErrorText } from '../support/app';
 import { signedInContext, type Session } from '../support/session';
 
@@ -19,11 +25,8 @@ test.beforeEach(async () => {
 });
 
 /** Queues or polls the single matchmaking ticket; the endpoint is idempotent per account. */
-async function matchTicket(session: Session, difficulty: 'easy' | 'normal' | 'hard' = 'normal') {
-  return apiJson<MatchTicket>(session.context, '/api/match', {
-    method: 'POST',
-    data: { difficulty },
-  });
+async function matchTicket(session: Session) {
+  return apiJson<MatchTicket>(session.context, '/api/match', { method: 'POST' });
 }
 
 test('两名玩家经界面配对进入同一房间并自动开局', async ({ browser }) => {
@@ -31,24 +34,47 @@ test('两名玩家经界面配对进入同一房间并自动开局', async ({ br
   const second = await signedInContext(browser, 'ui2');
   await openHome(first.page);
   await openHome(second.page);
+  await fixture().setDelay(6000);
 
-  await first.page.getByTestId('home-quick-difficulty').selectOption('normal');
-  await second.page.getByTestId('home-quick-difficulty').selectOption('normal');
   await first.page.getByTestId('home-quick-start').click();
   await expect(first.page.getByTestId('view-queue')).toBeVisible();
   await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'waiting');
 
+  // A slow initial room read must keep the waiting stage mounted, not flash a short loader.
+  await first.page.evaluate(() => document.fonts.ready);
+  const waitingBox = await first.page.getByTestId('view-queue').boundingBox();
+  const roomRequested = Promise.withResolvers<void>();
+  const releaseRoom = Promise.withResolvers<void>();
+  await first.page.route(/\/api\/rooms\/[0-9a-f]{24}$/, async (route) => {
+    roomRequested.resolve();
+    await releaseRoom.promise;
+    await route.continue();
+  });
+
   await second.page.getByTestId('home-quick-start').click();
+  await roomRequested.promise;
+  try {
+    await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'matched');
+    await settle(1200);
+    await expect(first.page.getByTestId('view-queue')).toBeVisible();
+    const matchedBox = await first.page.getByTestId('view-queue').boundingBox();
+    expect(matchedBox!.y).toBeCloseTo(waitingBox!.y, 0);
+    expect(matchedBox!.height).toBeCloseTo(waitingBox!.height, 0);
+  } finally {
+    releaseRoom.resolve();
+  }
 
   // Both players are sent to the same room; a quick room may already be past the lobby by the
-  // time both connect, so wait for the room view and read its authoritative room id.
+  // time both connect, so wait for the room view and read its authoritative room id. The
+  // generation stage is its own surface now: lobby, combat or generation all count as arrived.
   for (const page of [first.page, second.page]) {
     await expect(page.getByTestId('view-room')).toBeVisible({ timeout: 30_000 });
     await expect
       .poll(
         async () =>
           (await page.getByTestId('lobby-panel').isVisible()) ||
-          (await page.getByTestId('battle-panel').isVisible()),
+          (await page.getByTestId('battle-panel').isVisible()) ||
+          (await page.getByTestId('spell-generation').isVisible()),
         { timeout: 30_000 },
       )
       .toBe(true);
@@ -59,10 +85,19 @@ test('两名玩家经界面配对进入同一房间并自动开局', async ({ br
     (await second.page.getByTestId('view-room').getAttribute('data-room-id')) ?? '';
   expect(firstRoomId).toMatch(/^[0-9a-f]{24}$/);
   expect(secondRoomId).toBe(firstRoomId);
+  for (const page of [first.page, second.page]) {
+    await expect(page.getByTestId('spell-generation')).toBeVisible();
+    await expect(page.getByTestId('typing-input')).toBeHidden();
+  }
 
   // Both connected → the reserved quick room starts on its own.
-  await expect(first.page.getByTestId('battle-panel')).toBeVisible({ timeout: 40_000 });
-  await expect(second.page.getByTestId('battle-panel')).toBeVisible({ timeout: 40_000 });
+  for (const page of [first.page, second.page]) {
+    await expect(page.getByTestId('battle-panel')).toHaveAttribute('data-phase', 'playing', {
+      timeout: 40_000,
+    });
+    await expect(page.getByTestId('spell-generation')).toBeHidden();
+    await expect(page.getByTestId('typing-input')).toBeVisible();
+  }
 
   // A started match can no longer honestly report a cancellation.
   const cancelled = await apiJson<{ cancelled: boolean }>(first.context, '/api/match', {
@@ -82,7 +117,6 @@ test('取消会如实反馈：等待中可重新排队，准备阶段的取消�
   // Queueing alone, then cancelling: the state is visible, no hidden room is created, and the
   // player can queue again.
   await openHome(first.page);
-  await first.page.getByTestId('home-quick-difficulty').selectOption('normal');
   await first.page.getByTestId('home-quick-start').click();
   await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'waiting', {
     timeout: 20_000,
@@ -160,7 +194,7 @@ test('取消会如实反馈：等待中可重新排队，准备阶段的取消�
   await second.context.close();
 });
 
-test('排队租约只前移，更换难度被拒，并发轮询不会自我匹配', async ({ browser }) => {
+test('排队租约只前移，并发轮询不会自我匹配', async ({ browser }) => {
   const first = await signedInContext(browser, 'qa');
   const second = await signedInContext(browser, 'qb');
 
@@ -180,10 +214,6 @@ test('排队租约只前移，更换难度被拒，并发轮询不会自我匹�
   // Repeating the poll while alone never pairs the account with itself.
   const alone = await Promise.all([matchTicket(first), matchTicket(first), matchTicket(first)]);
   expect(alone.every((response) => response.body.state === 'waiting')).toBe(true);
-
-  // Switching difficulty mid-queue is refused instead of holding two seats.
-  expect((await matchTicket(first, 'hard')).status).toBe(409);
-  expect((await matchTicket(first, 'easy')).status).toBe(409);
 
   // Seeding one account and then enqueueing the partner pairs them.
   await matchTicket(second);
@@ -216,7 +246,7 @@ test('排队租约只前移，更换难度被拒，并发轮询不会自我匹�
     requeued.body.state === 'waiting' || requeued.body.roomId !== matchedFirst.body.roomId,
   ).toBe(true);
   // Re-polling may have re-queued the account: cancel again so no reservation leaks into the
-  // shared difficulty queue (the afterEach cleanup is the safety net, this is the intent).
+  // shared queue (the afterEach cleanup is the safety net, this is the intent).
   expect(
     (await apiJson<{ cancelled: boolean }>(first.context, '/api/match', { method: 'DELETE' })).body
       .cancelled,
@@ -228,4 +258,174 @@ test('排队租约只前移，更换难度被拒，并发轮询不会自我匹�
 
   await first.context.close();
   await second.context.close();
+});
+
+/** Seeds a quick pairing over the API, then starts a real match through the UI for both players. */
+async function startedQuickMatch(
+  browser: Browser,
+  prefix: string,
+): Promise<{ leaver: Session; keeper: Session; roomId: string }> {
+  const leaver = await signedInContext(browser, `${prefix}a`);
+  const keeper = await signedInContext(browser, `${prefix}b`);
+  await matchTicket(keeper);
+  const matched = await matchTicket(leaver);
+  expect(matched.body.state).toBe('matched');
+  const roomId = matched.body.roomId!;
+  expect((await matchTicket(keeper)).body.roomId).toBe(roomId);
+  for (const session of [leaver, keeper]) {
+    await gotoApp(session.page, `/?room=${roomId}`);
+    await expect(session.page.getByTestId('battle-panel')).toHaveAttribute(
+      'data-phase',
+      'playing',
+      { timeout: 60_000 },
+    );
+  }
+  return { leaver, keeper, roomId };
+}
+
+test('对局中手动离开：确认后才返回首页，失利入档且可重新匹配新房间', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const { leaver, keeper, roomId } = await startedQuickMatch(browser, 'lv');
+
+  // The leave request is held at the network: nothing may claim success, navigate away or
+  // requeue before the server has actually committed the departure.
+  let leaveRequests = 0;
+  const leaveArrived = Promise.withResolvers<void>();
+  const releaseLeave = Promise.withResolvers<void>();
+  await leaver.page.route(/\/api\/rooms\/[0-9a-f]{24}\/leave$/, async (route) => {
+    leaveRequests += 1;
+    leaveArrived.resolve();
+    await releaseLeave.promise;
+    await route.continue();
+  });
+
+  await leaver.page.getByTestId('battle-leave').click();
+  await leaveArrived.promise;
+  await settle(300);
+  await expect(leaver.page.getByTestId('view-room')).toBeVisible();
+  await expect(leaver.page.getByTestId('view-home')).toBeHidden();
+
+  // Duplicate clicks share the one in-flight request instead of re-firing it.
+  await leaver.page.getByTestId('battle-leave').click();
+  await settle(300);
+  expect(leaveRequests).toBe(1);
+
+  releaseLeave.resolve();
+  await expect(leaver.page.getByTestId('view-home')).toBeVisible({ timeout: 20_000 });
+  await expect(leaver.page.getByTestId('view-room')).toBeHidden();
+
+  // The forfeited duel is durably recorded for the leaver: out of the match, ranked behind
+  // the survivor, with a persisted result row.
+  const leaverIdentity = await selfIdentity(leaver.context);
+  await expect
+    .poll(async () => (await apiJson<Profile>(leaver.context, '/api/profile')).body.stats.games, {
+      timeout: 30_000,
+    })
+    .toBe(1);
+  const leaverRecord = (await apiJson<Profile>(leaver.context, '/api/profile')).body.history;
+  expect(leaverRecord).toHaveLength(1);
+  expect(leaverRecord[0].hp_remaining).toBe(0);
+  expect(leaverRecord[0].rank).toBe(2);
+
+  // The surviving room keeps its settled result with the leaver marked out.
+  await expect
+    .poll(async () => (await roomSnapshot(keeper.context, roomId)).phase, { timeout: 30_000 })
+    .toBe('finished');
+  const settled = await roomSnapshot(keeper.context, roomId);
+  expect(settled.endReason).toBe('elimination');
+  const leaverSeat = snapshotPlayer(settled, leaverIdentity);
+  expect(leaverSeat.hp).toBe(0);
+  expect(leaverSeat.eliminatedAt).not.toBeNull();
+  expect(leaverSeat.rank).toBe(2);
+
+  // Re-queuing pairs the returned player into a NEW room, never the abandoned one.
+  const late = await signedInContext(browser, 'lvz');
+  await leaver.page.getByTestId('home-quick-start').click();
+  await expect(leaver.page.getByTestId('view-queue')).toBeVisible();
+  await expect(leaver.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'waiting', {
+    timeout: 20_000,
+  });
+  await matchTicket(late);
+  await expect
+    .poll(async () => (await matchTicket(late)).body.state, { timeout: 30_000 })
+    .toBe('matched');
+  const newRoomId = (await matchTicket(late)).body.roomId!;
+  expect(newRoomId).toMatch(/^[0-9a-f]{24}$/);
+  expect(newRoomId).not.toBe(roomId);
+  await expect(leaver.page.getByTestId('view-room')).toBeVisible({ timeout: 30_000 });
+  await expect(leaver.page.getByTestId('view-room')).toHaveAttribute('data-room-id', newRoomId);
+
+  await leaver.context.close();
+  await keeper.context.close();
+  await late.context.close();
+});
+
+test('离开请求失败：如实报错、留在房间不误判离席，重试后才真正离开', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const { leaver, keeper, roomId } = await startedQuickMatch(browser, 'lf');
+  const leaverIdentity = await selfIdentity(leaver.context);
+
+  // The request never reaches the server: the failure is announced, nothing is claimed and
+  // nothing is committed.
+  await leaver.page.route(/\/api\/rooms\/[0-9a-f]{24}\/leave$/, (route) =>
+    route.abort('connectionfailed'),
+  );
+  await leaver.page.getByTestId('battle-leave').click();
+  await expect(leaver.page.locator('[data-testid="toast"] > [data-tone="error"]')).toBeVisible();
+  await expect(leaver.page.getByTestId('view-room')).toBeVisible();
+  expect(await battlePhase(leaver.page)).toBe('playing');
+
+  // The seat is untouched: no silent forfeit, the match simply continues.
+  const untouched = await roomSnapshot(keeper.context, roomId);
+  expect(untouched.phase).toBe('playing');
+  expect(snapshotPlayer(untouched, leaverIdentity).eliminatedAt).toBeNull();
+  expect(snapshotPlayer(untouched, leaverIdentity).hp).toBe(INITIAL_HEALTH);
+
+  // The same button retries over a healthy network and completes the departure.
+  await leaver.page.unroute(/\/api\/rooms\/[0-9a-f]{24}\/leave$/);
+  await leaver.page.getByTestId('battle-leave').click();
+  await expect(leaver.page.getByTestId('view-home')).toBeVisible({ timeout: 20_000 });
+  await expect(leaver.page.getByTestId('view-room')).toBeHidden();
+  await expect
+    .poll(async () => (await apiJson<Profile>(leaver.context, '/api/profile')).body.stats.games, {
+      timeout: 30_000,
+    })
+    .toBe(1);
+  const record = (await apiJson<Profile>(leaver.context, '/api/profile')).body.history;
+  expect(record).toHaveLength(1);
+  expect(record[0].hp_remaining).toBe(0);
+
+  await leaver.context.close();
+  await keeper.context.close();
+});
+
+test('离场已提交但响应丢失：重试确认，不重复结算', async ({ browser }) => {
+  test.setTimeout(300_000);
+  const { leaver, keeper, roomId } = await startedQuickMatch(browser, 'la');
+  let committedStatus = 0;
+  const leavePath = /\/api\/rooms\/[0-9a-f]{24}\/leave$/;
+  await leaver.page.route(leavePath, async (route) => {
+    const response = await route.fetch();
+    committedStatus = response.status();
+    await route.abort('connectionfailed');
+  });
+
+  await leaver.page.getByTestId('battle-leave').click();
+  await expect(leaver.page.locator('[data-testid="toast"] > [data-tone="error"]')).toBeVisible();
+  expect(committedStatus).toBe(200);
+  await expect(leaver.page.getByTestId('view-home')).toBeHidden();
+  expect((await roomSnapshot(keeper.context, roomId)).phase).toBe('finished');
+
+  await leaver.page.unroute(leavePath);
+  await leaver.page
+    .locator('[data-testid="battle-leave"]:visible, [data-testid="final-leave"]:visible')
+    .click();
+  await expect(leaver.page.getByTestId('view-home')).toBeVisible({ timeout: 20_000 });
+  await expect
+    .poll(async () => (await apiJson<Profile>(leaver.context, '/api/profile')).body.stats.games, {
+      timeout: 30_000,
+    })
+    .toBe(1);
+  await leaver.context.close();
+  await keeper.context.close();
 });

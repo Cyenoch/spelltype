@@ -1,5 +1,5 @@
 import { RESERVATION_TTL_MS } from '../../shared/protocol';
-import type { Difficulty, MatchTicket, User } from '../../shared/protocol';
+import type { MatchTicket, User } from '../../shared/protocol';
 import { matchIsLive, queueStub, readReservation } from './rooms';
 import type { CancelTarget, TicketRow } from './schema';
 import type { MatchmakerScope } from './scope';
@@ -37,10 +37,9 @@ export type CancelOutcome = {
 export async function settle(
   scope: MatchmakerScope,
   userId: string,
-  difficulty: Difficulty,
   requestId: string,
 ): Promise<MatchTicket | null> {
-  const queue = queueStub(scope.env, difficulty);
+  const queue = queueStub(scope.env);
   const claimed = await queue.claim(userId);
   if (claimed.length === 0) return null;
   const mine = claimed.find((entry) => entry.request_id === requestId) ?? null;
@@ -51,10 +50,9 @@ export async function settle(
   }
   if (heldRoomId && isCurrentRequest(scope, userId, requestId)) {
     // An earlier pairing of this account still holds a room: keep that seat, add no entry.
-    recordHeldSeat(scope, { user_id: userId, request_id: requestId, difficulty }, heldRoomId);
+    recordHeldSeat(scope, { user_id: userId, request_id: requestId }, heldRoomId);
     return {
       state: 'matched',
-      difficulty,
       roomId: heldRoomId,
       expiresAt: Date.now() + RESERVATION_TTL_MS,
     };
@@ -70,7 +68,6 @@ export async function settle(
     // Another poll already recorded this pairing: answer it, never release a live room.
     return {
       state: 'matched',
-      difficulty: current.difficulty,
       roomId: mine.room_id,
       expiresAt: current.expires_at,
     };
@@ -78,10 +75,9 @@ export async function settle(
   if (!current || current.request_id !== requestId || current.state !== 'waiting') {
     const heldId = await queue.release(mine.room_id, userId, mine.request_id);
     if (heldId && isCurrentRequest(scope, userId, requestId)) {
-      recordHeldSeat(scope, { user_id: userId, request_id: requestId, difficulty }, heldId);
+      recordHeldSeat(scope, { user_id: userId, request_id: requestId }, heldId);
       return {
         state: 'matched',
-        difficulty,
         roomId: heldId,
         expiresAt: Date.now() + RESERVATION_TTL_MS,
       };
@@ -92,7 +88,6 @@ export async function settle(
   await queue.leave(userId, requestId);
   return {
     state: 'matched',
-    difficulty: current.difficulty,
     roomId: mine.room_id,
     expiresAt: mine.expires_at,
   };
@@ -115,8 +110,9 @@ export async function reconcileMatched(
     // The ticket changed while the reservation was being read: the changed ticket owns the answer.
     return { kind: 'stale', ticket: current ? ticketFor(current) : null };
   }
-  if (reservation === 'locked' && !(await matchIsLive(scope.env, user, roomId))) {
-    // The running match is over, so the seat no longer blocks a new one.
+  if (reservation === 'locked' && !(await matchIsLive(scope.env, user.id, roomId))) {
+    // The running match no longer holds this account (settled, or explicitly
+    // abandoned), so the seat no longer blocks a new one.
     deleteTicket(scope, user.id, row.request_id);
     return { kind: 'dead' };
   }
@@ -130,7 +126,7 @@ export async function reconcileMatched(
   refreshTicketExpiry(scope, user.id, row.request_id, expiresAt, now);
   return {
     kind: 'ticket',
-    ticket: { state: 'matched', difficulty: row.difficulty, roomId, expiresAt },
+    ticket: { state: 'matched', roomId, expiresAt },
   };
 }
 
@@ -150,7 +146,7 @@ export async function finishCancel(
 ): Promise<CancelOutcome> {
   let retained: string[];
   try {
-    retained = await queueStub(scope.env, row.difficulty).abort(row.user_id, row.request_id);
+    retained = await queueStub(scope.env).abort(row.user_id, row.request_id);
   } catch (error) {
     console.error(
       'matchmaker: cancel cleanup failed',

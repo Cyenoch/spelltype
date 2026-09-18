@@ -5,6 +5,5 @@ export const Route = createFileRoute('/_authenticated/match')({ component: Match
 
 function MatchRoute() {
   const context = Route.useRouteContext();
-  const search = Route.useSearch();
-  return <QueueView ctx={context().app} difficulty={search().difficulty ?? 'normal'} />;
+  return <QueueView ctx={context().app} />;
 }

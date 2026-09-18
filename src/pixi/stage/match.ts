@@ -55,6 +55,8 @@ export interface Match {
   relayoutAim(): void;
   /** The seat the current snapshot put this user in, if it seated them at all. */
   slotOf(userId: string): number | undefined;
+  /** The local viewer's slot, or -1 when they are not seated. */
+  readonly selfSlot: number;
   readonly phase: RoomSnapshot['phase'];
   readonly occupancy: readonly (Player | null)[];
   readonly chargeElement: Element;
@@ -96,7 +98,6 @@ export function createMatch(wiring: MatchWiring): Match {
   let chargeElement: Element = 'arcane';
   let spellIndex = 0;
   let lastSeating = '';
-  let arenaRotation = 0;
   let typingCount = 0;
   let glyphClock = 0;
 
@@ -146,19 +147,7 @@ export function createMatch(wiring: MatchWiring): Match {
       fighter.setVictory(false);
     }
     aim.clear();
-    if (nextMatchId) {
-      let hash = 0;
-      for (let index = 0; index < nextMatchId.length; index += 1) {
-        hash = (hash * 31 + nextMatchId.charCodeAt(index)) % 4096;
-      }
-      arenaRotation = hash;
-    }
-    arena.setArena(arenaRotation);
   };
-
-  // The stage mounts before any match exists: backdrop 0 stands in until a match
-  // id picks its own.
-  arena.setArena(arenaRotation);
 
   return {
     get phase(): RoomSnapshot['phase'] {
@@ -238,7 +227,10 @@ export function createMatch(wiring: MatchWiring): Match {
         }
       }
 
-      const seatingKey = seated.map((player) => player.slot).join(',');
+      // The column layout also depends on who is looking: the viewer always
+      // stands in the leftmost column, so a rejoin that changes their slot must
+      // relayout even when the set of occupied seats did not move.
+      const seatingKey = `${selfSlot}|${seated.map((player) => player.slot).join(',')}`;
       if (seatingKey !== lastSeating) {
         lastSeating = seatingKey;
         relayout();
@@ -293,6 +285,10 @@ export function createMatch(wiring: MatchWiring): Match {
 
     slotOf(userId: string): number | undefined {
       return slotByUser.get(userId);
+    },
+
+    get selfSlot(): number {
+      return selfSlot;
     },
   };
 }

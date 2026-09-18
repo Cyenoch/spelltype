@@ -36,7 +36,7 @@ test.beforeEach(async () => {
 
 test('对手断线不冻结比赛，重连与进程重启后恢复席位、血量与已接受草稿', async ({ browser }) => {
   test.setTimeout(900_000);
-  const room = await twoPlayerRoom(browser, { theme: '断线契约', difficulty: 'hard' });
+  const room = await twoPlayerRoom(browser, { theme: '断线契约' });
   const host = room.host;
   const guest = room.guest;
   const guestIdentity = await selfIdentity(guest.context);

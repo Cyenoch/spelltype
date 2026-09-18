@@ -2,7 +2,6 @@ import type { Texture } from 'pixi.js';
 import {
   ASSETS,
   ELEMENT_ORDER,
-  arenaFor,
   characterForSlot,
   combatFxFor,
   elementGlyph,
@@ -16,7 +15,6 @@ import {
 } from '../textures';
 import type { Element } from '../../../shared/protocol';
 
-const ARENA_COUNT = 4;
 const CHARACTER_COUNT = 4;
 
 /**
@@ -28,8 +26,6 @@ const CHARACTER_COUNT = 4;
  * cannot unload a texture that the next stage is about to receive.
  */
 export interface StageAssets {
-  /** Arena backdrops in slot order; a file that failed to load stays `null`. */
-  skies: (Texture | null)[];
   /** Combatant art that loaded, trimmed to its visible pixels. */
   characters: Texture[];
   sigil: Texture | null;
@@ -52,12 +48,11 @@ export interface StageAssets {
 }
 
 export function createStageAssets(): StageAssets {
-  const arenaUrls = Array.from({ length: ARENA_COUNT }, (_, index) => arenaFor(index));
   const characterUrls = Array.from({ length: CHARACTER_COUNT }, (_, index) =>
     characterForSlot(index),
   );
   const glyphUrls = ELEMENT_ORDER.map((element) => elementGlyph(element));
-  const sharedUrls = [...arenaUrls, ...characterUrls, ASSETS.sigil, ...glyphUrls];
+  const sharedUrls = [...characterUrls, ASSETS.sigil, ...glyphUrls];
 
   /** Textures this module created itself (trimmed crops, silhouettes) and must destroy. */
   const ownedTextures: Texture[] = [];
@@ -117,7 +112,6 @@ export function createStageAssets(): StageAssets {
   };
 
   const assets: StageAssets = {
-    skies: [],
     characters: [],
     sigil: null,
     glyphs: [],
@@ -127,10 +121,9 @@ export function createStageAssets(): StageAssets {
 
     async load(): Promise<void> {
       const records = await acquireTextures(sharedUrls);
-      assets.skies = records.slice(0, ARENA_COUNT);
-      const rawCharacters = records.slice(ARENA_COUNT, ARENA_COUNT + CHARACTER_COUNT);
-      assets.sigil = records[ARENA_COUNT + CHARACTER_COUNT] ?? null;
-      assets.glyphs = records.slice(ARENA_COUNT + CHARACTER_COUNT + 1);
+      const rawCharacters = records.slice(0, CHARACTER_COUNT);
+      assets.sigil = records[CHARACTER_COUNT] ?? null;
+      assets.glyphs = records.slice(CHARACTER_COUNT + 1);
 
       const crops = rawCharacters.map((texture) => {
         if (!texture) return null;
@@ -147,7 +140,7 @@ export function createStageAssets(): StageAssets {
         throw new Error('战斗角色素材加载失败');
       }
       for (const texture of assets.characters) silhouettes.push(createSilhouetteTexture(texture));
-      assets.ready = assets.characters.length === ARENA_COUNT;
+      assets.ready = assets.characters.length === CHARACTER_COUNT;
     },
 
     request,

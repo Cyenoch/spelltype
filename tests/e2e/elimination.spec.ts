@@ -35,7 +35,7 @@ test.beforeEach(async () => {
 
 test('被击败的玩家再也无法造成伤害，出局顺序决定名次', async ({ browser }) => {
   test.setTimeout(600_000);
-  const room = await seatedRoom(browser, 3, { theme: '出局契约', difficulty: 'hard' });
+  const room = await seatedRoom(browser, 3, { theme: '出局契约' });
   const [first, second, third] = room.sessions;
   const attacker = first;
   const identities = await Promise.all(

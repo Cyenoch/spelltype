@@ -10,6 +10,11 @@ import { describe, expect, it } from 'vitest';
 import { COMBAT_EVENT_RING_SIZE, INITIAL_HEALTH, type CombatEvent } from '../../shared/protocol';
 import { appendEvent, readEvents } from '../../worker/rooms/storage/events';
 import {
+  abandonedMatch,
+  getDeparture,
+  recordDeparture,
+} from '../../worker/rooms/storage/departures';
+import {
   armLobbySeatExpiry,
   countPlayers,
   deletePlayer,
@@ -43,7 +48,7 @@ function withRoom(): TestStorage {
     hostId: 'host-1',
     mode: 'private',
     theme: '咒文契约',
-    difficulty: 'normal',
+    difficulty: 'hard',
     reservationState: 'none',
     reservationExpiresAt: null,
     now: NOW,
@@ -291,6 +296,50 @@ describe('结果队列', () => {
           )
           .one().total,
       ).toBe(1);
+    } finally {
+      storage.close();
+    }
+  });
+});
+
+describe('离场记录', () => {
+  it('按局判定弃赛：空局号与旧局号都不拦人，且一账户只有一行', () => {
+    const storage = withRoom();
+    try {
+      // 开赛前的离场只是幂等标记，从不拦截重新加入。
+      recordDeparture(storage.sql, { userId: 'a', matchId: null, now: NOW });
+      expect(getDeparture(storage.sql, 'a')).toMatchObject({
+        user_id: 'a',
+        match_id: null,
+        departed_at: NOW,
+      });
+      expect(abandonedMatch(storage.sql, 'a', 'm1')).toBe(false);
+
+      recordDeparture(storage.sql, { userId: 'a', matchId: 'm1', now: NOW + 1 });
+      expect(abandonedMatch(storage.sql, 'a', 'm1')).toBe(true);
+      expect(abandonedMatch(storage.sql, 'a', 'm2')).toBe(false);
+      expect(abandonedMatch(storage.sql, 'a', null)).toBe(false);
+      expect(abandonedMatch(storage.sql, 'b', 'm1')).toBe(false);
+
+      // 更晚一局的弃赛覆盖旧行：旧局号的记录随之失效。
+      recordDeparture(storage.sql, { userId: 'a', matchId: 'm2', now: NOW + 2 });
+      expect(abandonedMatch(storage.sql, 'a', 'm1')).toBe(false);
+      expect(getDeparture(storage.sql, 'a')).toMatchObject({
+        match_id: 'm2',
+        departed_at: NOW + 2,
+      });
+    } finally {
+      storage.close();
+    }
+  });
+
+  it('重复建表不丢弃已存在的离场记录', () => {
+    const storage = withRoom();
+    try {
+      recordDeparture(storage.sql, { userId: 'a', matchId: 'm1', now: NOW });
+      createSchema(storage.sql);
+      expect(abandonedMatch(storage.sql, 'a', 'm1')).toBe(true);
+      expect(getRoom(storage.sql)?.id).toBe(ROOM_ID);
     } finally {
       storage.close();
     }

@@ -1,19 +1,18 @@
 import { Link } from '@tanstack/solid-router';
 import * as stylex from '@stylexjs/stylex';
 import { createMemo } from 'solid-js';
-import { DIFFICULTY_HINTS, DIFFICULTY_LABELS, formatDuration } from '../../ui/format';
+import { formatDuration } from '../../ui/format';
 import type { AppContext } from '../../app/context';
 import { ui } from '../../ui/primitives';
 import { createMatchQueue } from './queue-controller';
 import { QueueStage } from './queue-stage';
 import { styles } from './queue-view.styles';
-import type { Difficulty } from '../../../shared/protocol';
 
 /**
  * Matchmaking status and controls. Every word of status comes from the lease the
  * server hands back per poll; the only local clock is the waiting time itself.
  */
-export function QueueView(props: { ctx: AppContext; difficulty: Difficulty }) {
+export function QueueView(props: { ctx: AppContext }) {
   const queue = createMatchQueue(props);
   const searching = createMemo(() => queue.state() === 'waiting');
   const settled = createMemo(() => queue.state() === 'cancelled' || queue.state() === 'blocked');
@@ -35,7 +34,7 @@ export function QueueView(props: { ctx: AppContext; difficulty: Difficulty }) {
       <div class={stylex.props(ui.panel, styles.brief).className} data-testid="queue-panel">
         <div class={stylex.props(ui.panelHead).className}>
           <h1>快速匹配</h1>
-          <span class={stylex.props(ui.eyebrow).className}>1v1 · 同难度</span>
+          <span class={stylex.props(ui.eyebrow).className}>1v1</span>
           <button
             type="button"
             class={
@@ -78,15 +77,6 @@ export function QueueView(props: { ctx: AppContext; difficulty: Difficulty }) {
 
         <div class={stylex.props(ui.statTiles, styles.facts).className}>
           <div class={stylex.props(ui.tile).className}>
-            <div class={stylex.props(ui.tileLabel).className}>难度</div>
-            <div class={stylex.props(ui.tileValue).className} data-testid="queue-difficulty">
-              {DIFFICULTY_LABELS[props.difficulty]}
-            </div>
-            <p class={stylex.props(ui.smallText, ui.faint, styles.difficultyHint).className}>
-              {DIFFICULTY_HINTS[props.difficulty]}
-            </p>
-          </div>
-          <div class={stylex.props(ui.tile).className}>
             <div class={stylex.props(ui.tileLabel).className}>已等待</div>
             <div
               class={stylex.props(ui.tileValue, styles.elapsed).className}
@@ -102,11 +92,15 @@ export function QueueView(props: { ctx: AppContext; difficulty: Difficulty }) {
             type="button"
             class={stylex.props(ui.button, ui.danger).className}
             data-testid="queue-cancel"
-            hidden={queue.state() === 'matched' || queue.state() === 'cancelled'}
-            disabled={queue.cancelPending()}
+            hidden={queue.state() === 'cancelled'}
+            disabled={queue.cancelPending() || queue.state() === 'matched'}
             onClick={() => queue.cancel()}
           >
-            {queue.state() === 'blocked' ? '取消已有排队' : '取消等待'}
+            {queue.state() === 'matched'
+              ? '正在进入房间…'
+              : queue.state() === 'blocked'
+                ? '取消已有排队'
+                : '取消等待'}
           </button>
           <button
             type="button"

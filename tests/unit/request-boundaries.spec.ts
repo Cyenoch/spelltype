@@ -14,7 +14,7 @@ import { describe, expect, it } from 'vitest';
 import app from '../../worker/http/app';
 import type { Env } from '../../worker/env';
 import { MAX_API_BODY_BYTES, MAX_THEME_CHARS } from '../../shared/protocol';
-import { difficultySchema, themeSchema } from '../../shared/validation';
+import { themeSchema } from '../../shared/validation';
 import { parsedString, rejected } from '../support/schema-probe';
 
 const ORIGIN = 'https://app.example';
@@ -63,10 +63,11 @@ const STATE_CHANGES = [
   {
     method: 'POST',
     path: '/api/rooms',
-    body: JSON.stringify({ theme: '咒文契约', difficulty: 'easy' }),
+    body: JSON.stringify({ theme: '咒文契约' }),
   },
-  { method: 'POST', path: '/api/match', body: JSON.stringify({ difficulty: 'easy' }) },
+  { method: 'POST', path: '/api/match' },
   { method: 'DELETE', path: '/api/match' },
+  { method: 'POST', path: `/api/rooms/${ROOM_ID}/leave` },
   { method: 'GET', path: `/api/rooms/${ROOM_ID}/ws` },
 ];
 
@@ -108,9 +109,8 @@ describe('同源校验', () => {
     expect(shortUsername.status).toBe(400);
 
     // 带会话的接口到达鉴权：无 Cookie 即 401。
-    expect(
-      (await call('POST', '/api/match', { body: JSON.stringify({ difficulty: 'easy' }) })).status,
-    ).toBe(401);
+    expect((await call('POST', '/api/match')).status).toBe(401);
+    expect((await call('POST', `/api/rooms/${ROOM_ID}/leave`)).status).toBe(401);
 
     // 房间握手到达升级判定：普通 GET 即 426。
     expect((await call('GET', `/api/rooms/${ROOM_ID}/ws`)).status).toBe(426);
@@ -264,6 +264,7 @@ describe('方法与路径', () => {
       ['DELETE', '/api/register', ['POST']],
       ['POST', `/api/rooms/${ROOM_ID}/ws`, ['GET', 'HEAD']],
       ['GET', '/api/match', ['POST', 'DELETE']],
+      ['DELETE', `/api/rooms/${ROOM_ID}/leave`, ['POST']],
     ] as const) {
       const response = await call(method, path);
       expect(response.status, `${method} ${path}`).toBe(405);
@@ -289,12 +290,7 @@ describe('方法与路径', () => {
 });
 
 describe('请求取值', () => {
-  it('难度只接受协议内的三个取值，主题裁剪空白并按码点限制长度', () => {
-    expect(parsedString(difficultySchema, 'easy')).toBe('easy');
-    for (const value of ['Easy', ' hard ', '', 'expert', 1, null, undefined]) {
-      expect(rejected(difficultySchema, value), String(value)).toBe(true);
-    }
-
+  it('主题裁剪空白并按码点限制长度', () => {
     expect(parsedString(themeSchema, '  星陨图书馆  ')).toBe('星陨图书馆');
     // 长度按码点计数：一个 emoji 也是一个字符。
     expect(Array.from(parsedString(themeSchema, '🌸'.repeat(MAX_THEME_CHARS))!).length).toBe(

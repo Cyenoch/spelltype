@@ -1,4 +1,4 @@
-import { For, createMemo } from 'solid-js';
+import { For, createMemo, onMount } from 'solid-js';
 import type { Player, RoomSnapshot } from '../../../../shared/protocol';
 import {
   END_REASON_LABELS,
@@ -17,7 +17,7 @@ const PERSISTENCE_TEXT: Record<'idle' | 'saving' | 'saved' | 'error', string> = 
   error: '战绩暂未保存，正在自动重试',
 };
 
-type Outcome = 'win' | 'down' | 'place';
+type Outcome = 'win' | 'loss' | 'draw' | 'finished';
 
 /** Ranking order the settled screen reads: published rank, then health, damage, seat. */
 function ranked(players: Player[]): Player[] {
@@ -29,27 +29,30 @@ function ranked(players: Player[]): Player[] {
   });
 }
 
-function outcomeOf(rank: number | null, self: Player | undefined): Outcome {
-  if (rank === 1) return 'win';
-  return self?.eliminatedAt != null ? 'down' : 'place';
-}
-
 /**
- * The settled screen: one banner, the viewer's own figures, the full table and
- * the room's save state. The panel is always mounted and toggled with `hidden`,
- * so bringing the result into view once can rely on a node that already exists.
+ * Dedicated settled screen: clear outcome and primary actions first, then the
+ * viewer's figures, the full standings and the room's save state.
  */
 export function BattleResults(props: {
   snapshot: RoomSnapshot;
   self: Player | undefined;
   players: Player[];
-  panelRef(el: HTMLElement): void;
   onRematch(): void;
   onLeave(): void;
 }) {
-  const finished = () => props.snapshot.phase === 'finished';
+  let heading!: HTMLHeadingElement;
   const rank = () => props.self?.rank ?? null;
-  const outcome = createMemo(() => outcomeOf(rank(), props.self));
+  const outcome = createMemo<Outcome>(() => {
+    if (rank() === null) return 'finished';
+    if (rank() !== 1) return 'loss';
+    return props.players.some((player) => player.rank === 1 && player.id !== props.self?.id)
+      ? 'draw'
+      : 'win';
+  });
+  onMount(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    heading.focus({ preventScroll: true });
+  });
   const rows = createMemo(() => ranked(props.players));
   const rowIds = createMemo(() => rows().map((player) => player.id));
   const reason = () =>
@@ -64,22 +67,28 @@ export function BattleResults(props: {
       class={stylex.props(styles.results).className}
       data-testid="final-panel"
       data-outcome={outcome()}
-      hidden={!finished()}
-      ref={(el) => props.panelRef(el)}
+      aria-labelledby="result-title"
     >
       <div
         class={
           stylex.props(
             styles.result,
             outcome() === 'win' && styles.resultWin,
-            outcome() === 'down' && styles.resultDown,
+            outcome() === 'loss' && styles.resultDown,
+            outcome() === 'draw' && styles.resultDraw,
           ).className
         }
         data-testid="result-banner"
         data-outcome={outcome()}
         data-end-reason={props.snapshot.endReason ?? ''}
       >
-        <h2
+        <p class={stylex.props(ui.eyebrow).className}>对局已结束</p>
+        <h1
+          id="result-title"
+          tabIndex={-1}
+          ref={(el) => {
+            heading = el;
+          }}
           class={
             stylex.props(styles.resultTitle, outcome() === 'win' && styles.resultTitleWin).className
           }
@@ -87,17 +96,40 @@ export function BattleResults(props: {
         >
           {outcome() === 'win'
             ? '胜利'
-            : outcome() === 'down'
-              ? `你被击倒了${rank() === null ? '' : ` · 第 ${rank()} 名`}`
-              : rank() === null
-                ? '对局结束'
-                : `第 ${rank()} 名`}
-        </h2>
+            : outcome() === 'loss'
+              ? '失败'
+              : outcome() === 'draw'
+                ? '平局'
+                : '对局结束'}
+        </h1>
+        <p class={stylex.props(styles.resultRank).className}>
+          {rank() === null
+            ? '名次尚未公布'
+            : `${outcome() === 'draw' ? '并列' : ''}第 ${rank()} 名 · 共 ${props.players.length} 位玩家`}
+        </p>
         <p class={stylex.props(styles.resultDetail).className} data-testid="result-detail">
           {props.self
             ? `${reason()}${duration()}。你完成 ${props.self.spellsCast} 次施法，造成 ${props.self.damageDealt} 点伤害，剩余生命 ${formatHealth(props.self.hp, props.self.maxHp)}。`
             : `${reason()}${duration()}。`}
         </p>
+      </div>
+      <div class={stylex.props(ui.buttonRow, styles.resultActions).className}>
+        <button
+          type="button"
+          class={stylex.props(ui.button, ui.primary).className}
+          data-testid="rematch"
+          onClick={() => props.onRematch()}
+        >
+          再来一局
+        </button>
+        <button
+          type="button"
+          class={stylex.props(ui.button, ui.ghost).className}
+          data-testid="final-leave"
+          onClick={() => props.onLeave()}
+        >
+          返回首页
+        </button>
       </div>
 
       <div class={stylex.props(ui.statTiles).className}>
@@ -273,25 +305,6 @@ export function BattleResults(props: {
       >
         {PERSISTENCE_TEXT[props.snapshot.persistence]}
       </p>
-
-      <div class={stylex.props(ui.buttonRow).className}>
-        <button
-          type="button"
-          class={stylex.props(ui.button, ui.primary).className}
-          data-testid="rematch"
-          onClick={() => props.onRematch()}
-        >
-          再来一局
-        </button>
-        <button
-          type="button"
-          class={stylex.props(ui.button, ui.ghost).className}
-          data-testid="final-leave"
-          onClick={() => props.onLeave()}
-        >
-          离开房间
-        </button>
-      </div>
     </section>
   );
 }

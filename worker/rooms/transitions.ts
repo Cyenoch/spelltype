@@ -1,4 +1,5 @@
 import { MATCH_DURATION_MS, WS_CLOSE } from '../../shared/protocol';
+import { registerDuel } from '../activity';
 import { saveResults } from './persistence';
 import { endReservation } from './reservation';
 import { TIMED_PHASES } from './rules';
@@ -7,7 +8,7 @@ import { pushSnapshots } from './snapshots';
 import { closeSocket, expiredSockets, reconcileHost, sendTo, unbindSocket } from './sockets';
 import { abortMatch, runGeneration } from './spellbook';
 import { finishMatch } from './match';
-import { expireSeats } from './storage/players';
+import { expireSeats, listPlayers } from './storage/players';
 import { countUnsavedResults } from './storage/results';
 import { getRoom, updateRoom } from './storage/room';
 
@@ -49,6 +50,16 @@ export async function advanceOnce(scope: RoomScope): Promise<boolean> {
 
   if (TIMED_PHASES[room.phase] && room.deadline > 0 && now >= room.deadline) {
     if (room.phase === 'countdown') {
+      await registerDuel(scope.env, room.id, room.deadline + MATCH_DURATION_MS);
+      // The index write yielded: a concurrent transition must not reopen a settled match.
+      const current = getRoom(scope.sql);
+      if (
+        !current ||
+        current.phase !== 'countdown' ||
+        current.match_id !== room.match_id ||
+        current.deadline !== room.deadline
+      )
+        return false;
       // The combat clock is derived from the countdown deadline, so a late
       // alarm shifts the whole match rather than handing out extra time.
       updateRoom(scope.sql, {
@@ -56,6 +67,14 @@ export async function advanceOnce(scope: RoomScope): Promise<boolean> {
         started_at: room.deadline,
         deadline: room.deadline + MATCH_DURATION_MS,
       });
+      // Combat begins: a seat forfeited during generation or countdown is
+      // already out, so the survivor rule is checked at this instant too —
+      // a duel whose opponent left never waits out the clock.
+      const alive = listPlayers(scope.sql).filter((row) => row.eliminated_at === null).length;
+      if (alive <= 1) {
+        await finishMatch(scope, 'elimination', room.deadline);
+        return true;
+      }
       pushSnapshots(scope);
       return true;
     }

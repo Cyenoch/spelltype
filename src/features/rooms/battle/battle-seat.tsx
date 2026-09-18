@@ -1,6 +1,7 @@
 import { createMemo } from 'solid-js';
 import type { Player } from '../../../../shared/protocol';
 import { formatHealth, percentOf } from '../../../ui/format';
+import { ui } from '../../../ui/primitives';
 import * as stylex from '@stylexjs/stylex';
 import { styles } from './battle.styles';
 import { CRITICAL_HP_RATIO, LOW_HP_RATIO, type RenderMode } from './battle-view';
@@ -26,16 +27,19 @@ function hpTone(hp: number, maxHp: number, eliminated: boolean): HpTone {
 }
 
 /**
- * One combatant's card: name, targeting marks, health and cast progress. Every
- * number here is the authoritative snapshot's; the canvas only draws them.
+ * One combatant's overhead label: the name floating above the character's head
+ * and the targeting tags under it. It draws no health of its own — the feet bar
+ * on the canvas is the one visual presentation — while the authoritative HP and
+ * cast progress stay in the DOM here: read by assistive tech in canvas mode and
+ * drawn as the fallback readout when the canvas is not rendering.
  */
-export function SeatCard(props: {
+export function SeatLabel(props: {
   player: Player;
   isSelf: boolean;
   isTarget: boolean;
   aimedAtMe: boolean;
   render: RenderMode;
-  /** The viewer's own card follows local typing instead of a snapshot ack. */
+  /** The viewer's own readout follows local typing instead of a snapshot ack. */
   selfCast: { progress: number; length: number };
 }) {
   const eliminated = createMemo(() => props.player.eliminatedAt !== null);
@@ -46,7 +50,7 @@ export function SeatCard(props: {
       : { progress: props.player.progress, length: props.player.spellLength };
   const castPercent = createMemo(() => percentOf(cast().progress, cast().length));
   /**
-   * The arena card darkens a downed bar; the player's own bar keeps its normal
+   * The readout darkens a downed bar; the player's own bar keeps its normal
    * gradient, mirroring the two rules the old sheet had.
    */
   const barTone = createMemo(() => {
@@ -56,17 +60,7 @@ export function SeatCard(props: {
 
   return (
     <div
-      class={
-        stylex.props(
-          styles.seatcard,
-          props.render === 'dom' && styles.seatcardDom,
-          props.isSelf && styles.seatcardSelf,
-          props.isTarget && styles.seatcardTarget,
-          props.aimedAtMe && styles.seatcardAiming,
-          eliminated() && styles.seatcardDown,
-          !props.player.connected && styles.seatcardOffline,
-        ).className
-      }
+      class={stylex.props(styles.seatLabel, eliminated() && styles.seatLabelDown).className}
       data-testid="arena-seat"
       data-user={props.player.id}
       data-self={String(props.isSelf)}
@@ -79,10 +73,13 @@ export function SeatCard(props: {
       data-max-hp={props.player.maxHp}
       role="listitem"
     >
-      <div class={stylex.props(styles.seatcardTop).className}>
-        <span class={stylex.props(styles.seatcardName).className} data-testid="arena-seat-name">
-          {`${props.player.username}${props.isSelf ? '（你）' : ''}`}
-        </span>
+      <span
+        class={stylex.props(styles.seatName, props.isSelf && styles.seatNameSelf).className}
+        data-testid="arena-seat-name"
+      >
+        {`${props.player.username}${props.isSelf ? '（你）' : ''}`}
+      </span>
+      <div class={stylex.props(styles.seatTags).className}>
         <span
           class={stylex.props(styles.mark, styles.markTarget).className}
           data-testid="arena-target-mark"
@@ -112,54 +109,62 @@ export function SeatCard(props: {
           离线
         </span>
       </div>
-      <div class={stylex.props(styles.seatcardHp).className}>
-        <div
-          class={
-            stylex.props(
-              styles.hpbar,
-              props.isSelf && styles.hpbarSelf,
-              props.render === 'dom' && styles.hpbarDom,
-            ).className
-          }
-          data-testid="arena-hp"
-          data-hp={Math.max(0, props.player.hp)}
-          data-max-hp={props.player.maxHp}
-          data-state={tone().ratio}
-          role="progressbar"
-          aria-valuemin="0"
-          aria-valuemax={String(Math.max(0, props.player.maxHp))}
-          aria-valuenow={String(Math.max(0, props.player.hp))}
-          aria-valuetext={tone().text}
-          aria-label="生命值"
-        >
+      <div
+        class={stylex.props(props.render === 'dom' ? styles.seatReadout : ui.srOnly).className}
+        data-testid="seat-readout"
+      >
+        <div class={stylex.props(styles.seatReadoutHp).className}>
           <div
             class={
               stylex.props(
-                styles.hpbarFill,
-                barTone() === 'low' && styles.hpbarFillLow,
-                barTone() === 'critical' && styles.hpbarFillCritical,
-                barTone() === 'down' && styles.hpbarFillDown,
+                styles.hpbar,
+                props.isSelf && styles.hpbarSelf,
+                props.render === 'dom' && styles.hpbarDom,
               ).className
             }
-            data-testid="arena-hp-fill"
-            style={`width:${tone().percent}%`}
+            data-testid="arena-hp"
+            data-hp={Math.max(0, props.player.hp)}
+            data-max-hp={props.player.maxHp}
+            data-state={tone().ratio}
+            role="progressbar"
+            aria-valuemin="0"
+            aria-valuemax={String(Math.max(0, props.player.maxHp))}
+            aria-valuenow={String(Math.max(0, props.player.hp))}
+            aria-valuetext={tone().text}
+            aria-label="生命值"
+          >
+            <div
+              class={
+                stylex.props(
+                  styles.hpbarFill,
+                  barTone() === 'low' && styles.hpbarFillLow,
+                  barTone() === 'critical' && styles.hpbarFillCritical,
+                  barTone() === 'down' && styles.hpbarFillDown,
+                ).className
+              }
+              data-testid="arena-hp-fill"
+              style={`width:${tone().percent}%`}
+            />
+          </div>
+          <span class={stylex.props(styles.hpbarText).className} data-testid="arena-hp-text">
+            {tone().text}
+          </span>
+        </div>
+        <div
+          class={stylex.props(styles.castbar).className}
+          data-testid="player-progress"
+          role="progressbar"
+          aria-valuemin="0"
+          aria-valuemax="100"
+          aria-valuenow={String(castPercent())}
+          aria-valuetext={`${cast().progress} / ${cast().length} 字`}
+          aria-label="咒文进度"
+        >
+          <div
+            class={stylex.props(styles.castbarFill).className}
+            style={`width:${castPercent()}%`}
           />
         </div>
-        <span class={stylex.props(styles.hpbarText).className} data-testid="arena-hp-text">
-          {tone().text}
-        </span>
-      </div>
-      <div
-        class={stylex.props(styles.castbar).className}
-        data-testid="player-progress"
-        role="progressbar"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        aria-valuenow={String(castPercent())}
-        aria-valuetext={`${cast().progress} / ${cast().length} 字`}
-        aria-label="咒文进度"
-      >
-        <div class={stylex.props(styles.castbarFill).className} style={`width:${castPercent()}%`} />
       </div>
     </div>
   );

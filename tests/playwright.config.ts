@@ -2,7 +2,7 @@
  * Playwright configuration for the application-boundary E2E suite.
  *
  * One worker keeps the quick-match Durable Object, the shared fixture queue and the
- * D1 fault-injection steps deterministic: several specs queue for the same difficulty
+ * D1 fault-injection steps deterministic: several specs share the one matchmaking queue
  * and one spec mutates the results table.
  */
 import { defineConfig } from '@playwright/test';

@@ -3,7 +3,7 @@
  * for an existing account that keeps one seat and never adds a fifth.
  *
  * The room-creation form itself is the path every retained scenario already drives (`createRoom`
- * opens the create view, fills the theme, picks the difficulty and submits), so this spec adds only
+ * opens the create view, fills the theme and submits), so this spec adds only
  * the capacity rules on top. Unknown room ids are covered by the auth spec, and the
  * same-origin/body/cookie boundary by the unit suites.
  */
@@ -21,7 +21,7 @@ test.beforeEach(async () => {
 test('私人房容纳四名玩家，第五人被拒，重复连接不占额外席位', async ({ browser }) => {
   test.setTimeout(240_000);
   const host = await signedInContext(browser, 'cap0');
-  const roomId = await createRoom(host.page, { theme: '四席试炼', difficulty: 'easy' });
+  const roomId = await createRoom(host.page, { theme: '四席试炼' });
 
   const others: Session[] = [];
   for (const index of [1, 2, 3]) others.push(await signedInContext(browser, `cap${index}`));

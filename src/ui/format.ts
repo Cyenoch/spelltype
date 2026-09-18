@@ -1,20 +1,11 @@
 /**
  * Single source for user-facing vocabulary. Views read these maps directly so
- * a new phase, difficulty, element or end reason cannot fall back to a raw
- * protocol token.
+ * a new phase, element or end reason cannot fall back to a raw protocol token.
  */
 import type { Difficulty, Element, EndReason, Phase } from '../../shared/protocol';
 
 export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
-  easy: '简单',
-  normal: '普通',
   hard: '困难',
-};
-
-export const DIFFICULTY_HINTS: Record<Difficulty, string> = {
-  easy: '目标约 18–26 字，适合热身；实际长度由 AI 生成决定。',
-  normal: '目标约 27–38 字，标准长度；实际长度由 AI 生成决定。',
-  hard: '目标约 39–50 字，含更多标点；实际长度由 AI 生成决定。',
 };
 
 export const ELEMENT_LABELS: Record<Element, string> = {
@@ -38,7 +29,6 @@ export const END_REASON_LABELS: Record<EndReason, string> = {
   timeout: '时间耗尽，按剩余生命排名',
 };
 
-export const DIFFICULTIES: readonly Difficulty[] = ['easy', 'normal', 'hard'];
 export const ELEMENTS: readonly Element[] = ['arcane', 'fire', 'ice', 'storm'];
 
 /** Longest common prefix length, counted in code points. */

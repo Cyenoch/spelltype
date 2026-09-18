@@ -2,10 +2,8 @@ import { For, createSignal } from 'solid-js';
 import { useNavigate } from '@tanstack/solid-router';
 import { createForm } from '@tanstack/solid-form';
 import * as stylex from '@stylexjs/stylex';
-import type { Difficulty } from '../../../../shared/protocol';
 import { MAX_THEME_CHARS } from '../../../../shared/protocol';
-import { createRoomSchema, difficultySchema, themeSchema } from '../../../../shared/validation';
-import { DIFFICULTIES, DIFFICULTY_HINTS, DIFFICULTY_LABELS } from '../../../ui/format';
+import { createRoomSchema, themeSchema } from '../../../../shared/validation';
 import { THEME_PRESETS, type ThemePreset } from '../../../pixi/assets';
 import { parseResponse, DetailedError } from 'hono/client';
 import { client } from '../../../app/client';
@@ -17,10 +15,9 @@ import { styles } from './create-view.styles';
 
 interface CreateRoomForm {
   theme: string;
-  difficulty: Difficulty;
 }
 
-const DEFAULT_VALUES: CreateRoomForm = { theme: '', difficulty: 'normal' };
+const DEFAULT_VALUES: CreateRoomForm = { theme: '' };
 
 /** Validation issues arrive in whatever shape the schema produced; this is their readable text. */
 function textOfIssue(issue: unknown): string {
@@ -36,7 +33,7 @@ function textOfIssue(issue: unknown): string {
   return '';
 }
 
-/** Create a private room: preset or custom theme, difficulty, invite link. */
+/** Create a private room: preset or custom theme, invite link. */
 export function CreateRoomView(props: { ctx: AppContext }) {
   const navigate = useNavigate();
   let themeInput: HTMLInputElement | undefined;
@@ -50,7 +47,7 @@ export function CreateRoomView(props: { ctx: AppContext }) {
       try {
         const { roomId } = await parseResponse(
           client.api.rooms.$post({
-            json: { theme: value.theme.trim(), difficulty: value.difficulty },
+            json: { theme: value.theme.trim() },
           }),
         );
         toast('房间已创建，把邀请链接发给朋友吧。', 'good');
@@ -72,10 +69,7 @@ export function CreateRoomView(props: { ctx: AppContext }) {
   }));
 
   const submitting = form.useSelector((state) => state.isSubmitting);
-  const issues = form.useSelector((state) => [
-    ...(state.fieldMeta.theme?.errors ?? []),
-    ...(state.fieldMeta.difficulty?.errors ?? []),
-  ]);
+  const issues = form.useSelector((state) => [...(state.fieldMeta.theme?.errors ?? [])]);
   const configured = () => props.ctx.session.aiConfigured;
 
   const errorText = () => {
@@ -179,33 +173,6 @@ export function CreateRoomView(props: { ctx: AppContext }) {
                 </>
               );
             }}
-          </form.Field>
-
-          <h3 class={stylex.props(styles.sectionHeading).className}>难度</h3>
-          <label class={stylex.props(ui.label).className} for="room-difficulty">
-            文本长度
-          </label>
-          <form.Field name="difficulty" validators={{ onChange: difficultySchema }}>
-            {(field) => (
-              <select
-                id="room-difficulty"
-                class={stylex.props(ui.input).className}
-                data-testid="room-difficulty"
-                value={field().state.value}
-                onBlur={field().handleBlur}
-                onChange={(event) =>
-                  field().handleChange(difficultySchema.parse(event.currentTarget.value))
-                }
-              >
-                <For each={DIFFICULTIES}>
-                  {(difficulty) => (
-                    <option value={difficulty}>
-                      {DIFFICULTY_LABELS[difficulty]} · {DIFFICULTY_HINTS[difficulty]}
-                    </option>
-                  )}
-                </For>
-              </select>
-            )}
           </form.Field>
 
           <p

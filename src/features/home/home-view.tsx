@@ -1,17 +1,15 @@
-import { For, Show, createSignal } from 'solid-js';
+import { For, Show } from 'solid-js';
+import { useQuery } from '@tanstack/solid-query';
 import { Link, useNavigate } from '@tanstack/solid-router';
 import * as stylex from '@stylexjs/stylex';
-import { DIFFICULTIES, DIFFICULTY_HINTS, DIFFICULTY_LABELS, ELEMENTS } from '../../ui/format';
+import { activityOptions } from '../../app/queries';
+import { ELEMENTS } from '../../ui/format';
 import { ASSETS } from '../../pixi/assets';
 import { ui } from '../../ui/primitives';
 import { styles } from './home.styles';
 import { PlayerCard } from './home-player-card';
 import { noticeStyles } from '../../ui/notice.styles';
 import type { AppContext } from '../../app/context';
-import type { Difficulty } from '../../../shared/protocol';
-
-/** Which mode the quick-match card opens with. */
-const DEFAULT_DIFFICULTY: Difficulty = 'normal';
 
 /** The four numbers every player should know before their first match. */
 export function MatchFacts(props: { spaced?: boolean }) {
@@ -37,9 +35,73 @@ export function MatchFacts(props: { spaced?: boolean }) {
   );
 }
 
+/**
+ * Live activity, public to guests and players alike: two counters answered by the server's own
+ * state. Loading and failure are shown as they are — never as zero — and a failed refresh keeps the
+ * last numbers visible while the error note says they are stale.
+ */
+export function ActivityPanel() {
+  const activity = useQuery(() => activityOptions);
+  /** No answer yet stays an explicit placeholder: `…` while loading, `—` when unavailable. */
+  const counter = (count: number | undefined) =>
+    activity.isPending ? '…' : count === undefined ? '—' : String(count);
+  return (
+    <section
+      class={stylex.props(ui.panel, styles.activity).className}
+      data-testid="home-activity"
+      // `stale`: the last numbers stay visible while the error note says the refresh failed.
+      data-state={
+        activity.isPending
+          ? 'loading'
+          : activity.error
+            ? activity.data
+              ? 'stale'
+              : 'error'
+            : 'ready'
+      }
+    >
+      <div class={stylex.props(ui.panelHead, styles.activityHead).className}>
+        <h2 class={stylex.props(ui.title, styles.h2Size).className}>实时活动</h2>
+        <span class={stylex.props(ui.eyebrow).className}>每 10 秒刷新</span>
+      </div>
+      <div class={stylex.props(styles.facts).className}>
+        <div class={stylex.props(styles.fact).className} data-testid="home-activity-duels">
+          <b class={stylex.props(styles.factValue).className}>
+            {counter(activity.data?.activeDuels)}
+          </b>
+          <span class={stylex.props(styles.factLabel).className}>正在进行的对决</span>
+        </div>
+        <div class={stylex.props(styles.fact).className} data-testid="home-activity-waiting">
+          <b class={stylex.props(styles.factValue).className}>
+            {counter(activity.data?.waitingPlayers)}
+          </b>
+          <span class={stylex.props(styles.factLabel).className}>正在等待匹配的玩家</span>
+        </div>
+      </div>
+      <Show when={activity.isPending}>
+        <p
+          class={stylex.props(styles.activityNote).className}
+          data-testid="home-activity-loading"
+          role="status"
+        >
+          正在获取活动数据…
+        </p>
+      </Show>
+      <Show when={activity.error}>
+        <p
+          class={stylex.props(styles.activityNote, styles.activityNoteError).className}
+          data-testid="home-activity-error"
+          role="status"
+        >
+          活动数据暂时无法获取，稍后自动重试。
+        </p>
+      </Show>
+    </section>
+  );
+}
+
 /** The game entrance: match controls, account summary and a short primer. */
 export function HomeView(props: { ctx: AppContext }) {
-  const [difficulty, setDifficulty] = createSignal<Difficulty>(DEFAULT_DIFFICULTY);
   const navigate = useNavigate();
 
   const configured = () => props.ctx.session.aiConfigured;
@@ -156,37 +218,14 @@ export function HomeView(props: { ctx: AppContext }) {
                   <h2 class={stylex.props(ui.title, styles.entryTitle).className}>快速匹配</h2>
                   <span class={stylex.props(styles.entryTag).className}>1v1</span>
                 </div>
-                <label class={stylex.props(ui.label).className} for="home-difficulty">
-                  咒文难度
-                </label>
-                <select
-                  class={stylex.props(ui.input).className}
-                  id="home-difficulty"
-                  data-testid="home-quick-difficulty"
-                  aria-describedby="quick-difficulty-hint"
-                  data-difficulty={difficulty()}
-                  onChange={(event) => setDifficulty(event.currentTarget.value as Difficulty)}
-                >
-                  <For each={DIFFICULTIES}>
-                    {(level) => (
-                      <option value={level} selected={level === DEFAULT_DIFFICULTY}>
-                        {DIFFICULTY_LABELS[level]}
-                      </option>
-                    )}
-                  </For>
-                </select>
-                <span class={stylex.props(ui.hint).className} id="quick-difficulty-hint">
-                  {DIFFICULTY_HINTS[difficulty()]}
-                </span>
+                <p class={stylex.props(styles.entryNote).className}>
+                  直接进入队列，与另一位玩家一起对决。
+                </p>
                 <button
                   class={stylex.props(ui.button, ui.primary, styles.entryButton).className}
                   type="button"
                   data-testid="home-quick-start"
-                  onClick={() =>
-                    requireAuth(
-                      () => void navigate({ to: '/match', search: { difficulty: difficulty() } }),
-                    )
-                  }
+                  onClick={() => requireAuth(() => void navigate({ to: '/match' }))}
                 >
                   快速匹配 · 1v1
                 </button>
@@ -228,6 +267,8 @@ export function HomeView(props: { ctx: AppContext }) {
           <PlayerCard ctx={props.ctx} />
         </div>
       </div>
+
+      <ActivityPanel />
 
       <section class={stylex.props(ui.panel, styles.tutorial).className}>
         <div class={stylex.props(ui.panelHead, styles.tutorialHead).className}>

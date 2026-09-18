@@ -1,8 +1,8 @@
 import { QUEUE_ENTRY_TTL_MS } from '../../shared/protocol';
-import type { Difficulty, MatchCancelResult, MatchTicket, User } from '../../shared/protocol';
+import type { MatchCancelResult, MatchTicket, User } from '../../shared/protocol';
 import { finishCancel, reconcileMatched, settle } from './reconcile';
 import { MatchRejection } from './rejection';
-import { queueStub, readReservation, roomStub } from './rooms';
+import { matchIsLive, queueStub, readReservation, roomStub } from './rooms';
 import { armAlarm } from './scope';
 import type { MatchmakerScope } from './scope';
 import type { TicketRow } from './schema';
@@ -34,12 +34,12 @@ export class AccountTickets {
    * Every pass re-reads the ticket, so concurrent calls for one account can only ever move the single
    * stored ticket forward — a pass never mints a request that another pass already replaced.
    */
-  async acquire(user: User, difficulty: Difficulty): Promise<MatchTicket> {
+  async acquire(user: User): Promise<MatchTicket> {
     const scope = this.scope;
     for (let pass = 0; pass < ACQUIRE_PASSES; pass += 1) {
       const now = Date.now();
       const existing = readTicket(scope, user.id);
-      if (!existing) return this.waitInQueue(user, difficulty, crypto.randomUUID());
+      if (!existing) return this.waitInQueue(user, crypto.randomUUID());
 
       if (existing.state === 'cancelling') {
         // A cancellation has not been confirmed by the queue yet: finish it rather than hand out a
@@ -62,12 +62,11 @@ export class AccountTickets {
         // The seat is gone and this pass owned the ticket that was deleted. Start a new request only
         // if no other pass created one meanwhile; otherwise follow that one instead of overwriting it.
         if (readTicket(scope, user.id)) continue;
-        return this.waitInQueue(user, difficulty, crypto.randomUUID());
+        return this.waitInQueue(user, crypto.randomUUID());
       }
 
       if (existing.expires_at > now) {
-        if (existing.difficulty !== difficulty) throw new MatchRejection('match:conflict');
-        return this.waitInQueue(user, difficulty, existing.request_id);
+        return this.waitInQueue(user, existing.request_id);
       }
 
       // The lease lapsed, but the queue may still hold the entry — or a pairing it already prepared.
@@ -100,7 +99,15 @@ export class AccountTickets {
         return { cancelled: true };
       }
       const reservation = await readReservation(scope.env, roomId);
-      if (reservation === 'locked') return { cancelled: false };
+      if (reservation === 'locked') {
+        if (!(await matchIsLive(scope.env, userId, roomId))) {
+          // The match no longer holds this account: it was settled, or this
+          // account explicitly abandoned it — the seat is free either way.
+          deleteTicket(scope, userId, row.request_id);
+          return { cancelled: true };
+        }
+        return { cancelled: false };
+      }
       if (reservation === 'reserved') {
         let terminated = false;
         try {
@@ -161,11 +168,7 @@ export class AccountTickets {
     if (Number.isFinite(next)) await scope.storage.setAlarm(next);
   }
 
-  private async waitInQueue(
-    user: User,
-    difficulty: Difficulty,
-    requestId: string,
-  ): Promise<MatchTicket> {
+  private async waitInQueue(user: User, requestId: string): Promise<MatchTicket> {
     const scope = this.scope;
     const now = Date.now();
     const expiresAt = now + QUEUE_ENTRY_TTL_MS;
@@ -175,7 +178,6 @@ export class AccountTickets {
       userId: user.id,
       username: user.username,
       requestId,
-      difficulty,
       expiresAt,
       now,
     });
@@ -183,17 +185,16 @@ export class AccountTickets {
     try {
       // A pairing may already exist from a pairing that happened while this account was away; it is
       // claimed without re-joining the queue, so a poll cannot race a second pairing into existence.
-      const settled = await settle(scope, user.id, difficulty, requestId);
+      const settled = await settle(scope, user.id, requestId);
       if (settled) return settled;
       if (isCurrentWaiting(scope, user.id, requestId)) {
-        await queueStub(scope.env, difficulty).join({
+        await queueStub(scope.env).join({
           userId: user.id,
           username: user.username,
           requestId,
-          difficulty,
           expiresAt,
         });
-        const paired = await settle(scope, user.id, difficulty, requestId);
+        const paired = await settle(scope, user.id, requestId);
         if (paired) return paired;
       }
     } catch (error) {

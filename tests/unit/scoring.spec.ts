@@ -30,8 +30,8 @@ describe('咒文长度与伤害', () => {
 
 describe('法术游标', () => {
   const book = [
-    { name: '甲', text: '甲咒', element: 'fire' as const },
-    { name: '乙', text: '乙咒', element: 'ice' as const },
+    { name: '甲', text: '甲咒', translation: '甲咒', element: 'fire' as const },
+    { name: '乙', text: '乙咒', translation: '乙咒', element: 'ice' as const },
   ];
 
   it('按私有下标取书中的法术，下标越界后回绕到同一本书', () => {

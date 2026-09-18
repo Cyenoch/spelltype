@@ -41,6 +41,15 @@ export const BOOK_PHASES: Record<Phase, boolean> = {
 };
 
 /**
+ * True while this room is a duel a spectator could watch right now: the combat phase is live and
+ * its single deadline has not passed. Lobby, generation, countdown, a settled match and a deadline
+ * the alarm has not caught up with yet are all excluded — the clock decides, never the alarm.
+ */
+export function duelIsOngoing(room: RoomRow, now: number): boolean {
+  return room.phase === 'playing' && room.deadline > now;
+}
+
+/**
  * A quick reservation is live only until its deadline: the clock decides, so a
  * delayed alarm can never let a late player join or start on a dead ticket.
  */

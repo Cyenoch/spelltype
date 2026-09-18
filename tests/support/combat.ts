@@ -72,7 +72,7 @@ export function targetSeat(page: Page): Locator {
   );
 }
 
-/** Seat account ids in DOM order (the room orders seats by slot ascending). */
+/** Seat account ids in DOM order (visual columns: the viewer leftmost, then the other slots ascending). */
 export async function seatOrder(page: Page): Promise<string[]> {
   return page
     .getByTestId('arena-seat')

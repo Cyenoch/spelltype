@@ -6,6 +6,7 @@ import { BOOK_PHASES, TIMED_PHASES, reservationIsGone } from './rules';
 import type { RoomScope } from './scope';
 import { closeSocket, currentConns, readSocketMeta, sendTo } from './sockets';
 import type { SocketAuth } from './sockets';
+import { abandonedMatch } from './storage/departures';
 import { readEvents } from './storage/events';
 import { countPlayers, getPlayer, listPlayers } from './storage/players';
 import { getRoom } from './storage/room';
@@ -42,6 +43,10 @@ export function snapshotFor(scope: RoomScope, user: User): RoomSnapshot {
       throw new RoomRejection('room:in_progress', '比赛已开始，无法加入。');
     if (countPlayers(scope.sql) >= MAX_PRIVATE_PLAYERS)
       throw new RoomRejection('room:full', '房间已满。');
+  } else if (abandonedMatch(scope.sql, user.id, room.match_id)) {
+    // An explicit departure is permanent for this match: the account reads the
+    // room no more than an account that never joined it.
+    throw new RoomRejection('room:reservation_gone', '你已离开本场对局。');
   }
   return buildSnapshot(snapshotContext(scope, room), user.id);
 }

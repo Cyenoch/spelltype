@@ -1,5 +1,4 @@
 const messages = {
-  'match:conflict': '你正在其他难度排队，请先取消当前匹配',
   'match:cancelled': '匹配已取消，请重新发起匹配',
 } as const;
 

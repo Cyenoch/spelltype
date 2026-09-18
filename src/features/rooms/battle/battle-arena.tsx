@@ -4,19 +4,22 @@ import { arenaFor } from '../../../pixi/assets';
 import { ui } from '../../../ui/primitives';
 import * as stylex from '@stylexjs/stylex';
 import { styles } from './battle.styles';
-import { SeatCard } from './battle-seat';
+import { SeatLabel } from './battle-seat';
 import { TimerBox } from './battle-timer';
 import {
   arenaIndex,
+  visualSeatOrder,
   CRITICAL_HP_RATIO,
   LOW_HP_RATIO,
   type CanvasState,
   type RenderMode,
 } from './battle-view';
+import { BattleMusic } from './battle-music';
 
 /**
- * The arena: canvas characters plus DOM text. The canvas is decorative and
- * optional — the DOM owns every number and keeps working when it fails.
+ * The arena: canvas characters with a DOM name floating over each head. The
+ * canvas is decorative and optional — the feet bars draw health, while the DOM
+ * keeps the authoritative numbers for assistive tech and as the fallback display.
  */
 export function BattleArena(props: {
   snapshot: RoomSnapshot;
@@ -42,7 +45,11 @@ export function BattleArena(props: {
     if (ratio <= LOW_HP_RATIO) return 'low';
     return 'none';
   });
-  const seatIds = createMemo(() => props.players.map((player) => player.id));
+  /* The viewer reads themselves leftmost; the canvas seating follows the same
+     order, so each label stays over its character. */
+  const seatIds = createMemo(() =>
+    visualSeatOrder(props.players, props.selfId).map((player) => player.id),
+  );
 
   return (
     <div
@@ -73,50 +80,64 @@ export function BattleArena(props: {
         aria-hidden="true"
       />
       <div class={stylex.props(styles.arenaHud).className}>
+        <div class={stylex.props(styles.arenaStatus).className}>
+          <span>{props.snapshot.phase === 'countdown' ? '即将开战' : '咒文对决'}</span>
+          <span class={stylex.props(styles.arenaStatusDetail).className}>
+            {props.players.reduce(
+              (count, player) => count + Number(player.eliminatedAt === null),
+              0,
+            )}{' '}
+            / {props.players.length} 位存活
+          </span>
+        </div>
         <TimerBox phase={props.snapshot.phase} remainingMs={props.remainingMs} />
-        <button
-          type="button"
-          class={stylex.props(ui.button, ui.small, ui.danger, ui.quiet).className}
-          data-testid="battle-leave"
-          onClick={() => props.onLeave()}
+        <div class={stylex.props(styles.arenaActions).className}>
+          <BattleMusic active={props.snapshot.phase === 'playing'} />
+          <button
+            type="button"
+            class={stylex.props(ui.button, ui.small, ui.quiet, styles.arenaLeave).className}
+            data-testid="battle-leave"
+            onClick={() => props.onLeave()}
+          >
+            离开房间
+          </button>
+        </div>
+      </div>
+      <div class={stylex.props(styles.arenaField).className} data-testid="arena-field">
+        <div
+          class={
+            stylex.props(
+              styles.arenaCanvas,
+              props.canvasState === 'failed' && styles.arenaCanvasFailed,
+            ).className
+          }
+          data-testid="battle-canvas-wrap"
+          data-state={props.canvasState}
+          ref={(el) => props.onCanvas(el)}
+        />
+        <div
+          class={stylex.props(styles.arenaSeats).className}
+          data-testid="arena-seats"
+          role="list"
+          aria-label="所有玩家的生命值"
         >
-          离开房间
-        </button>
+          <For each={seatIds()}>
+            {(id) => {
+              const player = () => props.players.find((candidate) => candidate.id === id) as Player;
+              return (
+                <SeatLabel
+                  player={player()}
+                  isSelf={id === props.selfId}
+                  isTarget={props.myTarget !== null && player().slot === props.myTarget}
+                  aimedAtMe={props.aimingAtMe.some((candidate) => candidate.id === id)}
+                  render={props.render}
+                  selfCast={props.selfCast}
+                />
+              );
+            }}
+          </For>
+        </div>
       </div>
-      <div
-        class={stylex.props(styles.arenaSeats).className}
-        data-testid="arena-seats"
-        role="list"
-        aria-label="所有玩家的生命值"
-      >
-        <For each={seatIds()}>
-          {(id) => {
-            const player = () => props.players.find((candidate) => candidate.id === id) as Player;
-            return (
-              <SeatCard
-                player={player()}
-                isSelf={id === props.selfId}
-                isTarget={props.myTarget !== null && player().slot === props.myTarget}
-                aimedAtMe={props.aimingAtMe.some((candidate) => candidate.id === id)}
-                render={props.render}
-                selfCast={props.selfCast}
-              />
-            );
-          }}
-        </For>
-      </div>
-      <div
-        class={
-          stylex.props(
-            styles.arenaCanvas,
-            props.render === 'dom' && styles.arenaCanvasDom,
-            props.canvasState === 'failed' && styles.arenaCanvasFailed,
-          ).className
-        }
-        data-testid="battle-canvas-wrap"
-        data-state={props.canvasState}
-        ref={(el) => props.onCanvas(el)}
-      />
       <Show when={props.snapshot.phase === 'countdown'}>
         <div class={stylex.props(styles.countdown).className} data-testid="countdown-display">
           <div class={stylex.props(styles.countdownValue).className}>

@@ -82,11 +82,19 @@ export function PlayerCard(props: { ctx: AppContext }) {
                   登录后可以快速匹配、创建私人房。
                 </div>
               </div>
+              <img
+                class={stylex.props(styles.pcSigil).className}
+                src={ASSETS.sigil}
+                alt=""
+                width="30"
+                height="30"
+                aria-hidden="true"
+              />
             </div>
             <p class={stylex.props(styles.pcMeta, styles.pcNote).className}>
               注册账号，开启你的第一场对决。
             </p>
-            <div class={stylex.props(ui.buttonRow, styles.pcRow).className}>
+            <div class={stylex.props(ui.buttonRow).className}>
               <button
                 class={stylex.props(ui.button, ui.primary, styles.pcButton).className}
                 type="button"
@@ -114,13 +122,25 @@ export function PlayerCard(props: { ctx: AppContext }) {
               height="56"
             />
             <div class={stylex.props(styles.pcId).className}>
-              <div class={stylex.props(styles.pcName).className} data-testid="home-username">
+              <div
+                class={stylex.props(styles.pcName).className}
+                data-testid="home-username"
+                title={user()?.username}
+              >
                 {user()?.username}
               </div>
               <div class={stylex.props(styles.pcMeta, styles.pcSub).className}>
                 准备迎接下一场对决
               </div>
             </div>
+            <img
+              class={stylex.props(styles.pcSigil).className}
+              src={ASSETS.sigil}
+              alt=""
+              width="30"
+              height="30"
+              aria-hidden="true"
+            />
           </div>
 
           <Show when={stats()}>
@@ -156,13 +176,16 @@ export function PlayerCard(props: { ctx: AppContext }) {
 
           <Show when={latest()}>
             {(game) => (
-              <p
-                class={stylex.props(styles.pcMeta, styles.pcRecent).className}
+              <section
+                class={stylex.props(styles.pcRecent).className}
                 data-testid="home-recent"
                 title={`完成于 ${formatTimestamp(game().created_at)}`}
               >
-                最近一局：{game().theme} · 第 {game().rank} 名 · {game().cpm} 字/分钟
-              </p>
+                <span class={stylex.props(styles.pcStatLabel).className}>最近一局</span>
+                <p class={stylex.props(styles.pcMeta, styles.pcRecentLine).className}>
+                  {game().theme} · 第 {game().rank} 名 · {game().cpm} 字/分钟
+                </p>
+              </section>
             )}
           </Show>
 
@@ -184,7 +207,7 @@ export function PlayerCard(props: { ctx: AppContext }) {
             )}
           </Show>
 
-          <div class={stylex.props(ui.buttonRow, styles.pcRow).className}>
+          <div class={stylex.props(ui.buttonRow).className}>
             <button
               class={stylex.props(ui.button, styles.pcButton).className}
               type="button"

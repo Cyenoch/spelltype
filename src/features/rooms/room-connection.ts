@@ -68,14 +68,6 @@ export class RoomConnection {
     }
   }
 
-  /** Politely leave: the message needs a flushed frame before the socket closes. */
-  leave(): boolean {
-    const sent = this.send({ type: 'leave' });
-    this.stopped = true;
-    window.setTimeout(() => this.close(), sent ? 900 : 0);
-    return sent;
-  }
-
   close(): void {
     this.stopped = true;
     this.teardownTimers();

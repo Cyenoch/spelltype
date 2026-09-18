@@ -5,14 +5,17 @@ import type { Element } from '../../../shared/protocol';
 const BAR_HEIGHT = 11;
 const BAR_WIDTH_MAX = 240;
 const BAR_WIDTH_MIN = 84;
+/** Visual only: full-health hits read slightly larger; numeric HP stays authoritative. */
+const HEALTH_CURVE = 1.1;
+const DROP_HOLD_MS = 140;
+const DROP_DURATION_MS = 480;
+const FLASH_DURATION_MS = 260;
 
 /**
- * The honest part of a fighter: the coloured fill is always the authoritative
- * health from the snapshot, while the pale "catch-up" bar behind it keeps the
- * previous value and drains towards it, so a hit is legible even when the
- * snapshot that carried it arrived together with the next one. Nothing here
- * decides damage; it only reflects the room. The bar never rotates with the body:
- * a bar that tips with its owner is unreadable exactly when it matters most.
+ * The loss segment flashes above the frame, then shrinks away while the main fill
+ * follows after a brief hold. Widths use a subtle curve, never the combat rules.
+ * Authoritative HP and accessible numeric readouts remain exact. The bar stays
+ * horizontal even when its fighter recoils or falls.
  */
 export class FighterBar {
   readonly view = new Container();
@@ -20,13 +23,20 @@ export class FighterBar {
   private readonly seat = new Graphics();
   private readonly frame = new Graphics();
   private readonly back: Sprite;
-  private readonly ghost: Sprite;
+  private readonly damageFlash: Sprite;
   private readonly fill: Sprite;
   private readonly gloss: Sprite;
 
+  private healthRatio = 1;
+  private targetRatio = 1;
   private fillRatio = 1;
-  private ghostRatio = 1;
+  private dropFrom = 1;
+  private dropElapsed = DROP_HOLD_MS + DROP_DURATION_MS;
+  private flashFrom = 1;
+  private flashTo = 1;
+  private flashElapsed = FLASH_DURATION_MS;
   private barScale = 1;
+  private barWidth = BAR_WIDTH_MAX;
 
   constructor(
     private readonly element: Element,
@@ -37,9 +47,9 @@ export class FighterBar {
     this.back.tint = 0x191430;
     this.back.alpha = 0.9;
 
-    this.ghost = new Sprite(Texture.WHITE);
-    this.ghost.anchor.set(0, 0.5);
-    this.ghost.tint = flashTint;
+    this.damageFlash = new Sprite(Texture.WHITE);
+    this.damageFlash.anchor.set(0.5, 0.5);
+    this.damageFlash.visible = false;
 
     this.fill = new Sprite(Texture.WHITE);
     this.fill.anchor.set(0, 0.5);
@@ -50,7 +60,7 @@ export class FighterBar {
     this.gloss.tint = ELEMENT_CORE[element];
     this.gloss.alpha = 0.5;
 
-    this.view.addChild(this.seat, this.back, this.ghost, this.fill, this.gloss, this.frame);
+    this.view.addChild(this.seat, this.back, this.fill, this.gloss, this.frame, this.damageFlash);
   }
 
   layout(maxWidth: number, barOffsetY: number): void {
@@ -59,8 +69,9 @@ export class FighterBar {
     const baseScale = barWidth / Math.max(1, this.back.texture.width);
     const baseHeight = BAR_HEIGHT / Math.max(1, this.back.texture.height);
     this.barScale = baseScale;
+    this.barWidth = barWidth;
     this.back.position.set(barX, barOffsetY);
-    this.ghost.position.set(barX, barOffsetY);
+    this.damageFlash.position.set(barX, barOffsetY);
     this.fill.position.set(barX, barOffsetY);
     this.gloss.position.set(barX, barOffsetY - BAR_HEIGHT * 0.28);
     this.back.scale.set(baseScale, baseHeight);
@@ -115,37 +126,61 @@ export class FighterBar {
   }
 
   /**
-   * Takes the authoritative health ratio, clamped by the caller. Returns true when
-   * the loss lands as a hit — a drop that is not instant; `instant` skips the
-   * catch-up animation and snaps the pale bar to the new value.
+   * Only a new authoritative loss starts a flash. Repeated snapshots must not
+   * erase it or restart its hold. Initial state, healing/rematch and reduced
+   * motion snap immediately, without manufacturing damage.
    */
   applyHealth(ratio: number, instant: boolean): boolean {
-    let hit = false;
-    if (ratio < this.fillRatio && !instant) {
-      hit = true;
-    } else if (instant || ratio >= this.fillRatio) {
-      this.ghostRatio = ratio;
+    const previous = this.healthRatio;
+    if (!instant && ratio === previous) return false;
+    const target = ratio ** HEALTH_CURVE;
+    this.healthRatio = ratio;
+    if (instant || ratio >= previous) {
+      this.targetRatio = target;
+      this.fillRatio = target;
+      this.dropFrom = target;
+      this.dropElapsed = DROP_HOLD_MS + DROP_DURATION_MS;
+      this.flashElapsed = FLASH_DURATION_MS;
+      return false;
     }
-    this.fillRatio = ratio;
-    return hit;
+
+    // A second hit retargets the existing drop without adding another full hold.
+    this.dropElapsed =
+      this.fillRatio > this.targetRatio ? Math.min(this.dropElapsed, DROP_HOLD_MS) : 0;
+    this.dropFrom = this.fillRatio;
+    this.flashFrom = this.targetRatio;
+    this.flashTo = target;
+    this.flashElapsed = 0;
+    this.targetRatio = target;
+    return true;
   }
 
   catchUp(deltaMS: number): void {
-    if (this.ghostRatio > this.fillRatio) {
-      const gap = this.ghostRatio - this.fillRatio;
-      const step = Math.max(gap * Math.min(1, deltaMS / 260), deltaMS * 0.00016);
-      this.ghostRatio = Math.max(this.fillRatio, this.ghostRatio - step);
-    } else {
-      this.ghostRatio = this.fillRatio;
-    }
+    this.flashElapsed = Math.min(FLASH_DURATION_MS, this.flashElapsed + deltaMS);
+    if (this.fillRatio <= this.targetRatio) return;
+    this.dropElapsed = Math.min(DROP_HOLD_MS + DROP_DURATION_MS, this.dropElapsed + deltaMS);
+    const progress = Math.max(0, this.dropElapsed - DROP_HOLD_MS) / DROP_DURATION_MS;
+    this.fillRatio = this.targetRatio + (this.dropFrom - this.targetRatio) * (1 - progress) ** 3;
   }
 
   paint(): void {
     const base = this.barScale;
     const heightScale = this.back.scale.y;
-    this.ghost.scale.set(base * Math.max(0.0001, this.ghostRatio), heightScale);
-    this.fill.scale.set(base * Math.max(0.0001, this.fillRatio), heightScale);
-    this.fill.tint = this.fillRatio <= 0.25 ? 0xff6d6d : ELEMENT_COLORS[this.element];
-    this.ghost.alpha = this.ghostRatio > this.fillRatio ? 0.85 : 0;
+    this.fill.scale.set(base * this.fillRatio, heightScale);
+    this.fill.visible = this.fillRatio > 0;
+    this.fill.tint = this.healthRatio <= 0.25 ? 0xff6d6d : ELEMENT_COLORS[this.element];
+    this.gloss.scale.x = base * this.fillRatio;
+    this.gloss.visible = this.fill.visible;
+
+    const flash = 1 - this.flashElapsed / FLASH_DURATION_MS;
+    this.damageFlash.visible = flash > 0 && this.flashFrom > this.flashTo;
+    if (!this.damageFlash.visible) return;
+    this.damageFlash.x = this.back.x + this.barWidth * (this.flashFrom + this.flashTo) * 0.5;
+    this.damageFlash.scale.set(
+      base * (this.flashFrom - this.flashTo) * (0.7 + flash * 0.3),
+      heightScale * 2.8 * flash ** 2,
+    );
+    this.damageFlash.alpha = flash;
+    this.damageFlash.tint = this.flashElapsed < 70 ? 0xffffff : 0xffedaa;
   }
 }

@@ -5,6 +5,7 @@ import { clientMessageSchema, roomInitSchema } from '../../shared/validation';
 import { registerSessionRoom } from '../auth/sessions';
 import type { Env } from '../env';
 import { handleClientFrame } from './frames';
+import { manualLeave } from './leave';
 import { maybeAutoStart } from './match';
 import { RoomRejection } from './rejection';
 import {
@@ -14,7 +15,9 @@ import {
 import {
   MAX_CATCHUP_STEPS,
   MESSAGE_LENGTH_FAST_PATH,
+  MATCH_ACTIVE,
   SEAT_TTL_MS,
+  duelIsOngoing,
   reservationIsGone,
 } from './rules';
 import { InputBudget } from './scope';
@@ -31,6 +34,7 @@ import {
 } from './sockets';
 import type { SocketAuth } from './sockets';
 import { createSchema } from './storage/schema';
+import { abandonedMatch } from './storage/departures';
 import { getPlayer, insertPlayer, updatePlayer } from './storage/players';
 import { getRoom, insertRoom } from './storage/room';
 import { scheduleAlarm } from './timers';
@@ -81,7 +85,7 @@ export class GameRoom extends DurableObject<Env> {
     const parsed = roomInitSchema.safeParse(init);
     if (!parsed.success)
       throw new Error(`room:invalid_init:${parsed.error.issues[0]?.path.join('.') || 'shape'}`);
-    const { id, host, theme, difficulty, mode } = parsed.data;
+    const { id, host, theme, mode } = parsed.data;
     const sql = this.scope.sql;
     const now = Date.now();
     const existing = getRoom(sql);
@@ -102,7 +106,8 @@ export class GameRoom extends DurableObject<Env> {
       hostId: host.id,
       mode,
       theme,
-      difficulty,
+      // Every room is hard: no request can choose a difficulty any more.
+      difficulty: 'hard',
       reservationState: mode === 'quick' ? 'reserved' : 'none',
       reservationExpiresAt: mode === 'quick' ? now + RESERVATION_TTL_MS : null,
       now,
@@ -127,8 +132,40 @@ export class GameRoom extends DurableObject<Env> {
     return readReservationState(this.scope);
   }
 
+  /**
+   * The public activity answer: is a duel being fought in this room right now? A boolean only —
+   * no room id, roster, theme or phase detail ever crosses this boundary.
+   */
+  async activeDuel(): Promise<boolean> {
+    const room = getRoom(this.scope.sql);
+    return room !== null && duelIsOngoing(room, Date.now());
+  }
+
   async cancelReservation(userId: string): Promise<boolean> {
     return releaseReservation(this.scope, userId);
+  }
+
+  /**
+   * The account's explicit manual departure. Commits the forfeit or membership
+   * release durably before returning; idempotent for a replayed leave, and a
+   * `room:not_found` refusal for a room or seat this account never held. This
+   * is the only path that forfeits: an ordinary disconnect never reaches it.
+   */
+  async leaveRoom(userId: string): Promise<void> {
+    await manualLeave(this.scope, userId);
+  }
+
+  /**
+   * True while this account still holds a live seat in the room's running match.
+   * A match this account explicitly abandoned does not entitle it any more, so
+   * the matchmaker releases the ticket on its next reconciliation even while
+   * everyone else keeps playing — the room phase alone was never the question.
+   */
+  async matchEntitlement(userId: string): Promise<boolean> {
+    const room = getRoom(this.scope.sql);
+    if (!room || !MATCH_ACTIVE[room.phase]) return false;
+    if (!getPlayer(this.scope.sql, userId)) return false;
+    return !abandonedMatch(this.scope.sql, userId, room.match_id);
   }
 
   /**
@@ -209,6 +246,13 @@ export class GameRoom extends DurableObject<Env> {
       return Response.json({ error: '房间不存在或已结束。' }, { status: 404 });
     if (reservationIsGone(room, Date.now())) {
       return Response.json({ error: '匹配已结束，请重新匹配。' }, { status: 409 });
+    }
+    // An explicitly abandoned match never readmits the account that left it — not
+    // after a delayed generation continuation, not on a stale tab, not ever while
+    // this match is the room's current one. An ordinary disconnect bypasses this:
+    // only a committed departure writes the record the check reads.
+    if (getPlayer(sql, auth.userId) && abandonedMatch(sql, auth.userId, room.match_id)) {
+      return Response.json({ error: '你已离开本场对局。' }, { status: 409 });
     }
 
     // Nothing below awaited yet, so `room` is still the state this handshake

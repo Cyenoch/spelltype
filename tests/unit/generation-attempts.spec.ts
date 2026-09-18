@@ -39,25 +39,53 @@ vi.mock('../../worker/generation/provider', () => ({
 // `vi.mock` is hoisted above this import, so the module under test gets the stubs.
 import { GENERATION_ATTEMPTS, generateSpellSet } from '../../worker/generation/spells';
 
-const HAN = '霜月幽炎雷渊灵焰寒星冥绮岚晞辰暮曦云雾雨雪风花叶露金木水火土山河海川岩石';
-const NAMES = ['炎爆术', '霜缚咒', '雷引诀', '幽影环', '星辉印', '冰封界', '风吟诀', '月蚀咒'];
+const LETTERS = 'abcdefghijklmnopqrstuvwxyz';
+const NAME_BASES = [
+  'Ember Bolt',
+  'Frost Bind',
+  'Storm Call',
+  'Raven Mark',
+  'Star Sigil',
+  'Ice Veil',
+  'Wind Verse',
+  'Moon Eclipse',
+];
+const ZH_BASES = [
+  '燃起余烬之焰',
+  '冻结来敌脚步',
+  '召来风暴轰击',
+  '以鸦羽刻下印记',
+  '星光结成封印',
+  '寒冰织成面纱',
+  '风吟成诗',
+  '月影吞没一切',
+];
 
-function hanRun(length: number, offset: number): string {
+/** An exact-`length` code point run of ASCII pseudo-words whose first letter is fixed by `offset`. */
+function wordRun(length: number, offset: number): string {
   let text = '';
-  while (text.length < length) text += HAN[(offset + text.length) % HAN.length];
+  while (text.length < length) {
+    if (text.length > 0 && length - text.length > 1) text += ' ';
+    for (let at = 0; at < 4 && text.length < length; at += 1) {
+      text += LETTERS[(offset + text.length) % LETTERS.length];
+    }
+  }
   return text;
 }
 
-/** A conforming book whose spells are `length` characters long, distinct in text and name. */
+/** A conforming book whose spells are `length` code points long, distinct in text, name and translation. */
 function book(length = 27): Spell[] {
   return Array.from({ length: SPELL_BOOK_SIZE }, (_, index) => ({
-    name: `${NAMES[index % NAMES.length]}${HAN[index % HAN.length]}`,
-    text: hanRun(length, index),
+    name: `${NAME_BASES[index % NAME_BASES.length]} ${LETTERS[index % LETTERS.length].toUpperCase()}`,
+    text: wordRun(length, index),
+    translation: `${ZH_BASES[index % ZH_BASES.length]}，第 ${index + 1} 条。`,
     element: (['arcane', 'fire', 'ice', 'storm'] as const)[index % 4],
   }));
 }
 
-const input = { theme: '咒文契约', difficulty: 'normal' as const, variation: 'v1' };
+// The theme is player data, not generation output: a Chinese theme must flow through the English
+// prompt untouched. There is no difficulty anymore — one hard generation contract for every room.
+const input = { theme: '咒文契约', variation: 'v1' };
 /** Only the key matters to the stubbed provider; the rest of the binding surface is irrelevant here. */
 const env = { DEEPSEEK_API_KEY: 'test-key' } as unknown as Env;
 const keylessEnv = {} as unknown as Env;
@@ -81,8 +109,8 @@ describe('生成尝试策略', () => {
     if (recovered.ok) expect(recovered.attempts).toBe(2);
     expect(generateText).toHaveBeenCalledTimes(2);
     // The retry carries the concrete reason the first candidate was refused, not a fixed notice.
-    expect(promptOf(0)).not.toContain('上一次生成不符合要求');
-    expect(promptOf(1)).toContain('上一次生成不符合要求（count）');
+    expect(promptOf(0)).not.toContain('previous attempt was rejected');
+    expect(promptOf(1)).toContain('The previous attempt was rejected (count)');
 
     generateText.mockReset();
     generateText.mockResolvedValue({ output: { spells: book().slice(0, 1) } });
@@ -102,13 +130,16 @@ describe('生成尝试策略', () => {
 
   it('真实模型典型短咒文整本直接通过，不触发重试或失败提示', async () => {
     // The user-reported bug: on the real endpoint the model writes whole books of ~14-24 char
-    // sentences, the old per-difficulty minimum rejected them on normal/hard, and players saw
-    // 「AI 返回的咒文不符合要求」 almost every match. Those lengths are now guidance-only, so
-    // the same book must start the match on the first call.
+    // sentences; the old per-difficulty bands rejected them and players saw 「AI 返回的咒文不
+    // 符合要求」 almost every match. The single 39-50 target is prompt guidance only, so the same
+    // book must start the match on the first call.
     generateText.mockResolvedValueOnce({ output: { spells: book(16) } });
-    const outcome = await generateSpellSet(env, { ...input, difficulty: 'hard' });
+    const outcome = await generateSpellSet(env, input);
     expect(outcome).toMatchObject({ ok: true, attempts: 1 });
     expect(generateText).toHaveBeenCalledTimes(1);
+    // Every prompt carries the one hard length target, and no difficulty line exists anymore.
+    expect(promptOf(0)).toContain('targets 39 to 50 characters');
+    expect(promptOf(0)).not.toContain('Difficulty:');
   });
 
   it('供应商故障与超时不重试，只花一次调用', async () => {

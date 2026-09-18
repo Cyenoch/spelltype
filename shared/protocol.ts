@@ -11,13 +11,17 @@
 import type { z } from 'zod';
 import type {
   clientMessageSchema,
-  difficultySchema,
   elementSchema,
   roomInitSchema,
   roomModeSchema,
 } from './validation';
 
-export type Difficulty = z.infer<typeof difficultySchema>;
+/**
+ * The one spell difficulty the product serves. Every room — private and quick alike — initializes
+ * hard, so no request can choose a difficulty any more; the type survives because stored rooms and
+ * snapshots keep carrying the value.
+ */
+export type Difficulty = 'hard';
 export type Element = z.infer<typeof elementSchema>;
 /** How a room came to exist: a host's private table, or a matchmaker pairing. */
 export type RoomMode = z.infer<typeof roomModeSchema>;
@@ -75,6 +79,8 @@ export interface User {
 export interface Spell {
   name: string;
   text: string;
+  /** Simplified-Chinese meaning of the exact English `text`, shown under the spell while typing. */
+  translation: string;
   element: Element;
 }
 
@@ -174,7 +180,6 @@ export type RoomInit = z.infer<typeof roomInitSchema>;
 
 export interface MatchTicket {
   state: 'waiting' | 'matched';
-  difficulty: Difficulty;
   /** Present only when `state` is `matched`. */
   roomId?: string;
   /** For `waiting`: the entry expiry (refreshed by polling). For `matched`: the seat reservation expiry. */
@@ -216,7 +221,17 @@ export interface Profile {
   history: MatchResult[];
 }
 
-/** `GET /api/session` — never exposes secrets or provider error details. */
+/** `GET /api/activity` — homepage counters only; never room ids, usernames or private state. */
+export interface ActivitySummary {
+  /** Rooms whose combat phase is live right now, private and quick alike. */
+  activeDuels: number;
+  /** Accounts holding a live, still-unpaired matchmaking queue entry. */
+  waitingPlayers: number;
+}
+
+/**
+ * `GET /api/session` — never exposes secrets or provider error details.
+ */
 export interface SessionInfo {
   user: User | null;
   aiConfigured: boolean;

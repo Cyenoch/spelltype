@@ -1,6 +1,5 @@
 import { createMemo } from 'solid-js';
 import type { RoomSnapshot } from '../../../../shared/protocol';
-import { formatSeconds } from '../../../ui/format';
 import * as stylex from '@stylexjs/stylex';
 import { styles } from './battle.styles';
 
@@ -15,8 +14,13 @@ export function TimerBox(props: { phase: RoomSnapshot['phase']; remainingMs: num
     () => active() && props.phase === 'playing' && (props.remainingMs as number) <= 30_000,
   );
   const urgent = createMemo(() => soon() && (props.remainingMs as number) <= 10_000);
+  const remaining = createMemo(() => {
+    if (props.remainingMs === null) return '—';
+    const seconds = Math.ceil(Math.max(0, props.remainingMs) / 1000);
+    return `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+  });
   const label = () => {
-    if (props.remainingMs !== null) return props.phase === 'playing' ? '剩余战斗时间' : '开场倒数';
+    if (props.remainingMs !== null) return props.phase === 'playing' ? '剩余时间' : '开场倒数';
     switch (props.phase) {
       case 'lobby':
         return '等待开始';
@@ -47,7 +51,7 @@ export function TimerBox(props: { phase: RoomSnapshot['phase']; remainingMs: num
           props.remainingMs === null ? 0 : Math.max(0, Math.round(props.remainingMs))
         }
       >
-        {props.remainingMs === null ? '—' : formatSeconds(props.remainingMs)}
+        {remaining()}
       </span>
       <span class={stylex.props(styles.timerLabel).className} data-testid="match-timer-label">
         {label()}

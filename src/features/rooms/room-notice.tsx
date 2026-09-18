@@ -17,15 +17,19 @@ export function RoomNotice(props: { problem: RoomProblem; snapshot: RoomSnapshot
       class={
         stylex.props(
           ui.notice,
+          styles.noticeLayout,
           props.problem.tone === 'error' ? styles.noticeError : styles.noticeWarn,
         ).className
       }
       data-testid="room-error"
       data-tone={props.problem.tone}
+      role="alert"
     >
-      <span class={stylex.props(ui.noticeIcon).className}>✖</span>
-      <div>{props.problem.message}</div>
-      <div class={stylex.props(ui.buttonRow).className}>
+      <span class={stylex.props(ui.noticeIcon).className} aria-hidden="true">
+        ✖
+      </span>
+      <div class={stylex.props(styles.noticeMessage).className}>{props.problem.message}</div>
+      <div class={stylex.props(ui.buttonRow, styles.noticeActions).className}>
         <Show when={props.snapshot}>
           {(room) => (
             <button
@@ -34,7 +38,7 @@ export function RoomNotice(props: { problem: RoomProblem; snapshot: RoomSnapshot
               data-testid="room-error-retry"
               onClick={() =>
                 void (room().mode === 'quick'
-                  ? navigate({ to: '/match', search: { difficulty: room().difficulty } })
+                  ? navigate({ to: '/match' })
                   : navigate({ to: '/create', search: {} }))
               }
             >

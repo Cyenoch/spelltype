@@ -1,10 +1,10 @@
-import { queueShardName } from '../ids';
+import { QUEUE_SHARD_NAME } from '../ids';
 import type { Env } from '../env';
-import type { Difficulty, ReservationState, User } from '../../shared/protocol';
+import type { ReservationState } from '../../shared/protocol';
 
-/** The queue shard for one difficulty: the only place a pairing is ever decided. */
-export function queueStub(env: Env, difficulty: Difficulty) {
-  return env.MATCHMAKER.get(env.MATCHMAKER.idFromName(queueShardName(difficulty)));
+/** The matchmaking queue: the only place a pairing is ever decided. */
+export function queueStub(env: Env) {
+  return env.MATCHMAKER.get(env.MATCHMAKER.idFromName(QUEUE_SHARD_NAME));
 }
 
 /** The room that may hold an account's seat. */
@@ -64,11 +64,12 @@ function roomSeatGone(error: unknown): boolean {
   );
 }
 
-/** The room's own answer to "does this account's locked seat still belong to a match?" */
-export async function matchIsLive(env: Env, user: User, roomId: string): Promise<boolean> {
+/** The room's own answer to "does this account still hold a live seat in its match?" */
+export async function matchIsLive(env: Env, userId: string, roomId: string): Promise<boolean> {
   try {
-    const snapshot = await roomStub(env, roomId).snapshot(user);
-    return snapshot.phase !== 'finished';
+    // Entitlement, not room phase: a match this account explicitly abandoned no
+    // longer holds it, even while the room itself is still playing.
+    return await roomStub(env, roomId).matchEntitlement(userId);
   } catch (error) {
     if (roomSeatGone(error)) return false;
     // An unreachable room keeps the seat: the safe direction is refusing a new match, never handing

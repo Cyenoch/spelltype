@@ -9,14 +9,13 @@ import { captureSockets, type SocketCapture } from './wire';
 
 export async function createRoom(
   page: Page,
-  options: { theme?: string; difficulty?: 'easy' | 'normal' | 'hard'; preset?: number },
+  options: { theme?: string; preset?: number },
 ): Promise<string> {
   await page.getByTestId('home-create').click();
   await expect(page.getByTestId('view-create')).toBeVisible();
   if (options.preset !== undefined)
     await page.getByTestId('theme-preset').nth(options.preset).click();
   if (options.theme !== undefined) await page.getByTestId('room-theme-input').fill(options.theme);
-  await page.getByTestId('room-difficulty').selectOption(options.difficulty ?? 'normal');
   await page.getByTestId('room-create-submit').click();
   await expect(page.getByTestId('view-room')).toBeVisible();
   await expect(page.getByTestId('lobby-panel')).toBeVisible();
@@ -81,7 +80,6 @@ export async function startMatch(page: Page): Promise<void> {
 
 export interface RoomOptions {
   theme?: string;
-  difficulty?: 'easy' | 'normal' | 'hard';
   preset?: number;
   ready?: boolean;
   sockets?: boolean;

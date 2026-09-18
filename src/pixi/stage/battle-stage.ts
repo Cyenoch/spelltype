@@ -74,11 +74,7 @@ export async function createBattleStage(host: HTMLElement): Promise<BattleStage>
   const world = new Container();
   app.stage.addChild(world);
 
-  const arena = new Arena(
-    { skies: assets.skies, sigil: assets.sigil, glow: shapes.glow, ring: shapes.ring },
-    motes,
-    () => reduced,
-  );
+  const arena = new Arena({ sigil: assets.sigil, ring: shapes.ring }, motes, () => reduced);
   const fighterLayer = new Container();
   const fx = new FxLayer(shapes, pools, reduced);
 
@@ -173,6 +169,17 @@ export async function createBattleStage(host: HTMLElement): Promise<BattleStage>
     const present: number[] = [];
     for (let slot = 0; slot < SLOT_COUNT; slot += 1) {
       if (match.occupancy[slot] !== null) present.push(slot);
+    }
+    // The viewer reads themselves leftmost — the same order the DOM overhead
+    // labels use (`visualSeatOrder` in battle-view). Column order is purely
+    // visual: slots, targeting and events keep their authoritative identities,
+    // and every anchor (chest, feet bar, tether, projectile) reads back through
+    // `seating` by slot.
+    const selfSlot = match.selfSlot;
+    if (selfSlot >= 0) {
+      present.sort((left, right) =>
+        left === selfSlot ? -1 : right === selfSlot ? 1 : left - right,
+      );
     }
     if (seating.layout(width, height, present)) match.relayoutAim();
     stageApp.paint();

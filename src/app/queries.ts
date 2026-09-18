@@ -18,3 +18,12 @@ export const profileOptions = (userId: string) =>
     staleTime: 30_000,
     retry: false,
   });
+
+/** Public homepage counters; guests read them too, so the poll never depends on a session. */
+export const activityOptions = queryOptions({
+  queryKey: ['activity'],
+  queryFn: ({ signal }) => parseResponse(client.api.activity.$get({}, { init: { signal } })),
+  staleTime: 5_000,
+  refetchInterval: 10_000,
+  retry: false,
+});

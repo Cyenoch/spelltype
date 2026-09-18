@@ -228,12 +228,29 @@ export const styles = stylex.create({
     marginTop: 0,
   },
 
+  /* --------------------------------------------------------- activity panel -- */
+
+  activity: {
+    margin: 0,
+    padding: 'clamp(12px, 1.8vw, 18px)',
+  },
+  activityHead: {
+    marginBottom: 8,
+  },
+  activityNote: {
+    margin: '10px 0 0',
+    fontSize: '.82rem',
+    color: 'var(--ink-faint)',
+  },
+  activityNoteError: {
+    color: '#ffd8de',
+  },
+
   /* ------------------------------------------------------------ player card -- */
 
   aside: {
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: 'center',
+    /** Compact, content-sized card: centers against the taller hero column instead of stretching. */
+    alignSelf: 'center',
     minWidth: 0,
     padding: 16,
     border: '1px solid var(--line)',
@@ -271,6 +288,13 @@ export const styles = stylex.create({
     filter: 'grayscale(0.7)',
     opacity: 0.85,
   },
+  /** Small crest accent balancing the avatar on the other side of the identity row. */
+  pcSigil: {
+    flex: 'none',
+    marginLeft: 'auto',
+    filter: 'drop-shadow(0 0 9px rgba(150, 136, 255, 0.45))',
+    opacity: 0.9,
+  },
   pcId: {
     minWidth: 0,
   },
@@ -279,7 +303,9 @@ export const styles = stylex.create({
     fontSize: 'clamp(1.1rem, 1.9vw, 1.35rem)',
     letterSpacing: '.04em',
     color: 'var(--ink)',
-    overflowWrap: 'anywhere',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   pcMeta: {
     fontSize: '.8rem',
@@ -334,7 +360,16 @@ export const styles = stylex.create({
     color: 'var(--ink-faint)',
     whiteSpace: 'nowrap',
   },
+  /** Recent match: a quiet section under a hairline, not another nested box. */
   pcRecent: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 3,
+    minWidth: 0,
+    paddingTop: 10,
+    borderTop: '1px solid var(--line)',
+  },
+  pcRecentLine: {
     margin: 0,
     color: 'var(--ink-dim)',
   },
@@ -344,9 +379,6 @@ export const styles = stylex.create({
   },
   pcNoteError: {
     color: '#ffd8de',
-  },
-  pcRow: {
-    marginTop: 'auto',
   },
   pcButton: {
     flex: '1 1 120px',

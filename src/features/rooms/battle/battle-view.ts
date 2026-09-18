@@ -46,6 +46,17 @@ function nextAliveSlot(players: Player[], fromSlot: number, capacity: number): n
   return null;
 }
 
+/**
+ * Visual column order for every combat surface: the viewer stands leftmost,
+ * the other seats follow in slot order. Presentation only — slots, targeting
+ * and events keep their authoritative identities.
+ */
+export function visualSeatOrder(players: Player[], selfId: string): Player[] {
+  const self = players.find((player) => player.id === selfId);
+  if (!self) return [...players];
+  return [self, ...players.filter((player) => player.id !== selfId)];
+}
+
 /** Stable arena index for a room: the same room always draws the same arena. */
 export function arenaIndex(seed: string): number {
   let hash = 7;

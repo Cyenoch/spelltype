@@ -1,3 +1,4 @@
+import { normalizeSpellInput } from '../../shared/spell-input';
 import { MAX_INPUT_CHARS } from '../../shared/protocol';
 import type { CombatEvent, ClientMessage } from '../../shared/protocol';
 import { charCount, damageOf, diffSnapshot, nextAliveBySeat, spellAt } from '../scoring';
@@ -70,16 +71,17 @@ export async function handleInput(
   if (!spell) return;
   if (!scope.input.allow(meta.connId, now)) return;
 
-  const delta = diffSnapshot(self.last_input, message.text, spell.text);
+  const text = normalizeSpellInput(message.text, spell.text);
+  const delta = diffSnapshot(self.last_input, text, spell.text);
   const attemptTotal = self.attempt_total + delta.inserted;
   const errorTotal = self.error_total + delta.errors;
 
-  if (message.text !== spell.text) {
+  if (text !== spell.text) {
     // Partial draft: accepted as the player's snapshot, and its keystrokes are
     // aggregated so accuracy spans the whole match, not one spell.
     updatePlayer(sql, self.user_id, {
       progress: delta.progress,
-      last_input: message.text,
+      last_input: text,
       attempt_total: attemptTotal,
       error_total: errorTotal,
     });

@@ -1,3 +1,4 @@
+import { WS_CLOSE } from '../../shared/protocol';
 import type { ServerMessage } from '../../shared/protocol';
 import { unregisterSessionRoom } from '../auth/sessions';
 import { RoomRejection } from './rejection';
@@ -191,4 +192,17 @@ export function closeSocket(ws: WebSocket, code: number, reason: string): void {
 /** Tells every socket this instance owns that the room is over, then closes it. */
 export function closeAllSockets(scope: RoomScope, code: number, reason: string): void {
   for (const ws of scope.sockets()) closeSocket(ws, code, reason);
+}
+
+/**
+ * Closes every socket speaking for one account, terminal (`closed`), so every
+ * tab of a departing account stops — not just the one that asked to leave.
+ * Authority is the caller's concern: clear the seat's `conn_id` first when the
+ * account must stop acting, then close.
+ */
+export function closeUserSockets(scope: RoomScope, userId: string, reason: string): void {
+  for (const ws of scope.sockets()) {
+    const meta = readSocketMeta(ws);
+    if (meta && meta.userId === userId) closeSocket(ws, WS_CLOSE.closed, reason);
+  }
 }

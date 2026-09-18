@@ -1,24 +1,20 @@
 import { RESERVATION_TTL_MS } from '../../shared/protocol';
-import type { Difficulty, RoomInit } from '../../shared/protocol';
+import type { RoomInit } from '../../shared/protocol';
 import { newRoomId } from '../ids';
 import type { ClaimedPairing, PairingRow, QueueEntry, WaitingRow } from './schema';
 import { probeReservation, roomStub } from './rooms';
 import { armAlarm } from './scope';
 import type { MatchmakerScope } from './scope';
 
-/** Preset themes for quick matches: neither player chooses the theme, and no client message can change it. */
-const QUICK_THEMES: Record<Difficulty, string> = {
-  easy: '魔法学院的新生比试',
-  normal: '正统魔法师的咒文对决',
-  hard: '禁咒试炼：高阶咒文对决',
-};
+/** Preset theme for quick matches: neither player chooses the theme, and no client message can change it. */
+const QUICK_THEME = '禁咒试炼：高阶咒文对决';
 
 /** One prepared pairing's own state, as the queue needs it while it finishes or gives up the room. */
 type RoomOutcome = 'released' | 'retained' | 'failed';
 
 /**
- * The per-difficulty queue. It pairs two distinct accounts and reserves their seats in one quick room,
- * and it is the only place that decides a pairing, so two shards can never claim the same account.
+ * The matchmaking queue. It pairs two distinct accounts and reserves their seats in one quick room,
+ * and it is the only place that decides a pairing, so two polls can never claim the same account.
  */
 export class QueueShard {
   constructor(private readonly scope: MatchmakerScope) {}
@@ -38,7 +34,8 @@ export class QueueShard {
       entry.userId,
       entry.username,
       entry.requestId,
-      entry.difficulty,
+      // Historical column: every entry queues hard, so the stored value is a constant.
+      'hard',
       now,
       entry.expiresAt,
     );
@@ -66,7 +63,8 @@ export class QueueShard {
       entry.requestId,
       partner.user_id,
       partner.request_id,
-      entry.difficulty,
+      // Historical column: every pairing queues hard, so the stored value is a constant.
+      'hard',
       expiresAt,
       now,
     );
@@ -74,8 +72,7 @@ export class QueueShard {
     const room: RoomInit = {
       id: roomId,
       host: { id: entry.userId, username: entry.username },
-      theme: QUICK_THEMES[entry.difficulty],
-      difficulty: entry.difficulty,
+      theme: QUICK_THEME,
       mode: 'quick',
       reserved: [{ id: partner.user_id, username: partner.username }],
     };
@@ -142,6 +139,21 @@ export class QueueShard {
       userId,
       requestId,
     );
+  }
+
+  /**
+   * Live, still-unpaired entries on this shard. Expired rows are excluded here rather than trusted
+   * to have been swept (the sweep is lazy: join and alarm), and paired accounts are gone from the
+   * table by construction, so this never counts a reserved or matched player. One account holds at
+   * most one entry across all shards, so shard counts never overlap.
+   */
+  async waitingCount(): Promise<number> {
+    return this.scope.sql
+      .exec<{ total: number }>(
+        'SELECT COUNT(*) AS total FROM waiting WHERE expires_at > ?',
+        Date.now(),
+      )
+      .one().total;
   }
 
   /**

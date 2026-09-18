@@ -1,11 +1,11 @@
-import type { Difficulty, MatchTicket } from '../../shared/protocol';
+import type { MatchTicket } from '../../shared/protocol';
 import type { TicketRow } from './schema';
 import type { MatchmakerScope } from './scope';
 
 /**
- * The account's single ticket: the record that makes "one queue seat per account, across
- * difficulties" enforceable. Everything that reads or writes it lives here, so the coordinator's
- * decisions never depend on a second copy of the row.
+ * The account's single ticket: the record that makes "one queue seat per account" enforceable.
+ * Everything that reads or writes it lives here, so the coordinator's decisions never depend on a
+ * second copy of the row.
  */
 export function readTicket(scope: MatchmakerScope, userId: string): TicketRow | null {
   return (
@@ -28,7 +28,6 @@ export function startWaitingTicket(
     userId: string;
     username: string;
     requestId: string;
-    difficulty: Difficulty;
     expiresAt: number;
     now: number;
   },
@@ -38,7 +37,8 @@ export function startWaitingTicket(
     row.userId,
     row.username,
     row.requestId,
-    row.difficulty,
+    // Historical column: every ticket queues hard, so the stored value is a constant.
+    'hard',
     row.expiresAt,
     row.now,
   );
@@ -97,12 +97,11 @@ export function ticketFor(row: TicketRow): MatchTicket {
   if (row.state === 'matched' && row.room_id) {
     return {
       state: 'matched',
-      difficulty: row.difficulty,
       roomId: row.room_id,
       expiresAt: row.expires_at,
     };
   }
-  return { state: 'waiting', difficulty: row.difficulty, expiresAt: row.expires_at };
+  return { state: 'waiting', expiresAt: row.expires_at };
 }
 
 export function isCurrentWaiting(

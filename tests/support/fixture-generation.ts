@@ -1,22 +1,21 @@
 /**
- * Deterministic spell book the fixture serves: a full, valid book for the difficulty the room's own
- * prompt declares.
+ * Deterministic spell book the fixture serves: a full, valid English book with one simplified
+ * Chinese translation per spell, matching the room's single hard generation contract.
  *
- * The room states its difficulty in the prompt (`难度：困难（每条 text 必须 39 到 50 个字符）`) and
- * validates the returned book against exactly that band, so the fixture reads the band back off the
- * prompt instead of guessing it: a book the fixture produces is always one the room will serve.
+ * Complete sentences fit the fixed 39–50-character target without cutting words. Each paired
+ * translation renders the same subject, action and numbered seal. The seal number changes per
+ * generation, so later books never reuse an earlier text.
  */
 import { SPELL_BOOK_SIZE } from '../../shared/protocol';
 
-export type FixtureDifficulty = 'easy' | 'normal' | 'hard';
-
 export interface FixtureGeneration {
   index: number;
-  /** Han numeral appended to every spell name, so a run can identify a generation. */
+  /** Roman numeral appended to every spell name, so a run can identify a generation. */
   marker: string;
-  difficulty: FixtureDifficulty;
   /** One entry per book slot, in the order the room must serve them. */
   texts: string[];
+  /** The simplified Chinese line paired with each text, same order. */
+  translations: string[];
   names: string[];
   elements: string[];
   /** Always true: the room rejects a book with repeated texts. */
@@ -34,51 +33,91 @@ export interface FixtureShape {
 /** Everything one generation request tells the fixture about what to produce. */
 export interface GenerationRequest {
   model: string;
-  /** Truncated prompt text, so a spec can see the theme/difficulty that reached the model. */
+  /** Truncated prompt text, so a spec can see the theme/length target that reached the model. */
   prompt: string;
   /** Whether the SDK's injected JSON schema was found, i.e. the structured-output path ran. */
   schemaDetected: boolean;
-  /** Difficulty band the fixture follows, derived from the room's own prompt. */
-  difficulty: FixtureDifficulty;
-  /** Length contract the fixture followed for this request. */
+  /** Length contract the fixture follows, read back from the room's own prompt. */
   range: [number, number];
   shape: FixtureShape;
   /** The SDK asked for a streamed completion. */
   stream: boolean;
 }
 
-const LENGTH_RANGE: Record<FixtureDifficulty, [number, number]> = {
-  easy: [18, 26],
-  normal: [27, 38],
-  hard: [39, 50],
-};
+/** The room's hard prompt target; the fallback when a prompt states no band. */
+const DEFAULT_RANGE: [number, number] = [39, 50];
+/** The prompt states the target once as `N to M characters`; the numbers are the fixture's band. */
+const RANGE_IN_PROMPT = /(\d+)\s+to\s+(\d+)\s+characters/;
 
 const ELEMENTS = ['arcane', 'fire', 'ice', 'storm'];
-/**
- * Han cycles used to build the book. The pool is longer than a full book, so a generation whose
- * spells start at consecutive offsets can never produce two identical texts — the first character
- * already differs — and a later generation (offset shifted by its own index) differs from the
- * previous one as well.
- */
-const HAN_POOL = '霜月幽炎雷渊灵焰寒星冥绮岚晞辰暮曦云雾雨雪风花叶露金木水火土山河海川岩';
-const NAME_BASES = ['炎爆术', '霜缚咒', '雷引诀', '幽影环', '星辉印', '冰封界', '风吟诀', '月蚀咒'];
-const HAN_DIGITS = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九'];
-const TEXT_TAIL = '，魔力凝聚成光。';
+/** Distinct subjects keep every spell readable and its Chinese meaning exact. */
+const SUBJECTS = [
+  ['ember', '余烬'],
+  ['frost', '寒霜'],
+  ['raven', '渡鸦'],
+  ['thorn', '荆棘'],
+  ['glow', '辉光'],
+  ['storm', '风暴'],
+  ['hollow', '洞穴'],
+  ['lantern', '灯笼'],
+  ['cinder', '炭火'],
+  ['willow', '柳树'],
+  ['mirror', '镜子'],
+  ['saffron', '藏红花'],
+  ['quill', '羽毛笔'],
+  ['vault', '穹顶'],
+  ['cobalt', '钴'],
+  ['fennel', '茴香'],
+  ['harbor', '港湾'],
+  ['marble', '大理石'],
+  ['onyx', '缟玛瑙'],
+  ['petal', '花瓣'],
+  ['ripple', '涟漪'],
+  ['sable', '紫貂'],
+  ['tinder', '火绒'],
+  ['umbra', '暗影'],
+] as const;
+/** One distinct name per book slot; the generation marker keeps names distinct across runs. */
+const NAME_BASES = [
+  'Ember Bolt',
+  'Frost Bind',
+  'Storm Call',
+  'Raven Mark',
+  'Star Sigil',
+  'Ice Veil',
+  'Wind Verse',
+  'Moon Eclipse',
+  'Thorn Ring',
+  'Ash Requiem',
+  'Gale Step',
+  'Oath Flame',
+  'Quiet Ember',
+  'Tide Lock',
+  'Hollow Chime',
+  'Ivy Cage',
+  'Salt Ward',
+  'Glass Sparrow',
+  'Night Loom',
+  'Fen Light',
+  'Cinder Psalm',
+  'Dew Trap',
+  'Slate Oracle',
+  'Wren Hex',
+];
+const ROMAN_STEPS: ReadonlyArray<readonly [number, string]> = [
+  [40, 'XL'],
+  [10, 'X'],
+  [9, 'IX'],
+  [5, 'V'],
+  [4, 'IV'],
+  [1, 'I'],
+];
 const SCHEMA_MARKER = 'Return JSON that conforms to the following schema: ';
-/**
- * The label is the one unambiguous signal in the prompt: the numbers nearby describe the name length
- * (2 到 12 个汉字) as well, so a numeric scan cannot tell the two rules apart.
- */
-const DIFFICULTY_BY_LABEL: Record<string, FixtureDifficulty> = {
-  简单: 'easy',
-  普通: 'normal',
-  困难: 'hard',
-};
-const DIFFICULTY_IN_PROMPT = /难度\s*[:：]\s*(简单|普通|困难)/;
 
 interface FixtureSpell {
   name: string;
   text: string;
+  translation: string;
   element: string;
 }
 
@@ -93,34 +132,34 @@ function asObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/** Two-digit Han numeral, so a full book of 24 spells can name every slot distinctly. */
-function hanNumber(value: number): string {
-  if (value < 10) return HAN_DIGITS[value];
-  const tens = Math.floor(value / 10);
-  const ones = value % 10;
-  return `${tens === 1 ? '' : HAN_DIGITS[tens]}十${HAN_DIGITS[ones]}`;
-}
-
-/** A `length`-character Han run whose first character is fixed by `offset`. */
-function hanRun(length: number, offset: number): string {
-  let text = '';
-  while (text.length < length) text += HAN_POOL[(offset + text.length) % HAN_POOL.length];
-  return text;
-}
-
-function buildText(length: number, offset: number): string {
-  const prefixLength = Math.max(1, length - TEXT_TAIL.length);
-  return hanRun(prefixLength, offset) + TEXT_TAIL;
+/** Roman numeral, so names and markers stay pure keyboard characters. */
+function roman(value: number): string {
+  let out = '';
+  let rest = value;
+  for (const [amount, symbol] of ROMAN_STEPS) {
+    while (rest >= amount) {
+      out += symbol;
+      rest -= amount;
+    }
+  }
+  return out;
 }
 
 function payloadFor(spells: FixtureSpell[], shape: FixtureShape): string {
-  const keys = shape.itemProps ?? ['name', 'text', 'element'];
+  const keys = shape.itemProps ?? ['name', 'text', 'translation', 'element'];
   const nameKey = keys.find((key) => /name|title/i.test(key)) ?? keys[0];
   const elementKey = keys.find((key) => /element|visual/i.test(key));
   const textKey =
-    keys.find((key) => /text|咒|content/i.test(key)) ??
+    keys.find((key) => /text|content/i.test(key)) ??
     keys.find((key) => key !== nameKey && key !== elementKey) ??
     keys[1];
+  const translationKey = keys.find(
+    (key) =>
+      key !== nameKey &&
+      key !== textKey &&
+      key !== elementKey &&
+      /translation|chinese|zh/i.test(key),
+  );
 
   const items = spells.map((spell) => {
     const item: Record<string, string> = {};
@@ -128,6 +167,7 @@ function payloadFor(spells: FixtureSpell[], shape: FixtureShape): string {
       if (key === nameKey) item[key] = spell.name;
       else if (key === elementKey) item[key] = spell.element;
       else if (key === textKey) item[key] = spell.text;
+      else if (key === translationKey) item[key] = spell.translation;
       else item[key] = spell.text;
     }
     return item;
@@ -199,12 +239,6 @@ function schemaFromMessages(messages: unknown): unknown {
   return null;
 }
 
-/** The band the room itself declared in its prompt, or null when it is not stated. */
-function difficultyFromPrompt(prompt: string): FixtureDifficulty | null {
-  const label = DIFFICULTY_IN_PROMPT.exec(prompt)?.[1];
-  return label ? (DIFFICULTY_BY_LABEL[label] ?? null) : null;
-}
-
 function messageContent(message: unknown): string {
   const content = asObject(message)?.content;
   return typeof content === 'string' ? content : '';
@@ -220,13 +254,15 @@ export function readGenerationRequest(body: unknown): GenerationRequest {
   const request = asObject(body);
   const schema = schemaFromMessages(request?.messages);
   const prompt = promptText(request?.messages);
-  const difficulty: FixtureDifficulty = difficultyFromPrompt(prompt) ?? 'normal';
+  // The band the room's own prompt declares (`N to M characters`), or the hard default when it
+  // states none — the same numbers the prompt uses as its generation target.
+  const found = RANGE_IN_PROMPT.exec(prompt);
+  const range: [number, number] = found ? [Number(found[1]), Number(found[2])] : DEFAULT_RANGE;
   return {
     model: typeof request?.model === 'string' ? request.model : 'deepseek-flash',
     prompt: prompt.slice(0, 4000),
     schemaDetected: schema !== null,
-    difficulty,
-    range: LENGTH_RANGE[difficulty],
+    range,
     shape: detectShape(schema),
     stream: request?.stream === true,
   };
@@ -235,23 +271,28 @@ export function readGenerationRequest(body: unknown): GenerationRequest {
 /**
  * Builds the book for `request`, refusing to repeat a text within the book or across the run: a spec
  * checks for a leaked spell with a plain containment test, so texts must be unique everywhere.
+ * Texts end with `!` or `~` (alternating by slot) so the punctuation auto-correction path is always
+ * exercisable, names are English per the generation contract, and each text carries a faithful
+ * simplified Chinese `translation` as the room's schema now requires.
  */
 export function buildGeneration(
   previous: readonly FixtureGeneration[],
   request: GenerationRequest,
 ): FixtureGeneration {
+  if (NAME_BASES.length !== SPELL_BOOK_SIZE || new Set(NAME_BASES).size !== SPELL_BOOK_SIZE) {
+    throw new Error('fixture bug: the name pool must cover the spell book exactly once');
+  }
   const index = previous.length;
-  const marker = hanNumber(index + 1);
-  const [min, max] = request.range;
-  const span = Math.max(1, max - min + 1);
+  const marker = roman(index + 1);
   const spells: FixtureSpell[] = [];
 
   for (let i = 0; i < SPELL_BOOK_SIZE; i += 1) {
+    const ending = i % 2 === 0 ? '!' : '~';
+    const [subject, translation] = SUBJECTS[i];
     spells.push({
-      name: `${NAME_BASES[i % NAME_BASES.length]}${marker}${hanNumber(i + 1)}`,
-      // Every spell in one book has the same length (the band walks with the generation) and a
-      // distinct Han offset, so the texts are unique and no text is a substring of another.
-      text: buildText(min + (index % span), index + i),
+      name: `${NAME_BASES[i]} ${marker}`,
+      text: `Let the ${subject} shatter seal ${index + 1} of midnight${ending}`,
+      translation: `让${translation}击碎午夜的第 ${index + 1} 道封印${ending === '!' ? '！' : '～'}`,
       element: ELEMENTS[i % ELEMENTS.length],
     });
   }
@@ -269,8 +310,8 @@ export function buildGeneration(
   return {
     index,
     marker,
-    difficulty: request.difficulty,
     texts,
+    translations: spells.map((spell) => spell.translation),
     names: spells.map((spell) => spell.name),
     elements: spells.map((spell) => spell.element),
     distinctTexts,

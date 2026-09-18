@@ -7,15 +7,15 @@ import { HTTPException } from 'hono/http-exception';
 import { methodNotAllowed } from 'hono/method-not-allowed';
 import { z } from 'zod';
 import { MAX_API_BODY_BYTES } from '../../shared/protocol';
-import type { MatchResult, Profile, SessionInfo } from '../../shared/protocol';
+import type { ActivitySummary, MatchResult, Profile, SessionInfo } from '../../shared/protocol';
 import {
   createRoomSchema,
   loginSchema,
-  matchSchema,
   registerSchema,
   roomIdSchema,
   type LoginInput,
 } from '../../shared/validation';
+import { readActivitySummary } from '../activity';
 import {
   SESSION_COOKIE,
   createSession,
@@ -180,6 +180,17 @@ const routes = app
     };
     return c.json(body);
   })
+  .get('/api/activity', async (c) => {
+    let activity: ActivitySummary;
+    try {
+      activity = await readActivitySummary(c.env);
+    } catch (error) {
+      // An unavailable answer stays unavailable: no probe is silently counted as idle.
+      console.error(`activity summary failed: ${errorText(error)}`);
+      throw new HTTPException(503, { message: '活动数据暂时不可用，请稍后再试。' });
+    }
+    return c.json(activity);
+  })
   .post(
     '/api/register',
     sameOrigin,
@@ -268,14 +279,13 @@ const routes = app
         });
     }),
     async (c) => {
-      const { theme, difficulty } = c.req.valid('json');
+      const { theme } = c.req.valid('json');
       const roomId = newRoomId();
       try {
         await c.env.ROOMS.get(c.env.ROOMS.idFromName(roomId)).initialize({
           id: roomId,
           host: c.var.session.user,
           theme,
-          difficulty,
           mode: 'private',
         });
       } catch (error) {
@@ -293,6 +303,17 @@ const routes = app
     } catch (error) {
       throw mapRoomError(error);
     }
+  })
+  .post('/api/rooms/:roomId/leave', sameOrigin, authenticated, async (c) => {
+    const roomId = c.req.param('roomId');
+    try {
+      // No body: the session's account is the only subject. The room commits the
+      // departure durably before answering, so `left` is never sent on a failure.
+      await c.env.ROOMS.get(c.env.ROOMS.idFromName(roomId)).leaveRoom(c.var.session.user.id);
+    } catch (error) {
+      throw mapRoomError(error);
+    }
+    return c.json({ left: true as const });
   })
   .get('/api/rooms/:roomId/ws', sameOrigin, async (c) => {
     const request = c.req.raw;
@@ -321,26 +342,15 @@ const routes = app
       throw mapRoomError(error);
     }
   })
-  .post(
-    '/api/match',
-    sameOrigin,
-    authenticated,
-    zValidator('json', matchSchema, (result) => {
-      if (!result.success)
-        throw new HTTPException(400, {
-          message: result.error.issues.map((issue) => issue.message).join('；'),
-        });
-    }),
-    async (c) => {
-      const user = c.var.session.user;
-      const shard = c.env.MATCHMAKER.get(c.env.MATCHMAKER.idFromName(userShardName(user.id)));
-      try {
-        return c.json(await shard.acquire(user, c.req.valid('json').difficulty));
-      } catch (error) {
-        throw mapMatchError(error);
-      }
-    },
-  )
+  .post('/api/match', sameOrigin, authenticated, async (c) => {
+    const user = c.var.session.user;
+    const shard = c.env.MATCHMAKER.get(c.env.MATCHMAKER.idFromName(userShardName(user.id)));
+    try {
+      return c.json(await shard.acquire(user));
+    } catch (error) {
+      throw mapMatchError(error);
+    }
+  })
   .delete('/api/match', sameOrigin, authenticated, async (c) => {
     const user = c.var.session.user;
     const shard = c.env.MATCHMAKER.get(c.env.MATCHMAKER.idFromName(userShardName(user.id)));

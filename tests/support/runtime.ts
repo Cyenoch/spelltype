@@ -77,6 +77,7 @@ export function acceptedGeneration(state: FixtureState): {
 export interface FixtureClient {
   state(): Promise<FixtureState>;
   reset(): Promise<void>;
+  setDelay(milliseconds: number): Promise<void>;
 }
 
 async function control<T>(fixtureUrl: string, pathname: string, body?: unknown): Promise<T> {
@@ -102,6 +103,9 @@ export function fixture(): FixtureClient {
     },
     reset: async () => {
       await control(base, '/reset');
+    },
+    setDelay: async (milliseconds) => {
+      await control(base, '/delay', milliseconds);
     },
   };
 }

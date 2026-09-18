@@ -17,20 +17,17 @@ import { ASSETS } from '../pixi/assets';
 import { createBackgroundScene, type BackgroundScene } from '../pixi/background';
 import { messageOf, toast } from '../ui/toast';
 import type { AppContext, AppRouterContext, AuthMode, RoomLinkState } from '../app/context';
-import type { Difficulty } from '../../shared/protocol';
 import { ui } from '../ui/primitives';
 
 interface Search {
   room?: string;
   mode?: AuthMode;
-  difficulty?: Difficulty;
 }
 
 export const Route = createRootRouteWithContext<AppRouterContext>()({
   validateSearch: (raw: Record<string, unknown>): Search => ({
     room: typeof raw.room === 'string' ? raw.room : undefined,
     mode: raw.mode === 'register' ? 'register' : undefined,
-    difficulty: raw.difficulty === 'easy' || raw.difficulty === 'hard' ? raw.difficulty : undefined,
   }),
   beforeLoad: ({ search, context }) => {
     if (search.room && !/^[0-9a-f]{24}$/.test(search.room)) {

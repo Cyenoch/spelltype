@@ -1,7 +1,7 @@
 /**
  * Queue hygiene for the shared matchmaking Durable Object.
  *
- * Matchmaking is global per difficulty, so any account left queued by a test (including a test
+ * The matchmaking queue is shared, so any account left queued by a test (including a test
  * that fails halfway) could pollute the next test. Every signed-in account is tracked through
  * an independent API context that reuses the session cookie the browser already holds — no
  * extra authentication call, so cleanup costs neither password hashing nor limiter budget.

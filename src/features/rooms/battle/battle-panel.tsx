@@ -8,7 +8,6 @@ import { ui } from '../../../ui/primitives';
 import * as stylex from '@stylexjs/stylex';
 import { styles } from './battle.styles';
 import { BattleArena } from './battle-arena';
-import { BattleResults } from './battle-results';
 import { BattleStation } from './battle-station';
 import { createBattleTyping, type BattleHosts } from './battle-typing';
 import {
@@ -19,7 +18,6 @@ import {
   type RenderMode,
 } from './battle-view';
 import { CombatLog } from './combat-log';
-import { ThreatBanner } from './threat-banner';
 
 export interface BattlePanelProps {
   snapshot: RoomSnapshot;
@@ -45,15 +43,13 @@ export interface BattlePanelProps {
   onHosts(hosts: BattleHosts): void;
   onCommit(commit: TypingCommit): boolean;
   onPasteBlocked(): void;
-  onRematch(): void;
   onLeave(): void;
 }
 
 /**
  * The combat surface: one arena with every player's health, one global clock,
- * one typing station with the recipient's current spell, and the settled
- * results. Every number shown here comes from the authoritative snapshot; the
- * canvas only draws it.
+ * one typing station with the recipient's current spell, and the combat log.
+ * Every number shown here comes from the authoritative snapshot; the canvas only draws it.
  *
  * Both surfaces are mounted as soon as the room has a snapshot and only hidden
  * while the other one is on screen: a rematch therefore keeps the same canvas
@@ -119,14 +115,6 @@ export function BattlePanel(props: BattlePanelProps) {
         Array.from(typing.local().text).length > typing.targetChars().length,
       )}
     >
-      <ThreatBanner
-        snapshot={props.snapshot}
-        self={view().self}
-        players={view().players}
-        myTarget={view().myTarget}
-        aimingAtMe={view().aimingAtMe}
-      />
-
       <BattleArena
         snapshot={props.snapshot}
         players={view().players}
@@ -160,15 +148,6 @@ export function BattlePanel(props: BattlePanelProps) {
       <BattleStation snapshot={props.snapshot} selfPlayer={view().self} typing={typing} />
 
       <CombatLog events={props.snapshot.events} players={props.snapshot.players} />
-
-      <BattleResults
-        snapshot={props.snapshot}
-        self={view().self}
-        players={props.snapshot.players}
-        panelRef={(el) => typing.attachResultsPanel(el)}
-        onRematch={() => props.onRematch()}
-        onLeave={() => props.onLeave()}
-      />
     </section>
   );
 }

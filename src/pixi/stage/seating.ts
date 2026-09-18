@@ -42,8 +42,9 @@ export function createSeating(fighters: readonly Fighter[]): Seating {
       const inset = width * 0.06;
       const span = Math.max(1, width - inset * 2);
       const columnWidth = span / present.length;
-      const feetY = height * 0.92;
-      const bodyHeight = height * 0.82;
+      // Leave the raised damage segment visible on both sides of the feet bar.
+      const feetY = height - Math.max(32, height * 0.08);
+      const bodyHeight = Math.max(1, feetY - height * 0.1);
       const barOffsetY = Math.max(14, Math.min(26, height * 0.04));
 
       present.forEach((slot, index) => {

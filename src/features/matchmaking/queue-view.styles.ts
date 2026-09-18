@@ -468,10 +468,6 @@ export const styles = stylex.create({
     margin: '0 0 14px',
   },
 
-  difficultyHint: {
-    margin: '6px 0 0',
-  },
-
   elapsed: {
     fontSize: 'clamp(1.7rem, 3.6vw, 2.3rem)',
     lineHeight: 1.15,
@@ -495,7 +491,7 @@ export const styles = stylex.create({
 
   /* A settled screen is visibly not searching. */
   motionSettled: {
-    display: 'none',
+    visibility: 'hidden',
   },
 
   /**

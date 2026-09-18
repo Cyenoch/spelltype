@@ -1,3 +1,4 @@
+import { normalizeSpellInput } from '../../../../shared/spell-input';
 import { prefixLength } from '../../../ui/format';
 import { attachInputGuards, clampInput, countEdit } from './typing-input';
 
@@ -281,11 +282,13 @@ export class TypingController {
   private commitValue(rawNext: string): void {
     if (!this.active) return;
     const clamped = clampInput(rawNext);
-    if (clamped.truncated) {
-      this.textarea.value = clamped.text;
-      this.callbacks.onTooLong();
+    const next = normalizeSpellInput(clamped.text, this.target);
+    if (next !== rawNext) {
+      const { selectionStart, selectionEnd, selectionDirection } = this.textarea;
+      this.textarea.value = next;
+      this.textarea.setSelectionRange(selectionStart, selectionEnd, selectionDirection);
     }
-    const next = clamped.text;
+    if (clamped.truncated) this.callbacks.onTooLong();
     if (next === this.lastValue) {
       this.emit();
       return;

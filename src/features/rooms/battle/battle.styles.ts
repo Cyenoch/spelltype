@@ -72,23 +72,32 @@ export const styles = stylex.create({
       'radial-gradient(120% 100% at 50% 46%, transparent 34%, rgba(30, 26, 52, .6) 100%)',
   },
 
+  /* The seat labels float over the canvas top, one column per fighter: the same
+     6% inset and equal-column split the canvas seating uses, so each name sits
+     directly above its character's head. */
   arenaSeats: {
-    position: 'relative',
-    zIndex: 3,
+    position: 'absolute',
+    top: 6,
+    right: 0,
+    left: 0,
+    zIndex: 2,
     display: 'grid',
     gridTemplateColumns: 'repeat(var(--seats, 2), minmax(0, 1fr))',
+    alignItems: 'start',
     gap: 8,
-    paddingTop: 10,
     paddingRight: '6%',
-    paddingBottom: 2,
     paddingLeft: '6%',
     pointerEvents: 'none',
     '@media (max-width: 880px)': { gap: 6 },
-    '@media (max-width: 560px)': {
-      gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-      paddingLeft: '3%',
-      paddingRight: '3%',
-    },
+  },
+
+  /* Wraps the canvas and the seat overlay so the labels anchor to the fighters,
+     not to the HUD row above them. */
+  arenaField: {
+    position: 'relative',
+    zIndex: 1,
+    flex: '1 1 auto',
+    minHeight: 0,
   },
 
   arenaBackdrop: {
@@ -98,21 +107,17 @@ export const styles = stylex.create({
     width: '100%',
     height: '100%',
     objectFit: 'cover',
-    opacity: 0.5,
-    filter: 'saturate(1.05) brightness(.9)',
+    opacity: 0.8,
+    filter: 'saturate(1.05) brightness(.85)',
     pointerEvents: 'none',
     maskImage: 'radial-gradient(120% 100% at 50% 40%, #000 34%, transparent 88%)',
   },
 
   arenaCanvas: {
-    position: 'relative',
-    zIndex: 1,
-    flex: '1 1 auto',
-    minHeight: 0,
+    position: 'absolute',
+    inset: 0,
     pointerEvents: 'none',
   },
-  /* Pure-DOM mode: the text readouts become the primary health display. */
-  arenaCanvasDom: { minHeight: 110 },
   arenaCanvasFailed: {
     borderRadius: 'var(--radius-sm)',
     backgroundImage:
@@ -133,58 +138,75 @@ export const styles = stylex.create({
   arenaHud: {
     position: 'relative',
     zIndex: 3,
-    display: 'flex',
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1fr) auto minmax(0, 1fr)',
     alignItems: 'center',
-    justifyContent: 'flex-end',
     gap: 12,
-    paddingTop: 10,
-    paddingRight: 14,
-    paddingLeft: 14,
-    '@media (max-width: 560px)': { paddingTop: 8, paddingRight: 8, paddingLeft: 8, gap: 8 },
+    padding: '8px 16px',
+    '@media (max-width: 560px)': { padding: '8px 10px', gap: 8 },
   },
+  arenaStatus: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+    minWidth: 0,
+    fontSize: '.8rem',
+    color: 'var(--ink)',
+    letterSpacing: '.08em',
+  },
+  arenaStatusDetail: { fontSize: '.7rem', color: 'var(--ink-dim)', letterSpacing: 0 },
+  arenaActions: {
+    display: 'flex',
+    justifySelf: 'end',
+    alignItems: 'center',
+    gap: 4,
+    '@media (max-width: 560px)': { flexDirection: 'column', alignItems: 'stretch', gap: 0 },
+  },
+  arenaLeave: { justifySelf: 'end', minHeight: 40, color: 'var(--ink-dim)' },
 
-  /* ------------------------------------------------------------ seat cards */
+  /* ------------------------------------------------------ overhead labels */
 
-  seatcard: {
+  seatLabel: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 3,
+    minWidth: 0,
+    textAlign: 'center',
+  },
+  seatLabelDown: { opacity: 0.62, filter: 'grayscale(.5)' },
+  seatName: {
+    maxWidth: '100%',
+    overflow: 'hidden',
+    fontSize: 'clamp(.98rem, 1.5vw, 1.18rem)',
+    fontWeight: 700,
+    lineHeight: 1.2,
+    whiteSpace: 'nowrap',
+    textOverflow: 'ellipsis',
+    color: 'var(--ink)',
+    textShadow:
+      '0 1px 2px rgba(0, 0, 0, .95), 0 0 18px rgba(0, 0, 0, .9), 0 2px 6px rgba(0, 0, 0, .85)',
+  },
+  seatNameSelf: { color: 'var(--gold)' },
+  seatTags: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    minWidth: 0,
+  },
+  /* Canvas mode keeps this readout for assistive tech only; pure-DOM mode draws
+     it as the fallback health and progress display. */
+  seatReadout: {
     display: 'flex',
     flexDirection: 'column',
     gap: 4,
-    paddingTop: 8,
-    paddingRight: 10,
-    paddingBottom: 8,
-    paddingLeft: 10,
-    borderRadius: 'var(--radius-sm)',
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: 'var(--line)',
-    backgroundColor: 'rgba(8, 6, 18, .72)',
-    backdropFilter: 'blur(6px)',
+    width: '100%',
     minWidth: 0,
+    marginTop: 2,
   },
-  seatcardDom: { backgroundColor: 'rgba(8, 6, 18, .86)' },
-  seatcardSelf: {
-    borderColor: 'rgba(255, 215, 154, .5)',
-    backgroundColor: 'rgba(30, 24, 20, .6)',
-  },
-  seatcardTarget: {
-    borderColor: 'rgba(255, 138, 76, .62)',
-    boxShadow: '0 0 0 1px rgba(255, 138, 76, .28), 0 0 22px rgba(255, 138, 76, .18)',
-  },
-  seatcardAiming: { borderColor: 'rgba(255, 107, 125, .55)' },
-  seatcardDown: { opacity: 0.62, filter: 'grayscale(.5)' },
-  seatcardOffline: { borderStyle: 'dashed' },
-  seatcardTop: { display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 },
-  seatcardName: {
-    flex: '1 1 auto',
-    minWidth: 0,
-    fontSize: '.86rem',
-    fontWeight: 600,
-    whiteSpace: 'nowrap',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    '@media (max-width: 880px)': { fontSize: '.8rem' },
-  },
-  seatcardHp: { display: 'flex', alignItems: 'center', gap: 8 },
+  seatReadoutHp: { display: 'flex', alignItems: 'center', gap: 8 },
 
   hpbar: {
     position: 'relative',
@@ -265,36 +287,29 @@ export const styles = stylex.create({
 
   timer: {
     display: 'flex',
-    alignItems: 'baseline',
-    gap: 8,
-    paddingTop: 6,
-    paddingRight: 14,
-    paddingBottom: 6,
-    paddingLeft: 14,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: 'var(--line-strong)',
-    backgroundColor: 'rgba(8, 6, 18, .78)',
-    backdropFilter: 'blur(6px)',
-    '@media (max-width: 560px)': {
-      paddingTop: 4,
-      paddingRight: 10,
-      paddingBottom: 4,
-      paddingLeft: 10,
-    },
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 3,
+    padding: '2px 12px',
+    borderRadius: 8,
+    minWidth: 96,
   },
-  timerUrgent: { borderColor: 'rgba(255, 107, 125, .6)' },
+  timerUrgent: { backgroundColor: 'rgba(255, 107, 125, .08)' },
   timerValue: {
     fontFamily: 'var(--font-mono)',
-    fontSize: 'clamp(1.5rem, 3.4vw, 2.1rem)',
+    fontSize: 'clamp(1.4rem, 2.4vw, 1.8rem)',
     fontVariantNumeric: 'tabular-nums',
     color: 'var(--ink)',
     lineHeight: 1,
   },
   timerValueSoon: { color: 'var(--gold)' },
   timerValueUrgent: { color: 'var(--danger)' },
-  timerLabel: { fontSize: '.76rem', letterSpacing: '.1em', color: 'var(--ink-faint)' },
+  timerLabel: {
+    fontSize: '.66rem',
+    lineHeight: 1.2,
+    letterSpacing: '.14em',
+    color: 'var(--ink-dim)',
+  },
 
   countdown: {
     position: 'absolute',
@@ -316,37 +331,6 @@ export const styles = stylex.create({
     textShadow: '0 0 50px rgba(255, 197, 122, .45)',
   },
   countdownHint: { color: 'var(--ink)', fontSize: '.92rem' },
-
-  /* In flow above the arena: it can never cover the fighters, and its fixed
-     height means a threat appearing never shifts the input under the player. */
-  threat: {
-    display: 'flex',
-    alignItems: 'center',
-    minHeight: 34,
-    paddingTop: 6,
-    paddingRight: 14,
-    paddingBottom: 6,
-    paddingLeft: 14,
-    borderRadius: 'var(--radius-sm)',
-    borderWidth: 1,
-    borderStyle: 'solid',
-    borderColor: 'var(--line)',
-    backgroundColor: 'rgba(12, 10, 26, .72)',
-    fontSize: '.86rem',
-    lineHeight: 1.35,
-    color: 'var(--ink-dim)',
-  },
-  threatWarn: {
-    borderColor: 'rgba(255, 196, 108, .5)',
-    backgroundColor: 'rgba(46, 32, 10, .78)',
-    color: '#ffe4b8',
-  },
-  threatCritical: {
-    borderColor: 'rgba(255, 107, 125, .6)',
-    backgroundColor: 'rgba(58, 16, 28, .82)',
-    color: '#ffd8de',
-    fontWeight: 600,
-  },
 
   /* -------------------------------------------------------- typing station */
 
@@ -439,7 +423,11 @@ export const styles = stylex.create({
   },
 
   /* The target readout and its decorative particle layer share one box. */
-  stationTarget: { position: 'relative', overflow: 'visible' },
+  stationTarget: {
+    position: 'relative',
+    overflow: 'visible',
+    minHeight: 'calc(clamp(1.5rem, 2.05vw, 1.85rem) * 1.6 + 26px)',
+  },
   targetFx: {
     position: 'absolute',
     top: -26,
@@ -457,6 +445,7 @@ export const styles = stylex.create({
     lineHeight: 1.6,
     letterSpacing: '.02em',
     wordBreak: 'break-word',
+    whiteSpace: 'break-spaces',
     paddingTop: 12,
     paddingRight: 14,
     paddingBottom: 12,
@@ -469,6 +458,13 @@ export const styles = stylex.create({
     userSelect: 'none',
   },
   spellTextCompact: { lineHeight: 1.5 },
+  /* The subdued Chinese meaning line under the English spell text. */
+  spellTranslation: {
+    margin: '6px 0 0',
+    fontSize: '.85rem',
+    lineHeight: 1.5,
+    color: 'var(--ink-dim)',
+  },
 
   ch: {
     color: 'var(--ink-faint)',
@@ -638,10 +634,8 @@ export const styles = stylex.create({
     boxShadow: 'var(--shadow)',
   },
   result: {
-    paddingTop: 16,
-    paddingRight: 18,
-    paddingBottom: 16,
-    paddingLeft: 18,
+    padding: 'clamp(20px, 4vw, 40px)',
+    textAlign: 'center',
     borderRadius: 'var(--radius)',
     borderWidth: 1,
     borderStyle: 'solid',
@@ -659,13 +653,20 @@ export const styles = stylex.create({
     backgroundImage: 'linear-gradient(135deg, rgba(64, 18, 30, .62), rgba(18, 12, 26, .85))',
     backgroundColor: 'rgba(0, 0, 0, 0)',
   },
+  resultDraw: {
+    borderColor: 'rgba(98, 211, 255, .5)',
+    backgroundImage: 'linear-gradient(135deg, rgba(20, 55, 72, .65), rgba(18, 12, 26, .85))',
+  },
   resultTitle: {
     margin: '0 0 4px',
-    fontSize: 'clamp(1.5rem, 3.4vw, 2.2rem)',
+    fontSize: 'clamp(2.8rem, 7vw, 5rem)',
     letterSpacing: '.1em',
+    outlineStyle: 'none',
   },
   resultTitleWin: { color: 'var(--gold)' },
   resultDetail: { margin: 0, color: 'var(--ink-dim)', fontSize: '.9rem' },
+  resultRank: { margin: '8px 0 16px', color: 'var(--ink)', fontSize: '1.1rem' },
+  resultActions: { justifyContent: 'center' },
   cellSelf: { backgroundColor: 'rgba(255, 215, 154, .08)', color: 'var(--gold)' },
   cellDown: { color: 'var(--ink-faint)' },
   cellRankFirst: { color: 'var(--gold)' },

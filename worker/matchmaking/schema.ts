@@ -4,6 +4,10 @@ import type { SqlStore } from '../sql';
 /** Terminal states of one account's single ticket. */
 export type TicketState = 'waiting' | 'matched' | 'cancelling';
 
+/**
+ * Rows keep their `difficulty` column as historical storage (existing databases are never
+ * re-migrated); every row written today stores the one value, `'hard'`.
+ */
 export type TicketRow = {
   user_id: string;
   username: string;
@@ -16,9 +20,9 @@ export type TicketRow = {
 };
 
 /** The fields a cancellation needs; the ticket's state is irrelevant to the queue handshake. */
-export type CancelTarget = Pick<TicketRow, 'user_id' | 'request_id' | 'difficulty'>;
+export type CancelTarget = Pick<TicketRow, 'user_id' | 'request_id'>;
 
-/** One account waiting for a partner on one difficulty shard. */
+/** One account waiting for a partner in the queue. */
 export type WaitingRow = {
   user_id: string;
   username: string;
@@ -42,12 +46,11 @@ export type PairingRow = {
   created_at: number;
 };
 
-/** What the account shard asks a queue shard to join with. */
+/** What the account shard asks the queue to join with. */
 export type QueueEntry = {
   userId: string;
   username: string;
   requestId: string;
-  difficulty: Difficulty;
   expiresAt: number;
 };
 

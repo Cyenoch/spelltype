@@ -57,8 +57,8 @@ function detailOf(error: DetailedError): string | null {
 /**
  * One readable line for whatever a request or a route threw. A `DetailedError`'s
  * own message is its status line (`409 Conflict`), which no player should read,
- * so the server's JSON error wins; a `TypeError` is a request that never reached
- * the server at all — the browser's own wording, replaced by the caller's line.
+ * so the server's JSON error wins; a `TypeError` means the browser could not
+ * complete the request, with its wording replaced by the caller's line.
  */
 export function messageOf(error: unknown, fallback = '操作失败，请稍后重试。'): string {
   if (error instanceof DetailedError) return detailOf(error) ?? fallback;

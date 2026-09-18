@@ -44,7 +44,7 @@ it('生成咒文期间准备与取消准备会同步给双方，倒计时开始�
       hostId: 'host',
       mode: 'quick',
       theme: '咒文契约',
-      difficulty: 'normal',
+      difficulty: 'hard',
       reservationState: 'locked',
       reservationExpiresAt: null,
       now,

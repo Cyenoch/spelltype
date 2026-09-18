@@ -43,7 +43,7 @@ test.beforeEach(async () => {
 
 test('错误、删除、选区替换、粘贴与重复提交都按规则处理', async ({ browser }) => {
   test.setTimeout(400_000);
-  const room = await twoPlayerRoom(browser, { theme: '输入契约', difficulty: 'easy' });
+  const room = await twoPlayerRoom(browser, { theme: '输入契约' });
   const host = room.host.page;
   const guest = room.guest.page;
   const hostIdentity = await selfIdentity(room.host.context);
@@ -125,8 +125,14 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
     }, '整段粘贴的非法咒文');
   expect(await inputValue(host)).toBe(text.slice(0, -1));
 
-  // The final character completes the spell: the opponent really loses one completion's health.
-  await insertIntoField(host, text.slice(-1));
+  // A fullwidth equivalent is corrected before completion and must not cost an error.
+  expect(text).toMatch(/[!~]$/);
+  const lastPunctuation = String.fromCharCode(text.charCodeAt(text.length - 1) + 0xfee0);
+  const accuracyBefore = snapshotPlayer(
+    await roomSnapshot(room.host.context, room.roomId),
+    hostIdentity,
+  ).accuracy;
+  await insertIntoField(host, lastPunctuation);
   await expect
     .poll(
       async () =>
@@ -136,6 +142,9 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
     )
     .toBe(guestHpBefore - completionDamage(text));
   expect(await selfSpellsCast(host)).toBe(1);
+  expect(
+    snapshotPlayer(await roomSnapshot(room.host.context, room.roomId), hostIdentity).accuracy,
+  ).toBeGreaterThan(accuracyBefore!);
 
   // Replaying the completion the room already accepted — twice, over a fresh socket — must never
   // deal a second hit or move any counter.
@@ -157,6 +166,25 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
   expect(snapshotPlayer(after, hostIdentity).damageDealt).toBe(hostBefore.damageDealt);
   expect(after.events).toHaveLength(settled.events.length);
 
+  // The room applies the same correction even if a client sends an uncorrected frame.
+  await sendRawMessages(guest, room.roomId, [
+    {
+      type: 'input',
+      matchId: liveMatchId,
+      spellIndex: 0,
+      text: text.slice(0, -1) + lastPunctuation,
+    },
+  ]);
+  await expect
+    .poll(async () => {
+      const state = await roomSnapshot(room.host.context, room.roomId);
+      return snapshotPlayer(state, guestIdentity).spellsCast;
+    })
+    .toBe(1);
+  const corrected = await roomSnapshot(room.host.context, room.roomId);
+  expect(snapshotPlayer(corrected, guestIdentity).accuracy).toBe(1);
+  expect(snapshotPlayer(corrected, hostIdentity).hp).toBe(INITIAL_HEALTH - completionDamage(text));
+
   await room.host.context.close();
   await room.guest.context.close();
 });
@@ -165,7 +193,6 @@ test('组合输入期间不判错、不推进、不下发，提交后才计入�
   test.setTimeout(400_000);
   const room = await twoPlayerRoom(browser, {
     theme: '输入法契约',
-    difficulty: 'easy',
     sockets: true,
   });
   const host = room.host.page;

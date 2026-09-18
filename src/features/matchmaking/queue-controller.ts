@@ -1,7 +1,7 @@
 import { createEffect, createSignal, onCleanup } from 'solid-js';
 import { useNavigate } from '@tanstack/solid-router';
 import { useMutation, useQuery } from '@tanstack/solid-query';
-import type { Difficulty, MatchTicket } from '../../../shared/protocol';
+import type { MatchTicket } from '../../../shared/protocol';
 import { parseResponse, DetailedError } from 'hono/client';
 import { client } from '../../app/client';
 import { messageOf, toast } from '../../ui/toast';
@@ -14,7 +14,7 @@ const TICK_INTERVAL_MS = 250;
 export type QueueState = 'waiting' | 'matched' | 'cancelled' | 'blocked';
 
 const STATE_MESSAGES: Record<QueueState, string> = {
-  waiting: '正在为你寻找同难度的对手…',
+  waiting: '正在为你寻找对手…',
   matched: '已找到对手，正在进入房间…',
   cancelled: '已取消本次匹配。',
   blocked: '这次请求没能加入排队。',
@@ -22,7 +22,7 @@ const STATE_MESSAGES: Record<QueueState, string> = {
 
 const STATE_HINTS: Record<QueueState, string> = {
   waiting: '匹配成功后自动进入房间。',
-  matched: '',
+  matched: '正在连接对手，准备对决。',
   cancelled: '可以重新排队，或返回首页。',
   blocked: '已有其他排队或对局。请取消已有排队，或返回原对局页面。',
 };
@@ -50,7 +50,7 @@ export interface MatchQueue {
  * a query with a `refetchInterval` rather than a hand-rolled timer — but one that must never be
  * served from the cache, and one that stops the moment the search ends.
  */
-export function createMatchQueue(props: { ctx: AppContext; difficulty: Difficulty }): MatchQueue {
+export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
   const navigate = useNavigate();
   let destroyed = false;
   let pendingPoll: Promise<MatchTicket> | undefined;
@@ -80,11 +80,8 @@ export function createMatchQueue(props: { ctx: AppContext; difficulty: Difficult
   });
 
   const ticketQuery = useQuery(() => ({
-    queryKey: ['match', 'ticket', props.difficulty],
-    queryFn: () =>
-      (pendingPoll = parseResponse(
-        client.api.match.$post({ json: { difficulty: props.difficulty } }),
-      )),
+    queryKey: ['match', 'ticket'],
+    queryFn: () => (pendingPoll = parseResponse(client.api.match.$post())),
     enabled: polling() && waiting(),
     /**
      * A ticket is only ever valid as the answer to a fresh poll: the entry is a lease the server

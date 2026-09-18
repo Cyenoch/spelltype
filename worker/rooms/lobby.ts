@@ -1,16 +1,14 @@
-import { WS_CLOSE } from '../../shared/protocol';
 import type { ClientMessage } from '../../shared/protocol';
 import { startMatch } from './match';
-import { endReservation } from './reservation';
+import { manualLeave } from './leave';
 import { MIN_PLAYERS, SEAT_TTL_MS } from './rules';
 import type { RoomScope } from './scope';
 import { pushSnapshots } from './snapshots';
-import { closeSocket, currentConns, onlineUserIds, reconcileHost, sendTo } from './sockets';
+import { currentConns, onlineUserIds, reconcileHost, sendTo } from './sockets';
 import type { SocketAuth } from './sockets';
 import {
   armLobbySeatExpiry,
   clearReady,
-  deletePlayer,
   listPlayers,
   resetPlayersForMatch,
   updatePlayer,
@@ -125,27 +123,10 @@ export async function handleLobbyFrame(
       return;
     }
     case 'leave': {
-      if (
-        room.mode === 'quick' &&
-        room.reservation_state === 'reserved' &&
-        room.phase === 'lobby' &&
-        room.locked === 0
-      ) {
-        endReservation(scope, 'cancelled', '对手已离开，请重新匹配。');
-        await scheduleAlarm(scope);
-        return;
-      }
-      if (room.phase === 'lobby' && room.locked === 0) {
-        deletePlayer(sql, meta.userId);
-        reconcileHost(scope);
-        pushSnapshots(scope);
-        closeSocket(ws, WS_CLOSE.closed, 'left');
-        await scheduleAlarm(scope);
-        return;
-      }
-      // Locked roster: the seat is kept so a refresh or reconnect resumes the
-      // same place, and the rest of the match keeps running.
-      closeSocket(ws, WS_CLOSE.closed, 'left');
+      // The same routine the HTTP leave endpoint runs: an explicit departure has
+      // identical forfeit semantics on either transport, and it answers by
+      // closing every socket of the departing account itself.
+      await manualLeave(scope, meta.userId);
       return;
     }
   }

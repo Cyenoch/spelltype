@@ -7,18 +7,18 @@
  * travels the real SDK network and structured-output path; only the remote peer is local and
  * deterministic. The book itself is built in `fixture-generation.ts`.
  *
- * The fixture answers one shape: a full valid spell book for the difficulty the room's own prompt
+ * The fixture answers one shape: a full valid spell book for the band the room's own prompt
  * declares. That is the only response the retained scenarios need — generation *failures* are
  * covered by the validation unit tests (`tests/unit/generation-schema.spec.ts`) rather than by
  * driving the retry policy through a browser.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { setTimeout as delay } from 'node:timers/promises';
 import { SPELL_BOOK_SIZE } from '../../shared/protocol';
 import {
   buildGeneration,
   readGenerationRequest,
-  type FixtureDifficulty,
   type FixtureGeneration,
 } from './fixture-generation';
 
@@ -26,14 +26,12 @@ export interface FixtureRequestLog {
   index: number;
   at: number;
   model: string;
-  /** Truncated prompt text, so a spec can see the theme/difficulty that reached the model. */
+  /** Truncated prompt text, so a spec can see the theme that reached the model. */
   prompt: string;
   /** Whether the SDK's injected JSON schema was found, i.e. the structured-output path ran. */
   schemaDetected: boolean;
   /** Length contract the fixture followed for this request. */
   lengthRange: [number, number];
-  /** Difficulty band the fixture followed, derived from the room's own prompt. */
-  difficulty: FixtureDifficulty;
   /** Spells actually returned by this request. */
   returnedCount: number;
   distinctTexts: boolean;
@@ -44,6 +42,8 @@ export interface FixtureRequestLog {
 export interface FixtureState {
   requests: FixtureRequestLog[];
   generations: FixtureGeneration[];
+  /** Test-only upstream latency, reset between scenarios. Product code never reads it. */
+  delayMs: number;
 }
 
 function writeJson(response: ServerResponse, status: number, body: unknown): void {
@@ -107,7 +107,11 @@ async function readBody(request: IncomingMessage): Promise<string> {
  * Serves one generation: the request is logged (so a spec can read back the prompt the room sent)
  * and answered with a book built from it.
  */
-function handleCompletion(response: ServerResponse, state: FixtureState, body: unknown): void {
+async function handleCompletion(
+  response: ServerResponse,
+  state: FixtureState,
+  body: unknown,
+): Promise<void> {
   response.on('error', () => {});
 
   const request = readGenerationRequest(body);
@@ -119,12 +123,12 @@ function handleCompletion(response: ServerResponse, state: FixtureState, body: u
     prompt: request.prompt,
     schemaDetected: request.schemaDetected,
     lengthRange: request.range,
-    difficulty: request.difficulty,
     returnedCount: SPELL_BOOK_SIZE,
     distinctTexts: generation.distinctTexts,
     generationIndex: generation.index,
   });
   state.generations.push(generation);
+  if (state.delayMs > 0) await delay(state.delayMs);
 
   if (request.stream) writeSseChunks(response, generation.content, request.model);
   else writeJson(response, 200, completionBody(generation.content, request.model));
@@ -134,13 +138,24 @@ function handleControl(
   request: IncomingMessage,
   response: ServerResponse,
   state: FixtureState,
+  body: unknown,
 ): boolean {
   const path = (request.url ?? '').replace(/^\/__control/, '') || '/state';
 
   if (path === '/reset' && request.method === 'POST') {
     state.requests = [];
     state.generations = [];
+    state.delayMs = 0;
     writeJson(response, 200, { ok: true, state: structuredClone(state) });
+    return true;
+  }
+  if (path === '/delay' && request.method === 'POST') {
+    if (typeof body !== 'number' || !Number.isInteger(body) || body < 0 || body > 30_000) {
+      writeJson(response, 400, { error: 'delay must be an integer between 0 and 30000ms' });
+      return true;
+    }
+    state.delayMs = body;
+    writeJson(response, 200, { ok: true });
     return true;
   }
 
@@ -171,7 +186,7 @@ export interface FixtureServerOptions {
 export async function startFixtureServer(
   options: FixtureServerOptions = {},
 ): Promise<FixtureServer> {
-  const state: FixtureState = { requests: [], generations: [] };
+  const state: FixtureState = { requests: [], generations: [], delayMs: 0 };
 
   const server: Server = createServer((request, response) => {
     void (async () => {
@@ -193,12 +208,12 @@ export async function startFixtureServer(
           return;
         }
         if (url.startsWith('/__control')) {
-          if (!handleControl(request, response, state))
+          if (!handleControl(request, response, state, body ? JSON.parse(body) : null))
             writeJson(response, 404, { error: 'unknown control endpoint' });
           return;
         }
         if (request.method === 'POST' && url.endsWith('/chat/completions')) {
-          handleCompletion(response, state, body ? JSON.parse(body) : {});
+          await handleCompletion(response, state, body ? JSON.parse(body) : {});
           return;
         }
         writeJson(response, 404, {

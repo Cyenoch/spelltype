@@ -38,7 +38,7 @@ export function GuideView() {
           </h2>
           <ul class={stylex.props(ui.steps).className}>
             <li class={stylex.props(styles.guideStep).className}>
-              快速匹配：选择难度后寻找一名对手，双方进入房间即自动开始，无需点准备。
+              快速匹配：直接寻找一名对手，双方进入房间即自动开始，无需点准备。
             </li>
             <li class={stylex.props(styles.guideStep).className}>
               私人房：创建后把邀请链接发给朋友，2–4 人即可开打。
@@ -47,7 +47,8 @@ export function GuideView() {
               两种入口都需要先登录；登录后每局的排名与数据都会保存到你的战绩。
             </li>
             <li class={stylex.props(styles.guideStep).className}>
-              私人房的主题与难度由创建者定；主题只换咒文内容，规则不变。
+              所有新对局统一使用困难咒文，目标约 39–50
+              个英文字符。私人房可自定主题；主题只换咒文内容，规则不变。
             </li>
           </ul>
         </section>
@@ -64,7 +65,8 @@ export function GuideView() {
               房主不必自己准备：其他人都就绪后，房主点「开始对局」即可。还有人没准备好时不会开始，界面会提示还差谁。
             </li>
             <li class={stylex.props(styles.guideStep).className}>
-              开始后先「生成咒文」，再「开场倒数」3 秒——这两段都不算进 240 秒战斗时间。
+              两种对局都先进入独立的咒文书生成界面，完成后才进入战场并倒数 3 秒；这两段都不计入 240
+              秒战斗时间。
             </li>
             <li class={stylex.props(styles.guideStep).className}>
               倒数结束的一瞬间，所有人的生命与计时同时开始。
@@ -79,13 +81,13 @@ export function GuideView() {
           <ul class={stylex.props(ui.steps).className}>
             <li class={stylex.props(styles.guideStep).className}>
               每人开局满血 2400。打完一条咒文造成「字符数 ×
-              4」点伤害：一个汉字、一个字母、一个标点都算一个字符。
+              4」点伤害：一个字母、一个空格、一个标点都算一个字符。
             </li>
             <li class={stylex.props(styles.guideStep).className}>
               伤害不会超过对手剩余生命；没有治疗、暴击或护甲。
             </li>
             <li class={stylex.props(styles.guideStep).className}>
-              目标自动选定：从你的座位出发，顺时针下一个还活着的人。不用点选，也换不了目标。
+              目标按房间座位顺序自动选定下一位存活对手，不用点选。你的角色始终显示在左侧，视觉站位不改变攻击顺序。
             </li>
             <li class={stylex.props(styles.guideStep).className}>
               生命归零立刻出局，不能再造成伤害，但可以留在战场看这一局打完。
@@ -99,7 +101,11 @@ export function GuideView() {
           </h2>
           <ul class={stylex.props(ui.steps).className}>
             <li class={stylex.props(styles.guideStep).className}>
-              一局只生成一次：24 条咒文组成同一本咒书，房间里每个人都照同一份顺序取用。
+              一局只生成一次：AI 生成 24
+              条英文咒文，组成同一本咒书，房间里每个人都照同一份顺序取用。
+            </li>
+            <li class={stylex.props(styles.guideStep).className}>
+              英文咒文下方会显示较淡的中文译文，帮助理解含义。只输入英文；中文译文不计入进度、准确率或伤害。
             </li>
             <li class={stylex.props(styles.guideStep).className}>
               你只会看到自己当前那一条，进度各算各的；对手打到第几条不影响你。
@@ -120,6 +126,10 @@ export function GuideView() {
             </li>
             <li class={stylex.props(styles.guideStep).className}>
               打对的部分保持高亮，打错会标红；退格回到错误处，或选中打错的那一段重新输入，都会从那里继续判定。
+            </li>
+            <li class={stylex.props(styles.guideStep).className}>
+              咒文可能以 !、~、? 或 . 等不同标点结尾。输入中文或全角标点时会自动纠正：打 ！ 等同打
+              !，不用切换输入法。
             </li>
             <li class={stylex.props(styles.guideStep).className}>
               中文输入法未确认的候选字不算数；候选上屏之后才参与判定。
@@ -146,6 +156,9 @@ export function GuideView() {
             <li class={stylex.props(styles.guideStep).className}>
               窄屏可以查看房间、教程与成绩；正式对局请用桌面键盘。
             </li>
+            <li class={stylex.props(styles.guideStep).className}>
+              战斗中播放背景音乐，可用战场右上角的音乐开关暂停或开启；进入结算或离开房间后停止播放。
+            </li>
           </ul>
         </section>
 
@@ -155,16 +168,20 @@ export function GuideView() {
           </h2>
           <ul class={stylex.props(ui.steps).className}>
             <li class={stylex.props(styles.guideStep).className}>
-              只剩一名存活者时立刻结束；否则打满 240 秒结束。
+              只剩一名存活者时立刻结束；否则打满 240
+              秒结束。结束后自动切换到独立结算页，首屏显示胜利、失败或平局及你的名次。
             </li>
             <li class={stylex.props(styles.guideStep).className}>
               排名先比剩余生命，再比造成的总伤害，最后比打对的字符数；三项完全相同就并列同名次。
             </li>
             <li class={stylex.props(styles.guideStep).className}>
-              被击倒后默认留在战场观战：能看到其他人的生命与进度，结束后看到完整排名。
+              被击倒后默认留在战场观战：能看到其他人的生命与进度，结束后在结算页查看完整排名，也可以再来一局或返回首页。
             </li>
             <li class={stylex.props(styles.guideStep).className}>
-              也可以直接退出房间；观战与否都不影响你的成绩记录。
+              开局后主动离开视作本局弃权，生命归零；等待服务器确认后返回首页，即可重新匹配。已经出局或结算后离开不会改写成绩。
+            </li>
+            <li class={stylex.props(styles.guideStep).className}>
+              对战中的刷新或网络断开不会弃权，重连可继续同一局；断线期间计时不会暂停。
             </li>
           </ul>
         </section>

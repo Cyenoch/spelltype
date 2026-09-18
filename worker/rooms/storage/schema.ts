@@ -91,6 +91,19 @@ export type ResultRow = {
   saved: number;
 };
 
+/**
+ * One account's explicit manual departure from this room. `match_id` names the
+ * match that was abandoned; it is `null` when membership was released before a
+ * match existed, which makes the row an idempotency marker only — it never bars
+ * rejoining, and a departure whose match id differs from the room's current one
+ * is history from an earlier match, equally inert.
+ */
+export type DepartureRow = {
+  user_id: string;
+  match_id: string | null;
+  departed_at: number;
+};
+
 const ROOM_COLUMNS_DDL = `
   singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
   id TEXT NOT NULL,
@@ -159,15 +172,24 @@ const RESULTS_SCHEMA = `CREATE TABLE IF NOT EXISTS match_results (
   PRIMARY KEY (match_id, user_id)
 )`;
 
+const DEPARTURES_SCHEMA = `CREATE TABLE IF NOT EXISTS departures (
+  user_id TEXT PRIMARY KEY,
+  match_id TEXT,
+  departed_at INTEGER NOT NULL
+)`;
+
 /**
  * Opens the room's own database, once per instance under `blockConcurrencyWhile`.
  *
  * One layout exists and it is this one: the live room is authoritative match state, not an archive,
  * so there is nothing to convert, probe or discard, and neither a live room nor a queued result row
  * is ever truncated by opening the database. An account's history lives in D1 and is untouched here.
+ * Every statement is additive (`IF NOT EXISTS`), so a database from before the `departures` table
+ * gains exactly that one empty table and nothing else about it changes.
  */
 export function createSchema(sql: SqlStore): void {
   sql.exec(`CREATE TABLE IF NOT EXISTS room (${ROOM_COLUMNS_DDL})`);
   sql.exec(`CREATE TABLE IF NOT EXISTS players (${PLAYER_COLUMNS_DDL})`);
   sql.exec(RESULTS_SCHEMA);
+  sql.exec(DEPARTURES_SCHEMA);
 }

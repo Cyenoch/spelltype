@@ -50,11 +50,10 @@ test('受邀玩家登录后加入，两名玩家完成整场对战后看到相�
   const host = await signedInContext(browser, 'host');
   const theme = '星陨图书馆的禁忌抄本';
   // Hard spells deal ~176 damage each, so one 2400 HP opponent falls after about 14 completions.
-  const roomId = await createRoom(host.page, { theme, difficulty: 'hard' });
+  const roomId = await createRoom(host.page, { theme });
 
   expect(await occupiedSeats(host.page).count()).toBe(1);
   expect(await host.page.getByTestId('room-theme').textContent()).toContain(theme);
-  expect(await host.page.getByTestId('room-difficulty').textContent()).toContain('困难');
   const invite = await inviteUrl(host.page);
   expect(invite).toContain(`?room=${roomId}`);
 
@@ -72,8 +71,13 @@ test('受邀玩家登录后加入，两名玩家完成整场对战后看到相�
   await waitForLobbyPlayers(host.page, [host.username, guestName]);
   await setReady(guestPage, true);
   await expect(occupiedSeat(host.page, guestName)).toHaveAttribute('data-ready', 'true');
+  await fixture().setDelay(6000);
 
-  await startMatch(host.page);
+  await host.page.getByTestId('lobby-start').click();
+  for (const page of [host.page, guestPage]) {
+    await expect(page.getByTestId('view-generation')).toBeVisible();
+    await expect(page.getByTestId('battle-panel')).toBeHidden();
+  }
   await expect(guestPage.getByTestId('battle-panel')).toBeVisible({ timeout: 30_000 });
   await Promise.all([waitForCombat(host.page), waitForCombat(guestPage)]);
 
@@ -130,12 +134,21 @@ test('受邀玩家登录后加入，两名玩家完成整场对战后看到相�
     expect(fromGuest.spells).toBe(fromHost.spells);
   }
 
-  // The banner is that same board: rank 1 won, the eliminated player is down, and the match ended
-  // because a player fell rather than on the match deadline.
+  // Settlement replaces combat with a dedicated, immediately visible outcome page.
   const banner = await resultBanner(host.page);
   expect(banner.outcome).toBe('win');
   expect(banner.endReason).toBe('elimination');
-  expect((await resultBanner(guestPage)).outcome).toBe('down');
+  expect((await resultBanner(guestPage)).outcome).toBe('loss');
+  for (const [page, title] of [
+    [host.page, '胜利'],
+    [guestPage, '失败'],
+  ] as const) {
+    await expect(page.getByTestId('view-results')).toBeVisible();
+    await expect(page.getByTestId('battle-panel')).toBeHidden();
+    await expect(page.getByRole('heading', { level: 1, name: title })).toBeInViewport();
+    await expect(page.getByTestId('rematch')).toBeInViewport();
+    await expect(page.getByTestId('result-title')).toBeFocused();
+  }
 
   await expect.poll(() => saveStatus(host.page), { timeout: 30_000 }).toBe('saved');
 
@@ -143,6 +156,8 @@ test('受邀玩家登录后加入，两名玩家完成整场对战后看到相�
   await host.page.getByTestId('rematch').click();
   await expect(host.page.getByTestId('lobby-panel')).toBeVisible();
   await expect(guestPage.getByTestId('lobby-panel')).toBeVisible();
+  await expect(host.page.getByTestId('view-results')).toBeHidden();
+  await expect(guestPage.getByTestId('view-results')).toBeHidden();
   await setReady(guestPage, true);
   await startMatch(host.page);
   await Promise.all([waitForCombat(host.page), waitForCombat(guestPage)]);

@@ -30,7 +30,7 @@ test.beforeEach(async () => {
 
 test('保存失败不谎称已同步，重启后重试仍然只计一场', async ({ browser }) => {
   test.setTimeout(700_000);
-  const room = await twoPlayerRoom(browser, { theme: '持久化契约', difficulty: 'hard' });
+  const room = await twoPlayerRoom(browser, { theme: '持久化契约' });
   const host = room.host;
   const hostIdentity = await selfIdentity(host.context);
   await startMatch(host.page);

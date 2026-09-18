@@ -18,7 +18,6 @@ export async function runGeneration(scope: RoomScope, room: RoomRow): Promise<vo
   if (token === null) return;
   const outcome = await generateSpellSet(scope.env, {
     theme: room.theme,
-    difficulty: room.difficulty,
     variation: `${room.match_id ?? ''}:${room.generation_seq}`,
   });
 

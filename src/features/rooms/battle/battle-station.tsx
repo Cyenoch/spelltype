@@ -90,6 +90,9 @@ export function BattleStation(props: {
     return props.typing.eliminated() ? '你已出局 · 不再有咒文' : '咒文尚未显现';
   };
 
+  /** Display-only Chinese meaning of the current spell; empty when no spell is showing. */
+  const spellTranslation = createMemo(() => props.snapshot.spell?.translation ?? '');
+
   const elementLabel = () =>
     props.snapshot.spell ? ELEMENT_LABELS[props.snapshot.spell.element] : '';
 
@@ -207,6 +210,17 @@ export function BattleStation(props: {
             </Index>
           </span>
         </div>
+        {/* The Chinese meaning is display-only metadata: it lives outside the typed target
+            (spell-text) and outside the input path, so it can never join the English text that
+            drives judging, damage or progress, and it never touches the IME or caret. */}
+        <Show when={spellTranslation() !== ''}>
+          <p
+            class={stylex.props(styles.spellTranslation).className}
+            data-testid="spell-translation"
+          >
+            {spellTranslation()}
+          </p>
+        </Show>
         {/* Decorative particle layer over the spell glyphs: absolutely
             positioned, ignores pointer events, and keeps the real text
             underneath untouched and readable by the DOM and assistive tech. */}

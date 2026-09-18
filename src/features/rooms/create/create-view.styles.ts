@@ -7,11 +7,6 @@ export const styles = stylex.create({
     marginBottom: 10,
   },
 
-  /** The difficulty block is a new section, not a continuation of the theme fields. */
-  sectionHeading: {
-    marginTop: 18,
-  },
-
   /** Submitting is the primary action; it is spaced off the fields it depends on. */
   submitRow: {
     marginTop: 16,

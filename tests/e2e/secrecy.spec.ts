@@ -36,7 +36,6 @@ test('两名玩家看到相同咒文与相同截止时间，未来咒文与对�
   test.setTimeout(300_000);
   const room = await twoPlayerRoom(browser, {
     theme: '等价契约',
-    difficulty: 'easy',
     sockets: true,
   });
   const host = room.host;

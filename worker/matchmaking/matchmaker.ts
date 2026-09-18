@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers';
-import type { Difficulty, MatchCancelResult, MatchTicket, User } from '../../shared/protocol';
+import type { MatchCancelResult, MatchTicket, User } from '../../shared/protocol';
 import type { Env } from '../env';
 import { QUEUE_SHARD_PREFIX } from '../ids';
 import { AccountTickets } from './account';
@@ -12,10 +12,10 @@ import type { MatchmakerScope } from './scope';
  * One Durable Object class, two shard roles selected by the object name:
  *
  * - `u:<userId>` — per-account coordinator. Holds the account's single valid ticket, which is what
- *   makes "one queue seat per account, across difficulties" enforceable, and reconciles that ticket
- *   with the seat reservation that lives in the room.
- * - `q:<difficulty>` — per-difficulty queue. Pairs two distinct accounts and reserves their seats in
- *   one quick room. It is the only place that decides a pairing, so two shards can never claim the
+ *   makes "one queue seat per account" enforceable, and reconciles that ticket with the seat
+ *   reservation that lives in the room.
+ * - `q:hard` — the matchmaking queue. Pairs two distinct accounts and reserves their seats in one
+ *   quick room. It is the only place that decides a pairing, so no other shard can claim the
  *   same account, and it never calls back into an account that is waiting on it.
  *
  * Nothing here is decided from memory. Three durable records carry the invariants:
@@ -53,8 +53,8 @@ export class Matchmaker extends DurableObject<Env> {
   // ---------------------------------------------------------------- coordinator role
 
   /** One poll of the account's ticket: join, answer, or reconcile a matched seat. */
-  async acquire(user: User, difficulty: Difficulty): Promise<MatchTicket> {
-    return this.coordinator().acquire(user, difficulty);
+  async acquire(user: User): Promise<MatchTicket> {
+    return this.coordinator().acquire(user);
   }
 
   async cancel(userId: string): Promise<MatchCancelResult> {
@@ -69,6 +69,11 @@ export class Matchmaker extends DurableObject<Env> {
 
   async claim(userId: string): Promise<ClaimedPairing[]> {
     return this.queueShard().claim(userId);
+  }
+
+  /** Live, unpaired waiting entries on a queue shard; the public activity counter reads this. */
+  async waitingCount(): Promise<number> {
+    return this.queueShard().waitingCount();
   }
 
   async leave(userId: string, requestId: string): Promise<void> {

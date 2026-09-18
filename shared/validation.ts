@@ -49,13 +49,11 @@ export const themeSchema = z
     (value) => Array.from(value).length >= 1 && Array.from(value).length <= MAX_THEME_CHARS,
     `主题需为 1—${MAX_THEME_CHARS} 个字符`,
   );
-export const difficultySchema = z.enum(['easy', 'normal', 'hard'], { error: '难度参数不正确' });
 export const elementSchema = z.enum(['arcane', 'fire', 'ice', 'storm'], {
   error: '元素参数不正确',
 });
 export const roomModeSchema = z.enum(['private', 'quick'], { error: '房间模式不正确' });
-export const createRoomSchema = z.object({ theme: themeSchema, difficulty: difficultySchema });
-export const matchSchema = z.object({ difficulty: difficultySchema });
+export const createRoomSchema = z.object({ theme: themeSchema });
 /** Room identity: 24 lowercase hex characters. */
 export const roomIdSchema = z.string().regex(/^[0-9a-f]{24}$/, '房间不存在');
 
@@ -99,7 +97,6 @@ export const roomInitSchema = z
       }
       return true;
     }, '主题包含不可用字符'),
-    difficulty: difficultySchema,
     mode: roomModeSchema,
     /** Present for quick matches: the partner alone, or both matched accounts. */
     reserved: z.array(userSchema).optional(),
@@ -121,4 +118,3 @@ export const roomInitSchema = z
 export type RegisterInput = z.input<typeof registerSchema>;
 export type LoginInput = z.input<typeof loginSchema>;
 export type CreateRoomInput = z.input<typeof createRoomSchema>;
-export type MatchInput = z.input<typeof matchSchema>;
