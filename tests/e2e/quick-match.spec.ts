@@ -274,6 +274,8 @@ async function startedQuickMatch(
   expect((await matchTicket(keeper)).body.roomId).toBe(roomId);
   for (const session of [leaver, keeper]) {
     await gotoApp(session.page, `/?room=${roomId}`);
+  }
+  for (const session of [leaver, keeper]) {
     await expect(session.page.getByTestId('battle-panel')).toHaveAttribute(
       'data-phase',
       'playing',

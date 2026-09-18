@@ -3,9 +3,9 @@
  * real input field. Everything here reads the contract DuelInterface documents (data-testid hooks
  * and data-* attributes), never incidental wording or private implementation.
  *
- * Completion is always driven by typing the authoritative target text, so a spec that finishes a
- * match exercises the same path a player does: accepted prefix → exact completion → server
- * acknowledgement → atomic damage + immediate advance.
+ * Full-match drivers commit the remaining text through the real field in one input event;
+ * typing.spec.ts keeps the per-keystroke, correction, paste and IME coverage. Both paths
+ * still require server acknowledgement, atomic damage and advancement.
  */
 import { expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import { DAMAGE_PER_CHARACTER, type Player, type RoomSnapshot } from '../../shared/protocol';
@@ -271,9 +271,9 @@ async function waitForAdvanceOrEnd(
 
 /**
  * Completes the open spell from whatever the field already holds: only the missing suffix of the
- * authoritative target is typed, so a restored accepted draft is never duplicated. Resolves once
- * the server has acknowledged the completion and the viewer has advanced (or the match ended).
- * Returns the text that was completed.
+ * authoritative target is inserted, so a restored accepted draft is never duplicated. This
+ * exercises the browser's input event, not paste or a direct WebSocket/API shortcut. Resolve
+ * only when the server advances the viewer's cursor (or ends the match).
  */
 export async function completeSpell(page: Page): Promise<string> {
   const text = await spellText(page);
@@ -282,14 +282,14 @@ export async function completeSpell(page: Page): Promise<string> {
   if (current !== '' && !text.startsWith(current)) await clearField(page);
   const committed = await inputValue(page);
   const missing = text.startsWith(committed) ? text.slice(committed.length) : text;
-  if (missing !== '') await typeText(page, missing);
-
-  await expect
-    .poll(
-      async () => (await castState(page)) === 'done' || (await battlePhase(page)) === 'finished',
-      { timeout: ACK_TIMEOUT },
-    )
-    .toBe(true);
+  if (missing !== '') {
+    const input = typingInput(page);
+    await input.focus();
+    await input.evaluate<void, void, HTMLTextAreaElement>((field) => {
+      field.setSelectionRange(field.value.length, field.value.length);
+    });
+    await page.keyboard.insertText(missing);
+  }
   await waitForAdvanceOrEnd(page, index);
   return text;
 }

@@ -45,9 +45,10 @@ test.beforeEach(async () => {
 });
 
 test('受邀玩家登录后加入，两名玩家完成整场对战后看到相同战绩', async ({ browser }) => {
-  // Every spell is typed through the real field, so a full match needs the typing time itself.
+  // Keep one full-motion match/rematch path; other scenarios use reduced motion.
   test.setTimeout(300_000);
   const host = await signedInContext(browser, 'host');
+  await host.page.emulateMedia({ reducedMotion: 'no-preference' });
   const theme = '星陨图书馆的禁忌抄本';
   // Hard spells deal ~176 damage each, so one 2400 HP opponent falls after about 14 completions.
   const roomId = await createRoom(host.page, { theme });
@@ -58,7 +59,7 @@ test('受邀玩家登录后加入，两名玩家完成整场对战后看到相�
   expect(invite).toContain(`?room=${roomId}`);
 
   // A signed-out visitor opens the invite: the destination survives the auth flow.
-  const guestContext = await newContext(browser);
+  const guestContext = await newContext(browser, { reducedMotion: 'no-preference' });
   const guestPage = await guestContext.newPage();
   await gotoApp(guestPage, `/?room=${roomId}`);
   await expect(guestPage.getByTestId('view-auth')).toBeVisible();

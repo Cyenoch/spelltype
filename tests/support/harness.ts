@@ -13,6 +13,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import net from 'node:net';
 import path from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { settle } from './app';
 import { applyMigrations } from './d1';
 import { startFixtureServer, type FixtureServer } from './fixture-server';
@@ -109,14 +110,27 @@ function spawnVite(instance: {
 }
 
 async function stopChild(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null) return;
+  if (child.exitCode !== null || child.signalCode !== null) return;
   const exited = Promise.withResolvers<void>();
-  child.once('exit', () => exited.resolve());
-  child.kill('SIGTERM');
-  await Promise.race([exited.promise, settle(4000)]);
-  if (child.exitCode === null) {
-    child.kill('SIGKILL');
-    await Promise.race([exited.promise, settle(4000)]);
+  const onExit = () => exited.resolve();
+  const controller = new AbortController();
+  child.once('exit', onExit);
+  try {
+    child.kill('SIGTERM');
+    await Promise.race([
+      exited.promise,
+      delay(4000, undefined, { signal: controller.signal, ref: false }),
+    ]);
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill('SIGKILL');
+      await Promise.race([
+        exited.promise,
+        delay(4000, undefined, { signal: controller.signal, ref: false }),
+      ]);
+    }
+  } finally {
+    controller.abort();
+    child.off('exit', onExit);
   }
 }
 
@@ -166,7 +180,6 @@ async function ensureSchema(
 }
 
 export async function startHarness(): Promise<Harness> {
-  fs.rmSync(STATE_DIR, { recursive: true, force: true });
   const logDir = path.join(STATE_DIR, 'logs');
   const configDir = path.join(STATE_DIR, 'configs');
   const persistDir = path.join(STATE_DIR, 'miniflare-app');
@@ -194,7 +207,12 @@ export async function startHarness(): Promise<Harness> {
       persistDir: address.persistDir,
       port: address.port,
     });
-    await waitForHttp(new URL('/api/session', address.url).toString(), 120_000, address.logFile);
+    try {
+      await waitForHttp(new URL('/api/session', address.url).toString(), 120_000, address.logFile);
+    } catch (error) {
+      await stopChild(child);
+      throw error;
+    }
     return { ...address, child };
   };
 

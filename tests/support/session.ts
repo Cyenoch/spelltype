@@ -32,7 +32,8 @@ export async function newContext(
   return browser.newContext({
     viewport: options.viewport ?? DESKTOP_VIEWPORT,
     locale: 'zh-CN',
-    reducedMotion: options.reducedMotion,
+    // Use the product's static rendering mode; visual scenarios opt into full motion.
+    reducedMotion: options.reducedMotion ?? 'reduce',
     baseURL: options.baseUrl ?? runtime().appUrl,
   });
 }

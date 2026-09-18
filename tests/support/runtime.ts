@@ -1,10 +1,11 @@
 /**
  * Runtime contract shared between the E2E global setup and the specs.
  *
- * The global setup chooses a port at run time and writes it to
- * `tests/.state/runtime.json`; specs read that file (their processes are separate from
- * the setup process).
+ * The config allocates a run id inherited by setup and worker processes. Each run
+ * owns its runtime file, database, logs and artifacts under `tests/.state/<run-id>`.
+ * A second invocation must never remove or overwrite a live run's state.
  */
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +13,8 @@ import type { FixtureGeneration } from './fixture-generation';
 import type { FixtureRequestLog, FixtureState } from './fixture-server';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-export const STATE_DIR = path.join(ROOT, 'tests', '.state');
+const runId = (process.env.SPELLTYPE_E2E_RUN_ID ??= randomUUID());
+export const STATE_DIR = path.join(ROOT, 'tests', '.state', runId);
 export const RUNTIME_FILE = path.join(STATE_DIR, 'runtime.json');
 export const MIGRATIONS_DIR = path.join(ROOT, 'migrations');
 
