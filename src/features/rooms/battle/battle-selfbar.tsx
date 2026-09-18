@@ -1,6 +1,6 @@
 import { createMemo } from 'solid-js';
 import type { Player } from '../../../../shared/protocol';
-import { formatAccuracyPercent, formatHealth, percentOf } from '../../../ui/format';
+import { formatAccuracyPercent, formatAmount, formatHealth, percentOf } from '../../../ui/format';
 import * as stylex from '@stylexjs/stylex';
 import { styles } from './battle.styles';
 
@@ -40,7 +40,7 @@ export function BattleSelfbar(props: { self: Player | undefined }) {
           role="progressbar"
           aria-valuemin="0"
           aria-valuemax={String(Math.max(0, selfHp().maxHp))}
-          aria-valuenow={String(selfHp().hp)}
+          aria-valuenow={formatAmount(selfHp().hp)}
           aria-valuetext={selfHp().maxHp > 0 ? formatHealth(selfHp().hp, selfHp().maxHp) : '—'}
           aria-label="我的生命值"
         >
@@ -82,7 +82,7 @@ export function BattleSelfbar(props: { self: Player | undefined }) {
         <span>
           伤害{' '}
           <b class={stylex.props(styles.selfbarStat).className} data-testid="self-damage">
-            {String(props.self?.damageDealt ?? 0)}
+            {formatAmount(props.self?.damageDealt ?? 0)}
           </b>
         </span>
         <span>

@@ -1,6 +1,7 @@
 /**
- * The private room as a player sees it: the create form, the invite link, the seats, readiness and
- * the host's start, plus the seating helpers that assemble a real room out of fresh accounts.
+ * The private room as a player sees it: the create form, the room ID invite code, the seats,
+ * readiness and the host's start, plus the seating helpers that assemble a real room out of
+ * fresh accounts.
  */
 import { expect, type Browser, type Page } from '@playwright/test';
 import { gotoApp } from './app';
@@ -24,11 +25,11 @@ export async function createRoom(
   return roomId;
 }
 
-/** The invite link a host copies out of the lobby. */
+/** The legacy invite URL, constructed from the room ID the lobby shows as the invite code. */
 export async function inviteUrl(page: Page): Promise<string> {
-  const value = await page.getByTestId('lobby-invite-link').inputValue();
-  expect(value).toContain('/?room=');
-  return value;
+  const roomId = (await page.getByTestId('lobby-room-id').textContent())?.trim() ?? '';
+  expect(roomId).toMatch(/^[0-9a-f]{24}$/);
+  return `${new URL(page.url()).origin}/?room=${roomId}`;
 }
 
 /**

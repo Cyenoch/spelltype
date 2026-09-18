@@ -6,7 +6,7 @@ import {
   type RoomSnapshot,
 } from '../../../../shared/protocol';
 import { ASSETS, arenaFor } from '../../../pixi/assets';
-import { ELEMENTS } from '../../../ui/format';
+import { ELEMENTS, isPresetTheme } from '../../../ui/format';
 import { ui } from '../../../ui/primitives';
 import { arenaIndex } from './battle-view';
 import { styles } from './battle-generation.styles';
@@ -24,10 +24,12 @@ const GLYPH_UPRIGHT = [null, styles.uprightB, styles.uprightC, styles.uprightD];
  * whole time and is merely hidden, so every canvas and input host survives
  * until the countdown takes over.
  *
- * Every word of status here comes from the snapshot: who is ready, that the AI
- * is writing the one shared book of `SPELL_BOOK_SIZE` English spells with
- * Chinese translations, and that the `OPENING_COUNTDOWN_MS` countdown starts
- * by itself once the book exists. Nothing counts spells, percent or substages,
+ * Every word of status here comes from the snapshot: who is ready, what this room is waiting
+ * for — preset themes share one cached book per theme (near-instant while fresh, a new-book
+ * wait when the old one expired, with rooms that start alongside keeping the old spells), a
+ * custom theme is cast per match — the book always holds `SPELL_BOOK_SIZE` English spells
+ * with Chinese translations, and the `OPENING_COUNTDOWN_MS` countdown starts by itself once
+ * the book exists. Nothing counts spells, percent or substages,
  * because the room publishes no such progress.
  */
 export function BattleGeneration(props: {
@@ -46,9 +48,12 @@ export function BattleGeneration(props: {
   );
 
   const stateText = createMemo(() => {
+    const sharing = isPresetTheme(props.snapshot.theme)
+      ? '正在获取本主题的共享咒文书。需要生成新书时，本局等待就绪；已有旧书的其他对局可直接开战。'
+      : '自定义主题不使用缓存，正在为本局单独生成咒文。';
     return (
-      `${readyLabel()}，AI 正在为本局铸造 ${SPELL_BOOK_SIZE} 个英文咒文与对应中文释义；` +
-      `咒文书完成后将自动开始 ${OPENING_COUNTDOWN_MS / 1000} 秒倒数。`
+      `${readyLabel()}。${sharing}咒文书共 ${SPELL_BOOK_SIZE} 条英文咒文与对应中文释义，` +
+      `就绪后自动开始 ${OPENING_COUNTDOWN_MS / 1000} 秒倒数。`
     );
   });
 
@@ -80,7 +85,7 @@ export function BattleGeneration(props: {
 
       <div class={stylex.props(styles.inner).className}>
         <h2 id="spell-generation-title" class={stylex.props(styles.title).className}>
-          正在铸造咒文书…
+          正在准备咒文书…
         </h2>
 
         <div class={stylex.props(styles.stage).className} aria-hidden="true">
@@ -190,7 +195,7 @@ export function BattleGeneration(props: {
             >
               ●
             </span>
-            铸造咒文书
+            准备咒文书
           </li>
           <li
             class={stylex.props(styles.step).className}

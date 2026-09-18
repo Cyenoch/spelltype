@@ -52,12 +52,20 @@ async function harnessControl<T>(pathname: string, body: Record<string, unknown>
   return payload;
 }
 
+/** Validated overrides for the next instance boot. Anything else is a spec bug, not a config. */
+export interface RestartOptions {
+  inputPolicyMode?: 'observe' | 'enforce';
+  matchAdmission?: 'open' | 'draining';
+}
+
 /**
  * Stops and re-boots the application on the same port and persist directory. Used to prove Durable
- * Object state survives process reactivation (no production test hooks involved).
+ * Object state survives process reactivation (no production test hooks involved). The optional
+ * overrides change only the isolated instance's config vars for the next boot — never the product
+ * configuration — and the harness rejects unknown values instead of guessing.
  */
-export async function restartInstance(): Promise<void> {
-  await harnessControl('/restart');
+export async function restartInstance(options: RestartOptions = {}): Promise<void> {
+  await harnessControl('/restart', { ...options });
 }
 
 /**

@@ -7,15 +7,15 @@ import type { Element } from '../../shared/protocol';
  * (generated source vs. locally derived asset).
  */
 export const ASSETS = {
-  background: '/assets/bg/academy-hall.jpg',
+  background: '/assets/bg/academy-hall.webp',
   backgroundFallback: '/assets/bg/academy.svg',
   sigil: '/assets/sigil.svg',
   spark: '/assets/effects/spark.svg',
   avatars: [
-    '/assets/avatars/seat-1.jpg',
-    '/assets/avatars/seat-2.jpg',
-    '/assets/avatars/seat-3.jpg',
-    '/assets/avatars/seat-4.jpg',
+    '/assets/avatars/seat-1.webp',
+    '/assets/avatars/seat-2.webp',
+    '/assets/avatars/seat-3.webp',
+    '/assets/avatars/seat-4.webp',
   ],
   avatarFallbacks: [
     '/assets/avatars/seat-1.svg',
@@ -41,10 +41,10 @@ export const ASSETS = {
    * slot 0 = arcane, 1 = fire, 2 = ice, 3 = storm.
    */
   characters: [
-    '/assets/characters/slot-0-arcane.png',
-    '/assets/characters/slot-1-fire.png',
-    '/assets/characters/slot-2-ice.png',
-    '/assets/characters/slot-3-storm.png',
+    '/assets/characters/slot-0-arcane.webp',
+    '/assets/characters/slot-1-fire.webp',
+    '/assets/characters/slot-2-ice.webp',
+    '/assets/characters/slot-3-storm.webp',
   ],
   /** Four spell sigils per element, indexed by spellIndex % 4. */
   spellIcons: {
@@ -73,31 +73,31 @@ export const ASSETS = {
       '/assets/spells/storm-4.webp',
     ],
   } satisfies Record<Element, readonly string[]>,
-  /** Four impact effects per element, indexed by spellIndex % 4. Alpha PNGs. */
+  /** Four impact effects per element, indexed by spellIndex % 4. Alpha WebPs. */
   combatFx: {
     arcane: [
-      '/assets/combat-fx/arcane-1.png',
-      '/assets/combat-fx/arcane-2.png',
-      '/assets/combat-fx/arcane-3.png',
-      '/assets/combat-fx/arcane-4.png',
+      '/assets/combat-fx/arcane-1.webp',
+      '/assets/combat-fx/arcane-2.webp',
+      '/assets/combat-fx/arcane-3.webp',
+      '/assets/combat-fx/arcane-4.webp',
     ],
     fire: [
-      '/assets/combat-fx/fire-1.png',
-      '/assets/combat-fx/fire-2.png',
-      '/assets/combat-fx/fire-3.png',
-      '/assets/combat-fx/fire-4.png',
+      '/assets/combat-fx/fire-1.webp',
+      '/assets/combat-fx/fire-2.webp',
+      '/assets/combat-fx/fire-3.webp',
+      '/assets/combat-fx/fire-4.webp',
     ],
     ice: [
-      '/assets/combat-fx/ice-1.png',
-      '/assets/combat-fx/ice-2.png',
-      '/assets/combat-fx/ice-3.png',
-      '/assets/combat-fx/ice-4.png',
+      '/assets/combat-fx/ice-1.webp',
+      '/assets/combat-fx/ice-2.webp',
+      '/assets/combat-fx/ice-3.webp',
+      '/assets/combat-fx/ice-4.webp',
     ],
     storm: [
-      '/assets/combat-fx/storm-1.png',
-      '/assets/combat-fx/storm-2.png',
-      '/assets/combat-fx/storm-3.png',
-      '/assets/combat-fx/storm-4.png',
+      '/assets/combat-fx/storm-1.webp',
+      '/assets/combat-fx/storm-2.webp',
+      '/assets/combat-fx/storm-3.webp',
+      '/assets/combat-fx/storm-4.webp',
     ],
   } satisfies Record<Element, readonly string[]>,
 } as const;
@@ -143,18 +143,3 @@ export function combatFxFor(element: Element, index: number): string {
   const fx = ASSETS.combatFx[element] ?? ASSETS.combatFx.arcane;
   return fx[wrap(index, fx.length)] ?? fx[0];
 }
-
-export interface ThemePreset {
-  id: string;
-  label: string;
-  theme: string;
-}
-
-export const THEME_PRESETS: readonly ThemePreset[] = [
-  { id: 'academy', label: '正统魔法学院', theme: '正统魔法学院的期末考试' },
-  { id: 'courtyard', label: '深夜炼金工坊', theme: '深夜炼金工坊的失控事故' },
-  { id: 'immortal', label: '修真斗法', theme: '仙门斗法大会的紫霄剑诀' },
-  { id: 'comedy', label: '整活魔法', theme: '用魔法点外卖的离谱日常' },
-  { id: 'deepsea', label: '深海咒术', theme: '深海遗迹里的古老封印' },
-  { id: 'bakery', label: '魔法面包房', theme: '魔法面包房的清晨配方' },
-];

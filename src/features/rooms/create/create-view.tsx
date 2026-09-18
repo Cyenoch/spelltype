@@ -2,9 +2,8 @@ import { For, createSignal } from 'solid-js';
 import { useNavigate } from '@tanstack/solid-router';
 import { createForm } from '@tanstack/solid-form';
 import * as stylex from '@stylexjs/stylex';
-import { MAX_THEME_CHARS } from '../../../../shared/protocol';
+import { MAX_THEME_CHARS, THEME_PRESETS, type ThemePreset } from '../../../../shared/protocol';
 import { createRoomSchema, themeSchema } from '../../../../shared/validation';
-import { THEME_PRESETS, type ThemePreset } from '../../../pixi/assets';
 import { parseResponse, DetailedError } from 'hono/client';
 import { client } from '../../../app/client';
 import { messageOf, toast } from '../../../ui/toast';
@@ -50,7 +49,7 @@ export function CreateRoomView(props: { ctx: AppContext }) {
             json: { theme: value.theme.trim() },
           }),
         );
-        toast('房间已创建，把邀请链接发给朋友吧。', 'good');
+        toast('房间已创建，把邀请码发给朋友吧。', 'good');
         props.ctx.setPendingInvite(roomId);
         void navigate({ to: '/', search: { room: roomId } });
       } catch (error) {
@@ -100,7 +99,9 @@ export function CreateRoomView(props: { ctx: AppContext }) {
             <h1>创建私人房</h1>
             <span class={stylex.props(ui.eyebrow).className}>2–4 人</span>
           </div>
-          <p class={stylex.props(ui.muted).className}>选一个咒文主题，邀请朋友来一场对决。</p>
+          <p class={stylex.props(ui.muted).className}>
+            选一个咒文主题，邀请朋友来一场对决：预设主题按主题共用咒文书，通常更快开战；自定义主题每局单独铸造。
+          </p>
 
           <div
             class={stylex.props(ui.notice, noticeStyles.warn).className}
@@ -108,7 +109,9 @@ export function CreateRoomView(props: { ctx: AppContext }) {
             data-tone="warn"
             hidden={configured()}
           >
-            {configured() ? '' : '咒文服务暂不可用。你仍可邀请朋友进入房间，请稍后再开始对决。'}
+            {configured()
+              ? ''
+              : '咒文生成暂不可用：预设主题可能仍有共享咒文书，可照常开战；自定义主题需等生成恢复。'}
           </div>
 
           <hr class={stylex.props(ui.rule).className} />
@@ -191,7 +194,7 @@ export function CreateRoomView(props: { ctx: AppContext }) {
               data-testid="room-create-submit"
               disabled={submitting()}
             >
-              {submitting() ? '正在创建…' : '创建房间并生成邀请链接'}
+              {submitting() ? '正在创建…' : '创建房间并获取邀请码'}
             </button>
             <button
               type="button"
@@ -209,14 +212,15 @@ export function CreateRoomView(props: { ctx: AppContext }) {
         <h2>接下来的流程</h2>
         <ol class={stylex.props(ui.steps).className}>
           <li class={stylex.props(styles.step).className}>
-            创建后进入房间大厅，把邀请链接发给朋友（2–4 人都可以）。
+            创建后进入房间大厅，点击复制邀请码发给朋友；朋友在首页选择「加入房间」（2–4 人都可以）。
           </li>
           <li class={stylex.props(styles.step).className}>全员准备后，由房主开始对决。</li>
           <li class={stylex.props(styles.step).className}>
             咒文准备就绪后进入战斗，等待不计入对战时间。
           </li>
           <li class={stylex.props(styles.step).className}>
-            开场倒数 3 秒后进入 240 秒连续战斗：完成咒文造成伤害，生命归零出局。
+            开场倒数 3 秒后进入 240
+            秒连续战斗：完成咒文即同时命中所有存活对手（总伤害平均分配），生命归零出局。
           </li>
         </ol>
       </div>

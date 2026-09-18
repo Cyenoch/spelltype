@@ -1,6 +1,7 @@
 import { Show } from 'solid-js';
 import { createFileRoute } from '@tanstack/solid-router';
 import { parseResponse } from 'hono/client';
+import { WS_PROTOCOL } from '../../shared/protocol';
 import { client } from '../app/client';
 import type { RoomLoad } from '../features/rooms/room-session';
 import { AuthView } from '../features/auth/auth-view';
@@ -15,7 +16,10 @@ export const Route = createFileRoute('/')({
       const snapshot = await parseResponse(
         client.api.rooms[':roomId'].$get(
           { param: { roomId: deps.roomId } },
-          { init: { signal: abortController.signal } },
+          {
+            headers: { 'X-Spelltype-Protocol': WS_PROTOCOL },
+            init: { signal: abortController.signal },
+          },
         ),
       );
       return { snapshot };

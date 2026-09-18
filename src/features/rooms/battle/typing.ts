@@ -2,10 +2,22 @@ import { normalizeSpellInput } from '../../../../shared/spell-input';
 import { prefixLength } from '../../../ui/format';
 import { attachInputGuards, clampInput, countEdit } from './typing-input';
 
-export interface TypingSpellConfig {
+/**
+ * The authoritative state of one bound spell identity: which match and spell
+ * cursor it belongs to, which draft generation it carries, the exact accepted
+ * draft text, and the match-cumulative attempt/error counters as of this draft.
+ */
+export interface TypingRestore {
   matchId: string;
-  /** The player's monotonic, zero-based spell cursor this target belongs to. */
+  /** The player's monotonic, zero-based spell cursor this draft belongs to. */
   spellIndex: number;
+  /** The server's draft generation: bumped by every rejection-driven restore. */
+  draftEpoch: number;
+  draft: string;
+  stats: { attemptTotal: number; errorTotal: number };
+}
+
+export interface TypingSpellConfig extends TypingRestore {
   target: string;
 }
 
@@ -27,10 +39,13 @@ export interface TypingLocalState {
 export interface TypingCommit {
   matchId: string;
   spellIndex: number;
+  draftEpoch: number;
   text: string;
   complete: boolean;
   progress: number;
 }
+
+export type RestoreMode = 'reconnect' | 'recovery';
 
 export interface TypingCallbacks {
   /** Returns true when the snapshot actually left the client. */
@@ -56,13 +71,22 @@ export interface TypingCallbacks {
  *   characters typed after a completion are rejected as stale instead of
  *   dealing a second hit. The authoritative snapshot, never this controller,
  *   decides that a cast happened;
- * - reconnecting adopts the server's accepted draft and drops input the server
- *   never accepted (no retroactive submission after a reconnect).
+ * - there is exactly one way to adopt server state: `restoreInput` (and the
+ *   draft/stats-aware `startSpell`). Both capture the epoch the sends carry;
+ *   nothing ever re-reads the epoch from a later snapshot. Adoption rewrites
+ *   the field without counting attempts or triggering effects, and never
+ *   rolls the epoch backwards: a recovery needs a strictly larger epoch, a
+ *   reconnect the same or a larger one;
+ * - authoritative state that arrives mid-composition is parked (candidates are
+ *   never touched) and applied when the IME settles — before the composition's
+ *   own text could be submitted, so a rejected draft can never resurrect.
  */
 export class TypingController {
   private target = '';
   private matchId = '';
   private spellIndex = 0;
+  /** The draft generation this controller's sends carry. */
+  private draftEpoch = 0;
   private active = false;
   private composing = false;
   private lastValue = '';
@@ -72,15 +96,18 @@ export class TypingController {
   private pendingComplete = false;
   private locked = false;
   private lastPushDelivered = true;
-  private deferredResync: string | null = null;
   /** A spell that arrived mid-composition, applied once the IME settles. */
   private deferredStart: TypingSpellConfig | null = null;
+  /** A restore that arrived mid-composition; the newest one wins. */
+  private deferredRestore: { restore: TypingRestore; mode: RestoreMode } | null = null;
   /**
-   * The text the IME committed for a spell the room already settled. The browser
-   * delivers that text as an `input` after `compositionend`; it is discarded by
-   * value, so a genuine next keystroke is never swallowed.
+   * The composition text an authoritative adoption threw away, and the draft
+   * that replaced it. The browser delivers the discarded value again as an
+   * `input` after `compositionend`; that event is answered with the accepted
+   * draft (no counting, no sending) while any other value is judged normally,
+   * so a genuine next keystroke is never swallowed.
    */
-  private staleImeText: string | null = null;
+  private staleImeText: { committed: string; accepted: string } | null = null;
 
   private detachGuards: () => void = () => undefined;
 
@@ -113,37 +140,47 @@ export class TypingController {
   }
 
   /**
-   * Begin (or restart) a spell: counters reset, the field is cleared. Per-spell
-   * attempt/error history is dropped only here, never by an incoming snapshot.
+   * Begin (or restart) a spell: the counters continue from the match-cumulative
+   * stats the binding captured, and the field adopts the spell's accepted
+   * draft. Per-spell attempt/error history is never reset by an incoming
+   * snapshot — only this binding establishes a new baseline.
    *
    * A spell that arrives while the player is mid-composition is deferred: the
    * room advances `spellIndex` the instant a cast is accepted, and clearing the
    * field under an active IME would desynchronise the browser's composition —
    * so the new spell is applied when the composition ends, and the text that
-   * belonged to the previous spell is dropped instead of being submitted.
+   * belonged to the previous spell is discarded instead of being submitted.
    */
   startSpell(config: TypingSpellConfig): void {
     if (this.composing) {
+      this.deferredRestore = null;
+      this.pendingComplete = false;
       this.deferredStart = config;
+      this.emit();
       return;
     }
     this.applyStart(config, null);
   }
 
-  private applyStart(config: TypingSpellConfig, staleImeText: string | null): void {
-    this.staleImeText = staleImeText;
+  private applyStart(config: TypingSpellConfig, discardedComposition: string | null): void {
+    this.staleImeText =
+      discardedComposition === null
+        ? null
+        : { committed: discardedComposition, accepted: config.draft };
     this.target = config.target;
     this.matchId = config.matchId;
     this.spellIndex = config.spellIndex;
+    this.draftEpoch = config.draftEpoch;
     this.active = true;
-    this.attempts = 0;
-    this.errors = 0;
+    this.attempts = config.stats.attemptTotal;
+    this.errors = config.stats.errorTotal;
     this.pendingComplete = false;
     this.locked = false;
-    this.lastSent = null;
-    this.deferredResync = null;
-    this.lastValue = '';
-    if (this.textarea.value !== '') this.textarea.value = '';
+    this.lastSent = config.draft;
+    this.deferredRestore = null;
+    this.lastValue = config.draft;
+    if (this.textarea.value !== config.draft) this.textarea.value = config.draft;
+    this.moveCaretToEnd();
     this.emit();
   }
 
@@ -151,14 +188,21 @@ export class TypingController {
   setLocked(locked: boolean): void {
     if (this.locked === locked) return;
     this.locked = locked;
+    if (locked) {
+      this.deferredStart = null;
+      this.deferredRestore = null;
+      this.pendingComplete = false;
+    }
     this.emit();
   }
 
   /** The match ended or this player is out: display only, nothing is judged. */
   endSpell(): void {
     this.active = false;
-    // A deferred spell must not revive a match that has already settled.
+    // A settled match cancels every deferred action: neither a parked spell nor
+    // a parked restore may revive input at compositionend.
     this.deferredStart = null;
+    this.deferredRestore = null;
     this.staleImeText = null;
     if (this.pendingComplete) {
       this.pendingComplete = false;
@@ -167,52 +211,58 @@ export class TypingController {
   }
 
   /**
-   * Reconnect reconciliation: adopt exactly what the server accepted. Local
-   * edits made while the socket was down were never submitted, so they are
-   * dropped rather than replayed. A composition in flight is never touched —
-   * the adoption is deferred until the composition is confirmed.
+   * The one authoritative adoption entry. Re-baselines the field on the
+   * server's accepted draft and stats: page refreshes, reconnects and
+   * rejection-driven recoveries all land here — never by re-sending local
+   * edits and never by counting an attempt.
+   *
+   * Identity comes first: a restore for another match or spell index is
+   * ignored (only `startSpell` may switch identity). Epoch comes second: a
+   * recovery must carry a strictly larger epoch than the current draft, a
+   * reconnect the same or a larger one — anything older is an echo of a draft
+   * this controller has already moved past.
    */
-  resync(draft: string): void {
+  restoreInput(state: TypingRestore, mode: RestoreMode): void {
+    const start = this.deferredStart;
+    if (start) {
+      if (state.matchId !== start.matchId || state.spellIndex !== start.spellIndex) return;
+      if (state.draftEpoch < start.draftEpoch) return;
+      this.deferredStart = { ...start, ...state };
+      return;
+    }
     if (!this.active) return;
-    if (this.locked) {
-      // Already settled: only display what the server accepted.
-      this.restoreDraft(draft);
+    if (state.matchId !== this.matchId || state.spellIndex !== this.spellIndex) return;
+    if (mode === 'recovery') {
+      if (state.draftEpoch <= this.draftEpoch) return;
+    } else if (state.draftEpoch < this.draftEpoch) {
       return;
     }
+    if (this.deferredRestore && state.draftEpoch < this.deferredRestore.restore.draftEpoch) return;
     if (this.composing) {
-      this.deferredResync = draft;
+      // Keep the candidate text and its selection untouched: park the newest
+      // authoritative state and stop submitting the old generation's text. The
+      // compositionend handler adopts it before any commit could escape.
+      this.deferredRestore = { restore: state, mode };
+      if (this.pendingComplete) {
+        this.pendingComplete = false;
+        this.emit();
+      }
       return;
     }
-    this.adoptServerDraft(draft);
+    this.adoptRestore(state);
   }
 
-  /**
-   * Restore a server-accepted draft (page refresh, first snapshot). A locked
-   * spell only displays the accepted text; an open spell adopts it when the
-   * server is at least as far as the local field.
-   */
-  restoreDraft(draft: string): void {
-    // While a deferred spell is pending the field still belongs to the previous
-    // one, so an accepted draft for the new spell is adopted after it binds.
-    if (this.composing || this.deferredStart !== null || draft === '') return;
-    const local = this.textarea.value;
-    if (local === draft) return;
-    if (this.locked) {
-      this.showAccepted(draft);
-      return;
-    }
-    const serverAhead = draft.length > local.length && draft.startsWith(local);
-    if (local.length > 0 && !serverAhead) return;
-    this.adoptServerDraft(draft);
-  }
-
-  private adoptServerDraft(draft: string): void {
-    this.deferredResync = null;
+  private adoptRestore(state: TypingRestore): void {
+    this.deferredRestore = null;
+    this.staleImeText = null;
+    this.draftEpoch = state.draftEpoch;
+    this.attempts = state.stats.attemptTotal;
+    this.errors = state.stats.errorTotal;
     this.pendingComplete = false;
-    this.showAccepted(draft);
+    this.showAccepted(state.draft);
   }
 
-  /** Display-only write: no attempt accounting, lock state untouched. */
+  /** Display-only write: no attempt accounting, no send, lock state untouched. */
   private showAccepted(draft: string): void {
     if (this.textarea.value !== draft) this.textarea.value = draft;
     this.lastValue = draft;
@@ -237,27 +287,34 @@ export class TypingController {
 
   private readonly handleCompositionEnd = (): void => {
     this.composing = false;
-    const deferred = this.deferredStart;
-    if (deferred) {
-      // The composition belonged to the spell the room already settled: bind the
-      // new one, and remember the committed text so the browser's follow-up
-      // `input` for the old target is dropped instead of being submitted.
+    if (!this.active && !this.deferredStart) return;
+    if (this.locked) {
       this.deferredStart = null;
-      const committed = this.textarea.value;
-      this.applyStart(deferred, committed === '' ? null : committed);
+      this.deferredRestore = null;
       return;
     }
-    this.commitValue(this.textarea.value);
-    if (this.deferredResync === null) return;
-    // The composition was committed but never submitted: keep it only when the
-    // socket actually took it, otherwise fall back to the accepted state.
-    if (!this.lastPushDelivered) {
-      const draft = this.deferredResync;
-      this.deferredResync = null;
-      this.adoptServerDraft(draft);
-    } else {
-      this.deferredResync = null;
+    const discarded = this.textarea.value;
+    const start = this.deferredStart;
+    if (start) {
+      // The composition belonged to a spell the room already settled: bind the
+      // new identity with its draft and stats, and remember the discarded
+      // composition text so the browser's follow-up `input` for the old target
+      // falls back to the adopted draft instead of being submitted.
+      this.deferredStart = null;
+      this.applyStart(start, discarded);
+      return;
     }
+    const deferred = this.deferredRestore;
+    if (deferred) {
+      // Authoritative adoption wins over the composition's finished value: the
+      // draft was rejected (or re-synchronised) server-side, so adopting it
+      // first is what keeps a rejected completion from ever being submitted.
+      this.deferredRestore = null;
+      this.adoptRestore(deferred.restore);
+      this.staleImeText = { committed: discarded, accepted: deferred.restore.draft };
+      return;
+    }
+    this.commitValue(discarded);
   };
 
   private readonly handleInput = (event: Event): void => {
@@ -267,11 +324,16 @@ export class TypingController {
       this.emit();
       return;
     }
-    if (this.staleImeText !== null && this.textarea.value === this.staleImeText) {
+    const stale = this.staleImeText;
+    if (stale !== null && this.textarea.value === stale.committed) {
+      // The browser replayed the discarded composition value: fall back to the
+      // accepted draft exactly, keeping lastValue/lastSent so nothing is
+      // counted or sent. The flag is spent: a later value that happens to
+      // match again is a real keystroke and must be judged.
       this.staleImeText = null;
-      this.textarea.value = '';
-      this.lastValue = '';
-      this.lastSent = '';
+      if (this.textarea.value !== stale.accepted) this.textarea.value = stale.accepted;
+      this.lastValue = stale.accepted;
+      this.lastSent = stale.accepted;
       this.emit();
       return;
     }
@@ -309,7 +371,17 @@ export class TypingController {
   }
 
   private pushNow(): void {
-    if (this.composing || !this.active) return;
+    // A parked start or restore owns the field's next word: nothing the old
+    // generation still holds may reach the server.
+    if (
+      this.locked ||
+      this.composing ||
+      !this.active ||
+      this.deferredStart !== null ||
+      this.deferredRestore !== null
+    ) {
+      return;
+    }
     const text = this.textarea.value;
     if (text === this.lastSent) {
       this.lastPushDelivered = true;
@@ -319,6 +391,7 @@ export class TypingController {
     this.lastPushDelivered = this.callbacks.onCommit({
       matchId: this.matchId,
       spellIndex: this.spellIndex,
+      draftEpoch: this.draftEpoch,
       text,
       complete: this.pendingComplete,
       progress: prefixLength(this.target, text),

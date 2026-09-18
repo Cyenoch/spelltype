@@ -59,7 +59,7 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
     onReady: (ready) => session.send({ type: 'ready', ready }, '准备状态未能送达，正在重连…'),
     onStart: () => session.send({ type: 'start' }, '开始指令未能送达，正在重连…'),
     onLeave: () => void session.leaveRoom(),
-    onCopyInvite: () => session.copyInvite(),
+    onCopyRoomId: () => session.copyRoomId(),
   };
 
   /**
@@ -131,7 +131,14 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
       data-mode={session.snapshot()?.mode ?? ''}
     >
       <Show when={session.problem()}>
-        {(current) => <RoomNotice problem={current()} snapshot={session.snapshot()} />}
+        {(current) => (
+          <RoomNotice
+            problem={current()}
+            snapshot={session.snapshot()}
+            leaveRoom={(destination) => session.leaveRoom(destination)}
+            leavePending={session.leavePending()}
+          />
+        )}
       </Show>
 
       <div
@@ -157,7 +164,6 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
               hidden={inCombat() || finished() || generating()}
               snapshot={room()}
               selfId={selfId()}
-              inviteUrl={props.ctx.inviteUrl(props.roomId)}
               reservationRemainingMs={session.reservationRemainingMs()}
               actions={lobbyActions}
             />

@@ -6,15 +6,15 @@ import type { Seating } from './seating';
 import type { StageAssets } from './assets';
 import type { Element, Player, RoomSnapshot } from '../../../shared/protocol';
 
-/** Motes drawn between the caster and its locked target. */
+/** Motes drawn between the caster and each locked target. */
 const AIM_MOTES = 4;
 
-/** The targeting readout: the tether to the locked target and the caster's emblem. */
+/** The targeting readout: the tethers to every locked target and the caster's emblem. */
 export interface AimLayer {
   /** The tether and the emblem; the stage places this in the scene graph. */
   readonly view: Container;
   /**
-   * Redraws the tether; unchanged targeting short-circuits, and `force` bypasses
+   * Redraws the tethers; unchanged targeting short-circuits, and `force` bypasses
    * that check for callers that know the geometry moved.
    */
   drawAim(
@@ -26,7 +26,7 @@ export interface AimLayer {
   ): void;
   /** The caster's emblem: the spell sigil for the current cast, or the element rune. */
   drawEmblem(element: Element, index: number, phase: RoomSnapshot['phase'], selfSlot: number): void;
-  /** Pulses the tether with the caster's charge while the match is live. */
+  /** Pulses the tethers with the caster's charge while the match is live. */
   pulse(clock: number, progress: number, playing: boolean): void;
   /** Spins the emblem; a hidden emblem does not move. */
   spin(deltaMS: number): void;
@@ -34,17 +34,20 @@ export interface AimLayer {
 }
 
 /**
- * The room targets the next alive player clockwise from the caster's slot.
- * `-1` when the caster is not seated or has nobody left to hit.
+ * Every seat the caster's next cast lands on: all other living players. The
+ * caster themselves and anyone already eliminated are never targeted, so a
+ * downed viewer draws nothing and a dead seat keeps no reticle.
  */
-function aimSlot(selfSlot: number, occupancy: readonly (Player | null)[]): number {
-  if (selfSlot < 0 || !occupancy[selfSlot]) return -1;
-  for (let step = 1; step <= occupancy.length; step += 1) {
-    const slot = (selfSlot + step) % occupancy.length;
+function aimSlots(selfSlot: number, occupancy: readonly (Player | null)[]): number[] {
+  if (selfSlot < 0) return [];
+  const self = occupancy[selfSlot];
+  if (!self || self.eliminatedAt !== null) return [];
+  const slots: number[] = [];
+  for (let slot = 0; slot < occupancy.length; slot += 1) {
     const player = occupancy[slot];
-    if (player && player.eliminatedAt === null) return slot;
+    if (slot !== selfSlot && player && player.eliminatedAt === null) slots.push(slot);
   }
-  return -1;
+  return slots;
 }
 
 export function createAimLayer(
@@ -69,44 +72,47 @@ export function createAimLayer(
     view,
 
     drawAim(selfSlot, occupancy, phase, element, force = false): void {
-      const targetSlot = aimSlot(selfSlot, occupancy);
-      const next = `${selfSlot}|${targetSlot}|${phase}|${element}`;
+      const targetSlots = aimSlots(selfSlot, occupancy);
+      const next = `${selfSlot}|${phase}|${element}|${targetSlots.join(',')}`;
       if (!force && next === signature) return;
       signature = next;
       tether.clear();
-      if (targetSlot < 0 || phase !== 'playing') return;
+      if (targetSlots.length === 0 || phase !== 'playing') return;
       seating.chest(selfSlot, stance);
-      seating.chest(targetSlot, target);
       const color = ELEMENT_COLORS[element];
-      const dx = target.x - stance.x;
-      const dy = target.y - stance.y;
-      const length = Math.hypot(dx, dy);
-      if (length < 1) return;
+      // One tether per living opponent: the whole field reads as the cast's
+      // landing zone, because the room splits every cast across all of them.
+      for (const targetSlot of targetSlots) {
+        seating.chest(targetSlot, target);
+        const dx = target.x - stance.x;
+        const dy = target.y - stance.y;
+        if (Math.hypot(dx, dy) < 1) continue;
 
-      const targetY = seating.geometry[targetSlot].feetY - 2;
-      // A few glowing motes rather than a rule: they fade with distance, so the
-      // tether reads as magic drifting towards the locked target.
-      for (let index = 0; index < AIM_MOTES; index += 1) {
-        const at = (index + 1) / (AIM_MOTES + 1);
-        const strength = 1 - at * 0.7;
-        const x = stance.x + dx * at + Math.sin(index * 2.4) * 7;
-        const y = stance.y + dy * at + Math.cos(index * 1.9) * 4;
-        tether.circle(x, y, 4.5).fill({ color, alpha: 0.1 * strength });
-        tether.circle(x, y, 1.9).fill({ color, alpha: 0.34 * strength });
-      }
+        const targetY = seating.geometry[targetSlot].feetY - 2;
+        // A few glowing motes rather than a rule: they fade with distance, so the
+        // tether reads as magic drifting towards the locked target.
+        for (let index = 0; index < AIM_MOTES; index += 1) {
+          const at = (index + 1) / (AIM_MOTES + 1);
+          const strength = 1 - at * 0.7;
+          const x = stance.x + dx * at + Math.sin(index * 2.4) * 7;
+          const y = stance.y + dy * at + Math.cos(index * 1.9) * 4;
+          tether.circle(x, y, 4.5).fill({ color, alpha: 0.1 * strength });
+          tether.circle(x, y, 1.9).fill({ color, alpha: 0.34 * strength });
+        }
 
-      // The lock marker owns the target's ground ring, so it reads as a deliberate
-      // targeting reticle rather than a stray circle near their feet.
-      tether.ellipse(target.x, targetY, 46, 15).stroke({ width: 2, color, alpha: 0.55 });
-      tether.ellipse(target.x, targetY, 34, 11).stroke({ width: 1, color, alpha: 0.4 });
-      for (let index = 0; index < 4; index += 1) {
-        const angle = (Math.PI * 2 * index) / 4 + Math.PI / 4;
-        const cos = Math.cos(angle);
-        const sin = Math.sin(angle);
-        tether
-          .moveTo(target.x + cos * 40, targetY + sin * 13)
-          .lineTo(target.x + cos * 54, targetY + sin * 18)
-          .stroke({ width: 3, color, alpha: 0.5, cap: 'round' });
+        // The lock marker owns the target's ground ring, so it reads as a
+        // deliberate targeting reticle rather than a stray circle near their feet.
+        tether.ellipse(target.x, targetY, 46, 15).stroke({ width: 2, color, alpha: 0.55 });
+        tether.ellipse(target.x, targetY, 34, 11).stroke({ width: 1, color, alpha: 0.4 });
+        for (let index = 0; index < 4; index += 1) {
+          const angle = (Math.PI * 2 * index) / 4 + Math.PI / 4;
+          const cos = Math.cos(angle);
+          const sin = Math.sin(angle);
+          tether
+            .moveTo(target.x + cos * 40, targetY + sin * 13)
+            .lineTo(target.x + cos * 54, targetY + sin * 18)
+            .stroke({ width: 3, color, alpha: 0.5, cap: 'round' });
+        }
       }
     },
 

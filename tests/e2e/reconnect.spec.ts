@@ -25,7 +25,7 @@ import {
   typeText,
   waitForCombat,
 } from '../support/combat';
-import { apiJson, selfIdentity } from '../support/api';
+import { selfIdentity } from '../support/api';
 import { gotoApp, settle } from '../support/app';
 import { startMatch, twoPlayerRoom } from '../support/lobby';
 import { newContext, signIn } from '../support/session';
@@ -82,12 +82,16 @@ test('对手断线不冻结比赛，重连与进程重启后恢复席位、血�
   expect(snapshotPlayer(during, guestIdentity).progress).toBe(5);
   expect(snapshotPlayer(during, guestIdentity).hp).toBe(INITIAL_HEALTH);
 
-  // The match keeps moving without the opponent: a real completion still lands on the absent target.
+  // The match keeps moving without the opponent: a real completion still lands on the absent
+  // target. Damage arrives with the completion's batch window, so the health read polls.
   await completeSpell(host.page);
+  await expect
+    .poll(
+      async () => snapshotPlayer(await roomSnapshot(host.context, room.roomId), guestIdentity).hp,
+      { timeout: 30_000 },
+    )
+    .toBe(INITIAL_HEALTH - completionDamage(firstSpell));
   const damaged = await roomSnapshot(host.context, room.roomId);
-  expect(snapshotPlayer(damaged, guestIdentity).hp).toBe(
-    INITIAL_HEALTH - completionDamage(firstSpell),
-  );
   expect(snapshotPlayer(damaged, hostIdentity).spellsCast).toBe(1);
 
   // Reconnect: same seat, same match, same accepted draft, restored to that player only.
@@ -100,13 +104,10 @@ test('对手断线不冻结比赛，重连与进程重启后恢复席位、血�
   expect(await battleMatchId(firstPage)).toBe(liveMatchId);
   expect(await deadline(firstPage)).toBe(combatDeadline);
   await expect.poll(() => inputValue(firstPage), { timeout: 30_000 }).toBe(firstSpell.slice(0, 5));
-  const restored = await apiJson<{ selfInput: string }>(
-    firstReconnect,
-    `/api/rooms/${room.roomId}`,
-  );
-  expect(restored.body.selfInput).toBe(firstSpell.slice(0, 5));
-  const hostView = await apiJson<{ selfInput: string }>(host.context, `/api/rooms/${room.roomId}`);
-  expect(hostView.body.selfInput).not.toBe(restored.body.selfInput);
+  const restored = await roomSnapshot(firstReconnect, room.roomId);
+  expect(restored.selfInput).toBe(firstSpell.slice(0, 5));
+  const hostView = await roomSnapshot(host.context, room.roomId);
+  expect(hostView.selfInput).not.toBe(restored.selfInput);
 
   // The draft is a real accepted prefix: completing the rest of it finishes the spell.
   expect(await completeSpell(firstPage)).toBe(firstSpell);

@@ -3,6 +3,7 @@ import type { Player, RoomSnapshot } from '../../../../shared/protocol';
 import {
   END_REASON_LABELS,
   formatAccuracyPercent,
+  formatAmount,
   formatHealth,
   formatSeconds,
 } from '../../../ui/format';
@@ -19,13 +20,13 @@ const PERSISTENCE_TEXT: Record<'idle' | 'saving' | 'saved' | 'error', string> = 
 
 type Outcome = 'win' | 'loss' | 'draw' | 'finished';
 
-/** Ranking order the settled screen reads: published rank, then health, damage, seat. */
+/** Published ranks decide order; tied rows retain stable seating, not a hidden score tiebreak. */
 function ranked(players: Player[]): Player[] {
   return [...players].sort((a, b) => {
     const rankA = a.rank ?? Number.POSITIVE_INFINITY;
     const rankB = b.rank ?? Number.POSITIVE_INFINITY;
     if (rankA !== rankB) return rankA - rankB;
-    return b.hp - a.hp || b.damageDealt - a.damageDealt || a.slot - b.slot;
+    return a.slot - b.slot;
   });
 }
 
@@ -42,6 +43,9 @@ export function BattleResults(props: {
 }) {
   let heading!: HTMLHeadingElement;
   const rank = () => props.self?.rank ?? null;
+  const tied = () =>
+    rank() !== null &&
+    props.players.some((player) => player.id !== props.self?.id && player.rank === rank());
   const outcome = createMemo<Outcome>(() => {
     if (rank() === null) return 'finished';
     if (rank() !== 1) return 'loss';
@@ -105,12 +109,17 @@ export function BattleResults(props: {
         <p class={stylex.props(styles.resultRank).className}>
           {rank() === null
             ? '名次尚未公布'
-            : `${outcome() === 'draw' ? '并列' : ''}第 ${rank()} 名 · 共 ${props.players.length} 位玩家`}
+            : `${tied() ? '并列' : ''}第 ${rank()} 名 · 共 ${props.players.length} 位玩家`}
         </p>
         <p class={stylex.props(styles.resultDetail).className} data-testid="result-detail">
           {props.self
-            ? `${reason()}${duration()}。你完成 ${props.self.spellsCast} 次施法，造成 ${props.self.damageDealt} 点伤害，剩余生命 ${formatHealth(props.self.hp, props.self.maxHp)}。`
+            ? `${reason()}${duration()}。你完成 ${props.self.spellsCast} 次施法，造成 ${formatAmount(props.self.damageDealt)} 点伤害，剩余生命 ${formatHealth(props.self.hp, props.self.maxHp)}。`
             : `${reason()}${duration()}。`}
+          {outcome() === 'draw'
+            ? props.self?.eliminatedAt !== null
+              ? '最后的存活者在同一批结算中同时出局，并列第一。'
+              : '时间到，剩余生命完全相同，并列第一。'
+            : ''}
         </p>
       </div>
       <div class={stylex.props(ui.buttonRow, styles.resultActions).className}>
@@ -142,7 +151,7 @@ export function BattleResults(props: {
         <div class={stylex.props(ui.tile).className}>
           <div class={stylex.props(ui.tileLabel).className}>造成伤害</div>
           <div class={stylex.props(ui.tileValue).className} data-testid="final-self-damage">
-            {String(props.self?.damageDealt ?? 0)}
+            {formatAmount(props.self?.damageDealt ?? 0)}
           </div>
         </div>
         <div class={stylex.props(ui.tile).className}>
@@ -249,7 +258,7 @@ export function BattleResults(props: {
                       }
                       data-testid="final-row-damage"
                     >
-                      {String(row().damageDealt)}
+                      {formatAmount(row().damageDealt)}
                     </td>
                     <td
                       class={

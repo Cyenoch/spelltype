@@ -7,15 +7,28 @@ const BAR_WIDTH_MAX = 240;
 const BAR_WIDTH_MIN = 84;
 /** Visual only: full-health hits read slightly larger; numeric HP stays authoritative. */
 const HEALTH_CURVE = 1.1;
-const DROP_HOLD_MS = 140;
-const DROP_DURATION_MS = 480;
-const FLASH_DURATION_MS = 260;
+const DROP_HOLD_MS = 180;
+const DROP_DURATION_MS = 620;
+const FLASH_DURATION_MS = 340;
+const SHARD_HOLD_MS = 80;
+const SHARD_DURATION_MS = 620;
+const SHARD_COUNT = 24;
+
+interface HealthShard {
+  sprite: Sprite;
+  elapsed: number;
+  origin: number;
+  width: number;
+  lift: number;
+  drift: number;
+  spin: number;
+}
 
 /**
- * The loss segment flashes above the frame, then shrinks away while the main fill
- * follows after a brief hold. Widths use a subtle curve, never the combat rules.
- * Authoritative HP and accessible numeric readouts remain exact. The bar stays
- * horizontal even when its fighter recoils or falls.
+ * The true fill snaps to authoritative health. A hot loss trail holds briefly,
+ * then burns away as pooled fragments break upward out of the lost segment.
+ * Consecutive hits retarget the trail and reuse bounded shard slots; repeated
+ * snapshots never replay a hit. The frame stays horizontal during body poses.
  */
 export class FighterBar {
   readonly view = new Container();
@@ -24,6 +37,10 @@ export class FighterBar {
   private readonly frame = new Graphics();
   private readonly back: Sprite;
   private readonly damageFlash: Sprite;
+  private readonly damageTrail: Sprite;
+  private readonly cutFlare: Graphics;
+  private readonly shards: HealthShard[] = [];
+  private shardCursor = 0;
   private readonly fill: Sprite;
   private readonly gloss: Sprite;
 
@@ -51,6 +68,16 @@ export class FighterBar {
     this.damageFlash.anchor.set(0.5, 0.5);
     this.damageFlash.visible = false;
 
+    this.damageTrail = new Sprite(Texture.WHITE);
+    this.damageTrail.anchor.set(0, 0.5);
+    this.damageTrail.tint = 0xff784f;
+    this.damageTrail.visible = false;
+    this.cutFlare = new Graphics()
+      .poly([0, -14, 2, -2, 8, 0, 2, 2, 0, 7, -2, 2, -8, 0, -2, -2])
+      .fill(0xffedc9);
+    this.cutFlare.blendMode = 'add';
+    this.cutFlare.visible = false;
+
     this.fill = new Sprite(Texture.WHITE);
     this.fill.anchor.set(0, 0.5);
     this.fill.tint = ELEMENT_COLORS[element];
@@ -60,7 +87,31 @@ export class FighterBar {
     this.gloss.tint = ELEMENT_CORE[element];
     this.gloss.alpha = 0.5;
 
-    this.view.addChild(this.seat, this.back, this.fill, this.gloss, this.frame, this.damageFlash);
+    this.view.addChild(
+      this.seat,
+      this.back,
+      this.damageTrail,
+      this.fill,
+      this.gloss,
+      this.frame,
+      this.damageFlash,
+      this.cutFlare,
+    );
+    for (let index = 0; index < SHARD_COUNT; index += 1) {
+      const sprite = new Sprite(Texture.WHITE);
+      sprite.anchor.set(0.5);
+      sprite.visible = false;
+      this.shards.push({
+        sprite,
+        elapsed: SHARD_HOLD_MS + SHARD_DURATION_MS,
+        origin: 0,
+        width: 0,
+        lift: 0,
+        drift: 0,
+        spin: 0,
+      });
+      this.view.addChild(sprite);
+    }
   }
 
   layout(maxWidth: number, barOffsetY: number): void {
@@ -141,6 +192,7 @@ export class FighterBar {
       this.dropFrom = target;
       this.dropElapsed = DROP_HOLD_MS + DROP_DURATION_MS;
       this.flashElapsed = FLASH_DURATION_MS;
+      for (const shard of this.shards) shard.sprite.visible = false;
       return false;
     }
 
@@ -152,11 +204,30 @@ export class FighterBar {
     this.flashTo = target;
     this.flashElapsed = 0;
     this.targetRatio = target;
+    const loss = this.flashFrom - target;
+    const count = Math.min(12, Math.max(5, Math.ceil(loss * 40)));
+    for (let index = 0; index < count; index += 1) {
+      const shard = this.shards[this.shardCursor];
+      this.shardCursor = (this.shardCursor + 1) % SHARD_COUNT;
+      shard.elapsed = 0;
+      shard.origin = target + (loss * (index + 0.5)) / count;
+      shard.width = loss / count;
+      shard.lift = 14 + (index % 4) * 7 + Math.min(14, loss * 45);
+      shard.drift = ((index % 3) - 1) * (5 + Math.min(10, loss * 35));
+      shard.spin = (index % 2 === 0 ? 1 : -1) * (0.8 + index * 0.16);
+      shard.sprite.visible = true;
+      shard.sprite.tint = index % 3 === 0 ? 0xffedc9 : ELEMENT_COLORS[this.element];
+    }
     return true;
   }
 
   catchUp(deltaMS: number): void {
     this.flashElapsed = Math.min(FLASH_DURATION_MS, this.flashElapsed + deltaMS);
+    for (const shard of this.shards) {
+      if (!shard.sprite.visible) continue;
+      shard.elapsed += deltaMS;
+      if (shard.elapsed >= SHARD_HOLD_MS + SHARD_DURATION_MS) shard.sprite.visible = false;
+    }
     if (this.fillRatio <= this.targetRatio) return;
     this.dropElapsed = Math.min(DROP_HOLD_MS + DROP_DURATION_MS, this.dropElapsed + deltaMS);
     const progress = Math.max(0, this.dropElapsed - DROP_HOLD_MS) / DROP_DURATION_MS;
@@ -166,14 +237,37 @@ export class FighterBar {
   paint(): void {
     const base = this.barScale;
     const heightScale = this.back.scale.y;
-    this.fill.scale.set(base * this.fillRatio, heightScale);
-    this.fill.visible = this.fillRatio > 0;
+    this.fill.scale.set(base * this.targetRatio, heightScale);
+    this.fill.visible = this.targetRatio > 0;
     this.fill.tint = this.healthRatio <= 0.25 ? 0xff6d6d : ELEMENT_COLORS[this.element];
-    this.gloss.scale.x = base * this.fillRatio;
+    this.gloss.scale.x = base * this.targetRatio;
     this.gloss.visible = this.fill.visible;
+
+    const lost = Math.max(0, this.fillRatio - this.targetRatio);
+    this.damageTrail.visible = lost > 0;
+    this.damageTrail.position.set(this.back.x + this.barWidth * this.targetRatio, this.back.y);
+    this.damageTrail.scale.set(base * lost, heightScale);
+    this.damageTrail.alpha =
+      0.35 + 0.5 * Math.max(0, 1 - this.dropElapsed / (DROP_HOLD_MS + DROP_DURATION_MS));
+    this.damageTrail.tint = this.flashElapsed < 80 ? 0xffedc9 : 0xff784f;
+    for (const shard of this.shards) {
+      if (!shard.sprite.visible) continue;
+      const progress = Math.max(0, shard.elapsed - SHARD_HOLD_MS) / SHARD_DURATION_MS;
+      const eased = 1 - (1 - progress) ** 3;
+      shard.sprite.position.set(
+        this.back.x + this.barWidth * shard.origin + shard.drift * eased,
+        this.back.y - shard.lift * eased,
+      );
+      shard.sprite.width = Math.max(1.5, this.barWidth * shard.width * 0.85) * (1 - progress * 0.7);
+      shard.sprite.height = BAR_HEIGHT * (0.8 - progress * 0.6);
+      shard.sprite.rotation = shard.spin * eased;
+      shard.sprite.alpha = (1 - progress) ** 1.5;
+    }
 
     const flash = 1 - this.flashElapsed / FLASH_DURATION_MS;
     this.damageFlash.visible = flash > 0 && this.flashFrom > this.flashTo;
+    this.cutFlare.visible = this.damageFlash.visible;
+    this.view.x = flash > 0 ? Math.sin(this.flashElapsed * 0.075) * 2.5 * flash ** 2 : 0;
     if (!this.damageFlash.visible) return;
     this.damageFlash.x = this.back.x + this.barWidth * (this.flashFrom + this.flashTo) * 0.5;
     this.damageFlash.scale.set(
@@ -182,5 +276,8 @@ export class FighterBar {
     );
     this.damageFlash.alpha = flash;
     this.damageFlash.tint = this.flashElapsed < 70 ? 0xffffff : 0xffedaa;
+    this.cutFlare.position.set(this.back.x + this.barWidth * this.flashTo, this.back.y);
+    this.cutFlare.scale.set(0.6 + flash * 0.7, 0.5 + flash);
+    this.cutFlare.alpha = flash ** 2;
   }
 }

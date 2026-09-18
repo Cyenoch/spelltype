@@ -75,26 +75,42 @@ export const styles = stylex.create({
     justifyContent: 'center',
     width: '100%',
     minHeight: 'clamp(400px, 56vh, 600px)',
-    padding: 'clamp(20px, 3.4vw, 44px) clamp(14px, 2.6vw, 34px)',
-    border: '1px solid var(--line)',
-    borderRadius: 'var(--radius)',
+    padding: 'clamp(26px, 3.4vw, 44px) clamp(18px, 2.6vw, 34px)',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'transparent',
+    borderRadius: 0,
     backgroundImage:
-      'radial-gradient(120% 90% at 50% -20%, rgba(122, 96, 255, 0.22), transparent 60%), linear-gradient(180deg, rgba(24, 18, 52, 0.66), rgba(9, 7, 22, 0.92))',
+      'radial-gradient(120% 90% at 50% -20%, rgba(122, 96, 255, 0.22), transparent 60%), linear-gradient(180deg, rgba(24, 18, 52, 0.66), rgba(9, 7, 22, 0.92)), var(--surface-leather)',
+    backgroundSize: 'auto, auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, no-repeat, repeat',
     boxShadow: 'var(--shadow)',
+    '::before': {
+      content: '""',
+      position: 'absolute',
+      inset: 0,
+      zIndex: 2,
+      pointerEvents: 'none',
+      borderWidth: 1,
+      borderStyle: 'solid',
+      borderColor: 'transparent',
+      borderImageSource: 'var(--frame-panel)',
+      borderImageSlice: 48,
+      borderImageWidth: '26px',
+      borderImageRepeat: 'stretch',
+    },
   },
 
-  /* The room's own arena, dimmed far into the background. */
+  /* Full-bleed scene feathers into the material below the foreground frame. */
   backdrop: {
     position: 'absolute',
-    top: 0,
-    right: 0,
-    bottom: 0,
-    left: 0,
-    zIndex: 0,
+    inset: 0,
     width: '100%',
     height: '100%',
+    zIndex: 0,
     objectFit: 'cover',
     opacity: 0.16,
+    maskImage: 'radial-gradient(ellipse at 50% 40%,#000 30%,transparent 90%)',
     pointerEvents: 'none',
   },
 
@@ -114,7 +130,7 @@ export const styles = stylex.create({
     width: 5,
     height: 5,
     borderRadius: '50%',
-    background: 'radial-gradient(circle, #fff 0 20%, #a99cff 48%, rgba(106, 88, 255, 0) 74%)',
+    backgroundImage: 'radial-gradient(circle, #fff 0 20%, #a99cff 48%, rgba(106, 88, 255, 0) 74%)',
   },
 
   p1: {
@@ -193,11 +209,17 @@ export const styles = stylex.create({
     letterSpacing: '.08em',
     color: 'var(--ink)',
     textShadow: '0 0 26px rgba(159, 146, 255, 0.4)',
+    paddingBottom: 22,
+    backgroundImage: 'var(--ornament-divider)',
+    backgroundSize: '240px 18px',
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'center bottom',
     '@media (max-width: 420px)': { fontSize: '1.42rem' },
   },
 
-  /* The one live sentence: who is ready, what the AI is casting together,
-     and the countdown that follows — all of it authoritative copy. */
+  /* The one live sentence: who is ready, what this room waits for (a shared
+     preset book, a refresh of it, or a per-match cast), and the countdown
+     that follows — all of it authoritative copy. */
   state: {
     margin: 0,
     maxWidth: 'min(560px, 100%)',
@@ -250,7 +272,9 @@ export const styles = stylex.create({
     right: '4%',
     bottom: '4%',
     left: '4%',
-    border: '1px solid rgba(159, 146, 255, 0.32)',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'rgba(159, 146, 255, 0.32)',
     boxShadow: 'inset 0 0 34px rgba(122, 96, 255, 0.16)',
   },
 
@@ -268,7 +292,7 @@ export const styles = stylex.create({
     right: '4%',
     bottom: '4%',
     left: '4%',
-    background:
+    backgroundImage:
       'conic-gradient(from 0deg, transparent 0 68%, rgba(98, 211, 255, 0.6) 90%, rgba(255, 215, 154, 0.75) 97%, transparent 100%)',
     WebkitMask:
       'radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px))',
@@ -290,7 +314,9 @@ export const styles = stylex.create({
     right: '15%',
     bottom: '15%',
     left: '15%',
-    border: '1px dashed rgba(170, 156, 255, 0.38)',
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: 'rgba(170, 156, 255, 0.38)',
     opacity: 0.8,
   },
 
@@ -377,7 +403,8 @@ export const styles = stylex.create({
       height: 6,
       marginLeft: -3,
       borderRadius: '50%',
-      background: 'radial-gradient(circle, #fff 0 18%, #ffd9a2 46%, rgba(255, 179, 102, 0) 72%)',
+      backgroundImage:
+        'radial-gradient(circle, #fff 0 18%, #ffd9a2 46%, rgba(255, 179, 102, 0) 72%)',
     },
   },
 
@@ -421,10 +448,14 @@ export const styles = stylex.create({
     display: 'grid',
     placeItems: 'center',
     overflow: 'hidden',
-    border: '1px solid rgba(199, 178, 255, 0.4)',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'rgba(199, 178, 255, 0.4)',
     borderRadius: '10px 14px 14px 10px',
     backgroundImage:
-      'linear-gradient(150deg, rgba(66, 50, 108, 0.95), rgba(39, 29, 74, 0.95) 52%, rgba(25, 18, 48, 0.95))',
+      'linear-gradient(150deg, rgba(66, 50, 108, 0.95), rgba(39, 29, 74, 0.95) 52%, rgba(25, 18, 48, 0.95)), var(--surface-leather)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
     boxShadow:
       '0 24px 48px rgba(3, 2, 12, 0.6), inset 0 1px 0 rgba(255, 236, 200, 0.18), inset 0 0 30px rgba(122, 96, 255, 0.18)',
     /* Spine highlight along the bound edge. */

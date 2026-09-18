@@ -13,6 +13,15 @@ export const MESSAGE_LENGTH_FAST_PATH = Math.floor(MAX_MESSAGE_BYTES / 3);
 /** Coalesced snapshots from a human typist stay far below this. */
 export const INPUTS_PER_SECOND = 60;
 
+/**
+ * The input-time policy every measured match is stamped with. Raising or lowering the floor below
+ * is a new version, never a silent rewrite: the version is frozen onto the room row, the result
+ * rows and every snapshot for the life of the match.
+ */
+export const INPUT_POLICY_VERSION = 'ascii-floor-v1';
+/** Real milliseconds one target code point costs before that spell's completion may count. */
+export const INPUT_MIN_MS_PER_CODE_POINT = 35;
+
 /** Phases whose `deadline` is an authoritative clock: the opening countdown, then the single combat end. */
 export const TIMED_PHASES: Record<Phase, boolean> = {
   lobby: false,

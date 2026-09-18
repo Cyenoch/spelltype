@@ -10,12 +10,13 @@
  * re-entered — while an ordinary disconnect never reaches this routine at all.
  */
 import { describe, expect, it } from 'vitest';
-import { INITIAL_HEALTH } from '../../shared/protocol';
+import { INITIAL_HEALTH, WS_PROTOCOL } from '../../shared/protocol';
 import type { Phase, ReservationState } from '../../shared/protocol';
 import type { Env } from '../../worker/env';
 import { matchIsLive } from '../../worker/matchmaking/rooms';
 import { manualLeave } from '../../worker/rooms/leave';
 import { handleClientFrame } from '../../worker/rooms/frames';
+import { INPUT_MIN_MS_PER_CODE_POINT, INPUT_POLICY_VERSION } from '../../worker/rooms/rules';
 import { RoomRejection } from '../../worker/rooms/rejection';
 import { InputBudget, type RoomScope } from '../../worker/rooms/scope';
 import { snapshotFor } from '../../worker/rooms/snapshots';
@@ -35,6 +36,32 @@ const PAST = Date.now() - 1;
 const FUTURE = Date.now() + 100_000;
 
 type StubSocket = WebSocket & { readyState: number };
+
+/**
+ * Locks the immutable per-match input policy on a live (generating/countdown/playing) fixture and
+ * gives every seat an already-satisfied spell eligibility. New-rule fixtures must state their rules
+ * explicitly — production code never backfills a live match's missing policy.
+ */
+function lockInputPolicy(
+  storage: TestStorage,
+  options: { mode?: 'observe' | 'enforce'; openedAt: number },
+): void {
+  const openedAt = options.openedAt;
+  updateRoom(storage.sql, {
+    input_policy_version: INPUT_POLICY_VERSION,
+    input_policy_mode: options.mode ?? 'enforce',
+    input_min_ms_per_code_point: INPUT_MIN_MS_PER_CODE_POINT,
+  });
+  for (const player of storage.sql
+    .exec<{ user_id: string }>('SELECT user_id FROM players')
+    .toArray()) {
+    updatePlayer(storage.sql, player.user_id, {
+      input_opened_at: openedAt,
+      input_not_before: openedAt,
+      draft_epoch: 0,
+    });
+  }
+}
 
 function setup(
   userIds: readonly string[],
@@ -60,6 +87,7 @@ function setup(
         connId: `${userId}-conn`,
         sessionHash: `${userId}-session`,
         sessionExpires: Date.now() + 60_000,
+        protocolVersion: WS_PROTOCOL,
       }),
       send: () => {},
       close: () => {
@@ -73,11 +101,13 @@ function setup(
     sql: storage.sql,
     // Only the result-save batch and the duel index write ever reach D1 here.
     env: {
+      MATCH_ADMISSION: 'open',
       DB: { prepare: () => ({ bind: () => ({}) }), batch: async () => ({}) },
     } as unknown as Env,
     input: new InputBudget(),
     alarm: { set: async () => {}, clear: async () => {} },
     sockets: () => sockets,
+    transactionSync: storage.transactionSync,
   };
   insertRoom(storage.sql, {
     id: ROOM_ID,
@@ -100,6 +130,10 @@ function setup(
     insertPlayer(storage.sql, { userId, username: userId, slotExpiresAt: null, now: NOW });
     updatePlayer(storage.sql, userId, { seated: 1, conn_id: `${userId}-conn` });
   }
+  // A live match under the new rules carries its locked policy; a settled or
+  // pre-match room does not (rematch resets and re-locks it).
+  if (room.phase === 'generating' || room.phase === 'countdown' || room.phase === 'playing')
+    lockInputPolicy(storage, { openedAt: NOW - 1_000 });
   return { storage, scope, sockets, closed };
 }
 
@@ -236,7 +270,13 @@ describe('开赛前离场', () => {
       expect(abandonedMatch(storage.sql, 'guest', MATCH_ID)).toBe(true);
 
       // 出题完成进入倒计时，倒计时到点：战斗开始的一刻按存活规则结算。
-      updateRoom(storage.sql, { phase: 'countdown', deadline: PAST });
+      updateRoom(storage.sql, {
+        phase: 'countdown',
+        deadline: PAST,
+        spell_book: JSON.stringify([
+          { name: '焰', text: 'Fire!', translation: '火焰！', element: 'fire' },
+        ]),
+      });
       await advanceOnce(scope);
 
       const room = getRoom(storage.sql)!;

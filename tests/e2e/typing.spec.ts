@@ -24,6 +24,7 @@ import {
   spellText,
   typeText,
   waitForCombat,
+  waitForInputGate,
 } from '../support/combat';
 import { accuracyPercent, selfIdentity } from '../support/api';
 import { settle } from '../support/app';
@@ -127,6 +128,9 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
 
   // A fullwidth equivalent is corrected before completion and must not cost an error.
   expect(text).toMatch(/[!~]$/);
+  // The completion is only lawful once this viewer's own gate has opened: wait for the
+  // server's notBefore instead of racing it with real keystroke time.
+  await waitForInputGate(host);
   const lastPunctuation = String.fromCharCode(text.charCodeAt(text.length - 1) + 0xfee0);
   const accuracyBefore = snapshotPlayer(
     await roomSnapshot(room.host.context, room.roomId),
@@ -154,9 +158,9 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
   const guestHpAfterFirst = snapshotPlayer(settled, guestIdentity).hp;
 
   await sendRawMessages(host, room.roomId, [
-    { type: 'input', matchId: liveMatchId, spellIndex: 0, text },
-    { type: 'input', matchId: liveMatchId, spellIndex: 0, text },
-    { type: 'input', matchId: '000000000000000000000000', spellIndex: 0, text },
+    { type: 'input', matchId: liveMatchId, spellIndex: 0, draftEpoch: 0, text },
+    { type: 'input', matchId: liveMatchId, spellIndex: 0, draftEpoch: 0, text },
+    { type: 'input', matchId: '000000000000000000000000', spellIndex: 0, draftEpoch: 0, text },
   ]);
   await settle(2000);
 
@@ -166,24 +170,27 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
   expect(snapshotPlayer(after, hostIdentity).damageDealt).toBe(hostBefore.damageDealt);
   expect(after.events).toHaveLength(settled.events.length);
 
-  // The room applies the same correction even if a client sends an uncorrected frame.
+  // The room applies the same correction even if a client sends an uncorrected frame. The
+  // accepted completion lands with its batch window, so the host's health is the poll target —
+  // the spell counter alone advances before the window ends.
   await sendRawMessages(guest, room.roomId, [
     {
       type: 'input',
       matchId: liveMatchId,
       spellIndex: 0,
+      draftEpoch: 0,
       text: text.slice(0, -1) + lastPunctuation,
     },
   ]);
   await expect
-    .poll(async () => {
-      const state = await roomSnapshot(room.host.context, room.roomId);
-      return snapshotPlayer(state, guestIdentity).spellsCast;
-    })
-    .toBe(1);
+    .poll(
+      async () =>
+        snapshotPlayer(await roomSnapshot(room.host.context, room.roomId), hostIdentity).hp,
+    )
+    .toBe(INITIAL_HEALTH - completionDamage(text));
   const corrected = await roomSnapshot(room.host.context, room.roomId);
+  expect(snapshotPlayer(corrected, guestIdentity).spellsCast).toBe(1);
   expect(snapshotPlayer(corrected, guestIdentity).accuracy).toBe(1);
-  expect(snapshotPlayer(corrected, hostIdentity).hp).toBe(INITIAL_HEALTH - completionDamage(text));
 
   await room.host.context.close();
   await room.guest.context.close();
@@ -277,7 +284,9 @@ test('组合输入期间不判错、不推进、不下发，提交后才计入�
   expect(composition?.start).toBeGreaterThan(0);
   expect(composition?.end).toBeGreaterThan(0);
 
-  // Ordinary editing continues after composition and finishes the spell.
+  // Ordinary editing continues after composition and finishes the spell. The final
+  // characters may only be typed once this viewer's own gate has opened.
+  await waitForInputGate(host);
   await insertIntoField(host, text.slice(3, 5));
   await backspace(host, 1);
   await insertIntoField(host, text.slice(4));

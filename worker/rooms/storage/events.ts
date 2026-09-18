@@ -21,17 +21,20 @@ export function readEvents(room: RoomRow): CombatEvent[] {
 }
 
 /**
- * Appends one damage event to the bounded ring and advances the match's event
- * sequence. The ring is trimmed by count, so a long match never grows the row.
+ * Appends a whole simultaneous volley and advances its sequence once. The ring
+ * remains bounded; no snapshot can observe only the first target's hit.
  */
-export function appendEvent(sql: SqlStore, event: CombatEvent): void {
+export function appendEvents(sql: SqlStore, incoming: readonly CombatEvent[]): void {
   const room = getRoom(sql);
-  if (!room) return;
+  if (!room || incoming.length === 0) return;
   const events = readEvents(room);
-  events.push(event);
+  events.push(...incoming);
   const ring =
     events.length > COMBAT_EVENT_RING_SIZE
       ? events.slice(events.length - COMBAT_EVENT_RING_SIZE)
       : events;
-  updateRoom(sql, { events_json: JSON.stringify(ring), event_seq: event.seq });
+  updateRoom(sql, {
+    events_json: JSON.stringify(ring),
+    event_seq: incoming[incoming.length - 1].seq,
+  });
 }

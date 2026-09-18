@@ -8,7 +8,7 @@
  */
 import { expect } from '@playwright/test';
 import { test } from '../support/test';
-import { WS_CLOSE } from '../../shared/protocol';
+import { WS_CLOSE, WS_PROTOCOL } from '../../shared/protocol';
 import { openD1, runSql } from '../support/d1';
 import { TEST_AI_KEY } from '../support/harness';
 import { fixture, runtime } from '../support/runtime';
@@ -64,17 +64,19 @@ test('注册建立会话、刷新保持登录、登出后失效；未登录时�
     (await apiJson(context, '/api/rooms/0123456789abcdef01234567')).status,
   ).toBeGreaterThanOrEqual(400);
   const socketResult = await page.evaluate(
-    (id) =>
+    ({ id, protocol }) =>
       new Promise<string>((resolve) => {
-        const socket = new WebSocket(`ws://${location.host}/api/rooms/${id}/ws`);
+        // The current wire protocol is offered explicitly: this probe must stay an
+        // authentication-refusal test, never degenerate into a protocol-failure test.
+        const socket = new WebSocket(`ws://${location.host}/api/rooms/${id}/ws`, protocol);
         socket.onopen = () => resolve('open');
         socket.onclose = (event) => resolve(`close:${event.code}`);
         socket.onerror = () => resolve('error');
         setTimeout(() => resolve('timeout'), 8000);
       }),
-    roomId,
+    { id: roomId, protocol: WS_PROTOCOL },
   );
-  expect(socketResult).not.toBe('open');
+  expect(socketResult).toMatch(/^(?:error|close:)/);
 
   // The auth surface is a real form, and a refused sign-in is announced as text rather than only as
   // colour, leaving no session behind.

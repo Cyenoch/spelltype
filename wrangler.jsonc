@@ -11,6 +11,8 @@
   },
   "vars": {
     "DEEPSEEK_MODEL": "deepseek-flash",
+    "MATCH_ADMISSION": "open",
+    "INPUT_POLICY_MODE": "observe",
   },
   "routes": [
     {
@@ -36,12 +38,20 @@
         "name": "MATCHMAKER",
         "class_name": "Matchmaker",
       },
+      {
+        "name": "SPELL_BOOKS",
+        "class_name": "SpellBookCache",
+      },
     ],
   },
   "migrations": [
     {
       "tag": "v1",
       "new_sqlite_classes": ["GameRoom", "Matchmaker"],
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["SpellBookCache"],
     },
   ],
   "ratelimits": [

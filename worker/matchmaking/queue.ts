@@ -1,13 +1,11 @@
-import { RESERVATION_TTL_MS } from '../../shared/protocol';
+import { randomInt } from 'node:crypto';
+import { RESERVATION_TTL_MS, THEME_PRESETS } from '../../shared/protocol';
 import type { RoomInit } from '../../shared/protocol';
 import { newRoomId } from '../ids';
 import type { ClaimedPairing, PairingRow, QueueEntry, WaitingRow } from './schema';
 import { probeReservation, roomStub } from './rooms';
 import { armAlarm } from './scope';
 import type { MatchmakerScope } from './scope';
-
-/** Preset theme for quick matches: neither player chooses the theme, and no client message can change it. */
-const QUICK_THEME = '禁咒试炼：高阶咒文对决';
 
 /** One prepared pairing's own state, as the queue needs it while it finishes or gives up the room. */
 type RoomOutcome = 'released' | 'retained' | 'failed';
@@ -72,7 +70,7 @@ export class QueueShard {
     const room: RoomInit = {
       id: roomId,
       host: { id: entry.userId, username: entry.username },
-      theme: QUICK_THEME,
+      theme: THEME_PRESETS[randomInt(THEME_PRESETS.length)].theme,
       mode: 'quick',
       reserved: [{ id: partner.user_id, username: partner.username }],
     };

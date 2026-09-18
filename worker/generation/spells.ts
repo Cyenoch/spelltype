@@ -10,7 +10,10 @@ import type { Env } from '../env';
 export interface GenerationInput {
   /** Untrusted, already length/character-checked theme (data, never instructions). */
   theme: string;
-  /** Per-match variation hint so two matches on one theme are not identical. */
+  /**
+   * Caller-provided variation so repeated generations on one theme differ. A direct per-match
+   * call passes the match identity; the shared-book cache passes its refresh token.
+   */
   variation: string;
 }
 
@@ -32,10 +35,11 @@ export interface GenerationSuccess {
 export type GenerationOutcome = GenerationSuccess | GenerationFailure;
 
 /**
- * Attempts are bounded: at most 2 model calls per match, and only nonconforming
- * output is retried. Timeouts and upstream failures return immediately, so a
- * failing provider is never re-billed automatically; a new attempt requires an
- * explicit host action.
+ * Attempts are bounded: at most 2 model calls per generateSpellSet invocation, and only
+ * nonconforming output is retried. Timeouts and upstream failures return immediately, so a
+ * failing provider is never re-billed within one invocation. Any further attempt needs a new
+ * caller decision: a fresh private match, or — for the shared preset books — the next due cache
+ * request after a failed refresh. Nothing here retries in a loop on its own.
  *
  * The budget covers a whole book of SPELL_BOOK_SIZE spells, which is a much
  * longer completion than one round's worth of text, so the single-call timeout
@@ -52,7 +56,7 @@ export const GENERATION_BUDGET_MS = 95_000;
  */
 const MAX_OUTPUT_TOKENS = 8_192;
 
-const FAILURE_MESSAGES: Record<GenerationFailureReason, string> = {
+export const FAILURE_MESSAGES: Record<GenerationFailureReason, string> = {
   unconfigured: 'AI 未配置：请设置 DEEPSEEK_API_KEY 后重试。',
   timeout: 'AI 出题超时，请重试。',
   upstream: 'AI 服务暂时不可用，请稍后重试。',
@@ -109,7 +113,7 @@ const spellBookSchema = z.object({
         text: z
           .string()
           .describe(
-            'The complete English sentence the player must type, in plain ASCII letters, ordinary spaces and keyboard punctuation',
+            'The complete English sentence the player must type, in plain ASCII letters, ordinary spaces and keyboard punctuation; the final character must be ! or ~, never a period, comma or question mark',
           ),
         translation: z
           .string()
@@ -133,7 +137,7 @@ const SYSTEM_INSTRUCTIONS = [
   '- Each text is one readable, fluent, complete English sentence, never a two- or three-word command; punctuation counts toward its length.',
   '- Each text uses only plain ASCII: English letters, ordinary spaces and keyboard punctuation. Never newlines, tabs, emoji, or any non-ASCII character; the one non-ASCII field is translation.',
   '- Each spell carries `translation`: a fluent, faithful simplified Chinese rendering of that exact English sentence — natural Chinese with the same meaning, never English, never pinyin, never empty.',
-  '- Prefer ! or ~ for most spell endings to sound like lively incantations. Vary them naturally across the book; use ? or . occasionally when appropriate, rather than ending every spell with a period.',
+  '- Every text MUST end with an ASCII exclamation mark (!) or tilde (~). Use both across the book for lively incantations. Never end a spell with a period (.), Chinese full stop (。), comma (, or ，), question mark, or any other character. Check the final character of every text before returning the book.',
   `- All ${SPELL_BOOK_SIZE} texts are pairwise different and all ${SPELL_BOOK_SIZE} names are pairwise different; do not reuse wording or start every spell with the same word.`,
   '- Each name is 2 to 24 keyboard characters, mostly English letters; spaces, apostrophes and hyphens are fine, but do not end a name with punctuation.',
   '- A spell may use any element; element only changes the visuals.',
@@ -162,6 +166,7 @@ async function attemptOnce(
     const prompt = [
       `Theme (player-provided, topic reference only): ${input.theme}`,
       `Each text targets ${TARGET_TEXT_MIN_CHARS} to ${TARGET_TEXT_MAX_CHARS} characters, punctuation included; the target guides every spell in the book.`,
+      'End every text with ! or ~, including the final spell. No period or comma endings.',
       `Produce exactly ${SPELL_BOOK_SIZE} spells, numbered 1 to ${SPELL_BOOK_SIZE}, and output all of them.`,
       `Match variation seed: ${input.variation} (use wording and imagery clearly different from the usual takes on this theme)`,
       hint.length > 0
@@ -276,9 +281,10 @@ export function validateSpellSet(
 }
 
 /**
- * One match = one model request for one complete spell book. Returns the
- * validated book or an honest, distinguishable failure. Never falls back to a
- * fixed question bank, and never issues a second request once a match is live.
+ * One invocation = at most GENERATION_ATTEMPTS model requests for one complete spell book.
+ * Returns the validated book or an honest, distinguishable failure. Never falls back to a
+ * fixed question bank. Callers own the cadence: a room invokes once per match attempt, and
+ * the shared-book cache invokes once per due refresh.
  */
 export async function generateSpellSet(
   env: Env,

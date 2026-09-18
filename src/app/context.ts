@@ -13,7 +13,6 @@ export interface AppContext {
   readonly clock: ServerClock;
   pendingInvite(): string | null;
   setPendingInvite(roomId: string | null): void;
-  inviteUrl(roomId: string): string;
   notify(message: string, tone?: Tone): void;
   reportGraphicsFailure(reason: string): void;
   handleAuthFailure(reason: string): void;

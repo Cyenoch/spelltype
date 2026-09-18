@@ -5,14 +5,22 @@ import type { SqlStore } from '../../sql';
  * Queues one history row per seat. `(match_id, user_id)` is the idempotency key,
  * so re-queueing a settled match — a retried write, a rematch replay of the same
  * match id — can never store a second row or overwrite the first.
+ *
+ * Every column the row carries is written explicitly, including the input-policy
+ * stamp and its summaries: what a match measured is frozen here exactly as it
+ * ended, and a replay of an older row re-queues its own `legacy-unmeasured` or
+ * older-policy values rather than silently adopting the deployed policy's
+ * defaults.
  */
 export function queueResults(sql: SqlStore, rows: readonly Omit<ResultRow, 'saved'>[]): void {
   for (const row of rows) {
     sql.exec(
       `INSERT INTO match_results (
         match_id, user_id, theme, damage_dealt, hp_remaining, spells_cast, correct_chars, duration_ms,
-        rank, cpm, accuracy, created_at, saved
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+        rank, cpm, accuracy, created_at, saved,
+        input_policy_version, input_policy_mode, input_gate_hits, input_recoveries, input_overloads,
+        input_recovered_completions, input_recovery_departures, input_min_completion_ratio
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(match_id, user_id) DO NOTHING`,
       row.match_id,
       row.user_id,
@@ -26,6 +34,14 @@ export function queueResults(sql: SqlStore, rows: readonly Omit<ResultRow, 'save
       row.cpm,
       row.accuracy,
       row.created_at,
+      row.input_policy_version,
+      row.input_policy_mode,
+      row.input_gate_hits,
+      row.input_recoveries,
+      row.input_overloads,
+      row.input_recovered_completions,
+      row.input_recovery_departures,
+      row.input_min_completion_ratio,
     );
   }
 }

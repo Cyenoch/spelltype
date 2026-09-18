@@ -54,11 +54,64 @@ function openTestSql(db: DatabaseSync): SqlStore {
 
 export interface TestStorage {
   sql: SqlStore;
+  /**
+   * The same commit boundary the platform's `transactionSync` gives a Durable Object: every write
+   * `callback` makes either commits together or — when it throws — is rolled back and the original
+   * error is rethrown. Tests that need transaction semantics wrap the real SQL in this instead of
+   * trusting that a column merely exists.
+   */
+  transactionSync<T>(this: void, callback: () => T): T;
   close(): void;
 }
 
 /** An empty in-memory database with no schema: callers run the storage layer's `createSchema()` first. */
 export function openTestStorage(): TestStorage {
   const db = new DatabaseSync(':memory:');
-  return { sql: openTestSql(db), close: () => db.close() };
+  return {
+    sql: openTestSql(db),
+    transactionSync<T>(callback: () => T): T {
+      db.exec('BEGIN');
+      try {
+        const result = callback();
+        db.exec('COMMIT');
+        return result;
+      } catch (error) {
+        try {
+          db.exec('ROLLBACK');
+        } catch {
+          // The rollback's own failure must not replace the error that caused it.
+        }
+        throw error;
+      }
+    },
+    close: () => db.close(),
+  };
+}
+
+/**
+ * The same adapter against a real file, for tests that close one instance and reopen the same
+ * durable SQLite state through a fresh schema and scope (a room restart without workerd). The
+ * file is created on the spot; its parent directory is the caller's business.
+ */
+export function openFileTestStorage(path: string): TestStorage {
+  const db = new DatabaseSync(path);
+  return {
+    sql: openTestSql(db),
+    transactionSync<T>(callback: () => T): T {
+      db.exec('BEGIN');
+      try {
+        const result = callback();
+        db.exec('COMMIT');
+        return result;
+      } catch (error) {
+        try {
+          db.exec('ROLLBACK');
+        } catch {
+          // The rollback's own failure must not replace the error that caused it.
+        }
+        throw error;
+      }
+    },
+    close: () => db.close(),
+  };
 }

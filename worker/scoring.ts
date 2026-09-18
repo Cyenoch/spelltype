@@ -2,7 +2,7 @@
  * Deterministic combat rules shared by the room and its tests.
  * Everything here is pure: no clock, no storage, no randomness.
  */
-import { DAMAGE_PER_CHARACTER, MAX_PRIVATE_PLAYERS } from '../shared/protocol';
+import { DAMAGE_PER_CHARACTER } from '../shared/protocol';
 import type { Spell } from '../shared/protocol';
 
 /** Unicode code point count (a surrogate pair counts once, lone surrogates once). */
@@ -92,58 +92,26 @@ export function spellAt(book: readonly Spell[], index: number): Spell | null {
   return book[wrapped];
 }
 
-/**
- * Automatic target: the next alive player clockwise from the attacker's seat,
- * wrapping around the seat range. Nothing else picks a target — no mouse input,
- * no randomness — so every client resolves the same target from the same
- * snapshot. Returns `null` only when no other seat is alive.
- */
-export function nextAliveBySeat<T extends { slot: number }>(
-  seats: readonly T[],
-  fromSlot: number,
-  isAlive: (seat: T) => boolean,
-): T | null {
-  let chosen: T | null = null;
-  let bestDistance = Number.POSITIVE_INFINITY;
-  for (const seat of seats) {
-    if (!isAlive(seat) || seat.slot === fromSlot) continue;
-    const distance =
-      (((seat.slot - fromSlot) % MAX_PRIVATE_PLAYERS) + MAX_PRIVATE_PLAYERS) % MAX_PRIVATE_PLAYERS;
-    if (distance < bestDistance) {
-      chosen = seat;
-      bestDistance = distance;
-    }
-  }
-  return chosen;
-}
-
 export interface MatchStanding {
   userId: string;
   /** Remaining health at the end of the match. */
   hp: number;
-  damageDealt: number;
-  /** Confirmed characters of completed spells; the live prefix is not counted here. */
-  correctChars: number;
   eliminatedAt: number | null;
-}
-
-function compareSurvivors(a: MatchStanding, b: MatchStanding): number {
-  if (a.hp !== b.hp) return b.hp - a.hp;
-  if (a.damageDealt !== b.damageDealt) return b.damageDealt - a.damageDealt;
-  return b.correctChars - a.correctChars;
 }
 
 /**
  * Final competition ranks (1, 1, 3) for one match.
  *
- * Survivors come first, ordered by remaining health, then damage dealt, then
- * confirmed characters. Anyone eliminated ranks behind every survivor, and
- * later eliminations rank higher: surviving longer is the only ordering rule
- * among the fallen. Players equal on their group's whole comparison key share a
- * rank; nothing else breaks a tie — not seat, not user id, not arrival order.
+ * Survivors come first, ordered only by remaining health. Fallen players follow,
+ * ordered only by elimination time; a simultaneous volley gives every victim the
+ * same timestamp. Equal health or elimination time means a shared rank, including
+ * first place when the last survivors knock each other out. Output statistics
+ * never break a survival tie.
  */
 export function survivalRanks(standings: readonly MatchStanding[]): Map<string, number> {
-  const survivors = standings.filter((entry) => entry.eliminatedAt === null).sort(compareSurvivors);
+  const survivors = standings
+    .filter((entry) => entry.eliminatedAt === null)
+    .sort((a, b) => b.hp - a.hp);
   const fallen = standings
     .filter(
       (entry): entry is MatchStanding & { eliminatedAt: number } => entry.eliminatedAt !== null,
@@ -155,11 +123,7 @@ export function survivalRanks(standings: readonly MatchStanding[]): Map<string, 
   let index = 0;
   while (index < survivors.length) {
     let last = index;
-    while (
-      last + 1 < survivors.length &&
-      compareSurvivors(survivors[last + 1], survivors[index]) === 0
-    )
-      last++;
+    while (last + 1 < survivors.length && survivors[last + 1].hp === survivors[index].hp) last++;
     for (let i = index; i <= last; i++) ranks.set(survivors[i].userId, rank);
     rank += last - index + 1;
     index = last + 1;
@@ -194,4 +158,60 @@ export function accuracyOf(attempts: number, errors: number): number | null {
 export function cpmOf(validChars: number, activeSeconds: number): number {
   if (activeSeconds <= 0 || validChars <= 0) return 0;
   return Math.round((validChars / activeSeconds) * 60);
+}
+
+/**
+ * The eligibility values below are derived only from validated server state. Anything outside the
+ * shape the gate can trust — a zero or negative cost, a half-integer length, a non-finite clock —
+ * is corrupted state, not a free pass: the caller must refuse the cast rather than recompute.
+ */
+const INPUT_GATE_STATE_INVALID = 'input_gate_state_invalid';
+
+function inputGateLength(value: number): number {
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(INPUT_GATE_STATE_INVALID);
+  return value;
+}
+
+function inputGateTime(value: number): number {
+  if (!Number.isSafeInteger(value)) throw new Error(INPUT_GATE_STATE_INVALID);
+  return value;
+}
+
+/**
+ * Earliest instant the completion of a `targetLength`-code-point spell, made available at
+ * `openedAt`, may count under a floor of `minMsPerCodePoint` real milliseconds per code point.
+ * Both the floor and the length are positive whole numbers — a zero cost is never "ready".
+ */
+export function inputNotBefore(
+  targetLength: number,
+  openedAt: number,
+  minMsPerCodePoint: number,
+): number {
+  const length = inputGateLength(targetLength);
+  const cost = inputGateLength(minMsPerCodePoint);
+  const opened = inputGateTime(openedAt);
+  const notBefore = opened + length * cost;
+  if (!Number.isSafeInteger(notBefore)) throw new Error(INPUT_GATE_STATE_INVALID);
+  return notBefore;
+}
+
+/**
+ * How far past the floor a completion received at `receivedAt` got, as a plain ratio of real
+ * elapsed milliseconds to the spell's full cost. Zero before the spell was available; never
+ * rounded, never capped, and a policy metric only — never a cheat score.
+ */
+export function inputCompletionRatio(
+  targetLength: number,
+  openedAt: number,
+  receivedAt: number,
+  minMsPerCodePoint: number,
+): number {
+  const length = inputGateLength(targetLength);
+  const opened = inputGateTime(openedAt);
+  const received = inputGateTime(receivedAt);
+  const cost = inputGateLength(minMsPerCodePoint);
+  const elapsed = Math.max(0, received - opened);
+  const ratio = elapsed / (length * cost);
+  if (!Number.isFinite(ratio)) throw new Error(INPUT_GATE_STATE_INVALID);
+  return ratio;
 }

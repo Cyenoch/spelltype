@@ -2,31 +2,17 @@ import { onCleanup, type Accessor } from 'solid-js';
 import type { RoomSnapshot } from '../../../../shared/protocol';
 import { motion } from '../../../ui/motion';
 import type { TypingEffects } from '../../../pixi/typing-effects';
-
-/** Effects per confirmed commit are capped: fast typing emits repeatedly, not once hugely. */
-const MAX_PER_EMIT = 3;
+import type { TypingLocalState } from './typing';
+import { createGlyphStamp } from './glyph-stamp';
 
 export type CharTone = 'plain' | 'done' | 'ok' | 'cur' | 'err';
 
-/**
- * Character feedback is derived only from the text that may be judged: a settled
- * phase paints every character green, a live one distinguishes the matching
- * prefix, the caret and a mistake. Computed as one run so the class decision
- * never re-enters the text model per character.
- */
-export function charTones(
-  chars: string[],
-  typed: string,
-  cursor: number,
-  settled: boolean,
-): CharTone[] {
-  const typedChars = Array.from(typed);
+/** Classify every confirmed input position, not just the first broken prefix. */
+export function charTones(chars: string[], typedChars: string[], settled: boolean): CharTone[] {
   return chars.map((char, index) => {
     if (settled) return 'done';
-    if (index < cursor) return 'ok';
-    if (index === cursor) {
-      return typedChars[index] !== undefined && typedChars[index] !== char ? 'err' : 'cur';
-    }
+    if (index < typedChars.length) return typedChars[index] === char ? 'ok' : 'err';
+    if (index === typedChars.length) return 'cur';
     return 'plain';
   });
 }
@@ -49,8 +35,12 @@ export function charTitle(
   tone: CharTone | undefined,
   index: number,
   expected: string | undefined,
+  actual: string | undefined,
 ): string | undefined {
-  return tone === 'err' ? `第 ${index + 1} 个字符应为「${expected}」` : undefined;
+  if (tone !== 'err') return undefined;
+  const entered = actual === ' ' ? '空格' : actual;
+  if (expected === undefined) return `第 ${index + 1} 字：多余字符「${entered}」，请退格删除`;
+  return `第 ${index + 1} 字：输入了「${entered}」，应输入「${expected === ' ' ? '空格' : expected}」`;
 }
 
 export interface GlyphFeedback {
@@ -60,8 +50,8 @@ export interface GlyphFeedback {
   arm(index: number): void;
   /** Field adoptions move the confirmed prefix without anyone typing. */
   adopt(action: () => void): void;
-  /** One burst on the glyph the player just confirmed, if it may be celebrated. */
-  emit(state: { composing: boolean; progress: number }, index: number): void;
+  /** One burst per inserted character, including mistakes; never provisional IME text. */
+  emit(state: TypingLocalState, index: number): void;
   resize(): void;
 }
 
@@ -79,10 +69,23 @@ export function createGlyphFeedback(props: {
   column: Accessor<HTMLElement | null>;
   fxHost: Accessor<HTMLElement | null>;
 }): GlyphFeedback {
+  const stampGlyph = createGlyphStamp();
   let longTarget = false;
   let targetIndex = 0;
-  /** Confirmed prefix already celebrated, for `targetIndex`. */
-  let celebrated = 0;
+  let observedText = '';
+  let observedAttempts = 0;
+  const kicks = new Map<HTMLElement, Animation>();
+  const clearKicks = () => {
+    for (const animation of kicks.values()) animation.cancel();
+    kicks.clear();
+  };
+  const unsubscribeMotion = motion.subscribe((reduced) => {
+    if (reduced) clearKicks();
+  });
+  onCleanup(() => {
+    unsubscribeMotion();
+    clearKicks();
+  });
   /** Set while a field is being adopted from the server, never for typing. */
   let adopting = false;
 
@@ -116,7 +119,9 @@ export function createGlyphFeedback(props: {
     longTarget: () => longTarget,
     arm: (index) => {
       targetIndex = index;
-      celebrated = 0;
+      observedText = '';
+      observedAttempts = 0;
+      clearKicks();
     },
     adopt: (action) => {
       adopting = true;
@@ -130,35 +135,58 @@ export function createGlyphFeedback(props: {
     emit: (state, index) => {
       if (targetIndex !== index) {
         targetIndex = index;
-        celebrated = 0;
+        observedText = '';
+        observedAttempts = 0;
+        clearKicks();
       }
-      // A composition never advances the celebrated prefix: the provisional text
-      // is not judged, so nothing may be celebrated until it is committed.
-      const progress = state.composing ? celebrated : Math.max(0, state.progress);
-      if (progress === celebrated) return;
-      const previous = celebrated;
-      celebrated = progress;
-      if (progress < previous) return; // retraction: re-arm, celebrate nothing
-      if (adopting) return;
-      const layer = props.layer();
-      if (!layer || !props.isReady() || motion.reduced) return;
-
+      if (state.composing) return;
+      const previousText = observedText;
+      const inserted = state.attempts - observedAttempts;
+      observedText = state.text;
+      observedAttempts = state.attempts;
+      // Deletions, server adoptions and repeated snapshots are not keystrokes.
+      if (inserted <= 0 || adopting || motion.reduced) return;
       const snapshot = props.snapshot();
       const self = snapshot.players.find((player) => player.id === props.selfId());
       if (snapshot.phase !== 'playing' || !self || self.eliminatedAt !== null) return;
-
       const fxHost = props.fxHost();
-      const glyph = glyphAt(progress - 1);
-      if (!glyph || !fxHost) return;
+      if (!fxHost || !snapshot.spell) return;
+      const before = Array.from(previousText);
+      const after = Array.from(state.text);
+      const expected = Array.from(snapshot.spell.text);
+      let start = 0;
+      while (start < before.length && start < after.length && before[start] === after[start])
+        start += 1;
       const hostBox = fxHost.getBoundingClientRect();
-      const box = glyph.getBoundingClientRect();
-      if (box.width <= 0 && box.height <= 0) return;
-      layer.emit(
-        box.left - hostBox.left + box.width / 2,
-        box.top - hostBox.top + box.height * 0.8,
-        snapshot.spell?.element ?? 'arcane',
-        Math.min(progress - previous, MAX_PER_EMIT),
-      );
+      const layer = props.isReady() ? props.layer() : null;
+      for (let offset = 0; offset < inserted; offset += 1) {
+        const charIndex = start + offset;
+        const glyph = glyphAt(Math.min(charIndex, expected.length - 1));
+        if (!glyph) continue;
+        const box = glyph.getBoundingClientRect();
+        if (box.width <= 0 && box.height <= 0) continue;
+        const error = after[charIndex] !== expected[charIndex];
+        layer?.emit(
+          box.left - hostBox.left + box.width / 2,
+          box.top - hostBox.top + box.height / 2,
+          snapshot.spell.element,
+          error,
+        );
+        if (!error) {
+          stampGlyph(glyph);
+          continue;
+        }
+        // Only wrong characters shake; correct characters receive a separate imprint.
+        kicks.get(glyph)?.cancel();
+        const kick = glyph.animate(
+          [{ translate: '-2px 0' }, { translate: '2px 0' }, { translate: '0 0' }],
+          { duration: 180, easing: 'ease-out' },
+        );
+        kicks.set(glyph, kick);
+        kick.onfinish = () => {
+          if (kicks.get(glyph) === kick) kicks.delete(glyph);
+        };
+      }
     },
   };
 }

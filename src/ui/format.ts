@@ -2,7 +2,13 @@
  * Single source for user-facing vocabulary. Views read these maps directly so
  * a new phase, element or end reason cannot fall back to a raw protocol token.
  */
-import type { Difficulty, Element, EndReason, Phase } from '../../shared/protocol';
+import {
+  THEME_PRESETS,
+  type Difficulty,
+  type Element,
+  type EndReason,
+  type Phase,
+} from '../../shared/protocol';
 
 export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
   hard: '困难',
@@ -17,16 +23,25 @@ export const ELEMENT_LABELS: Record<Element, string> = {
 
 export const PHASE_LABELS: Record<Phase, string> = {
   lobby: '大厅准备',
-  generating: '生成咒文',
+  generating: '准备咒文书',
   countdown: '开场倒数',
   playing: '连续战斗',
   finished: '对局结束',
 };
 
+/**
+ * Preset themes share one cached spell book per theme; custom themes are cast per match.
+ * Membership mirrors the server's own rule: the trimmed theme text equals a preset's theme.
+ */
+export function isPresetTheme(theme: string): boolean {
+  const trimmed = theme.trim();
+  return THEME_PRESETS.some((preset) => preset.theme === trimmed);
+}
+
 /** How a finished match was decided. Both are legitimate endings, never an error. */
 export const END_REASON_LABELS: Record<EndReason, string> = {
-  elimination: '场上只剩一名存活者',
-  timeout: '时间耗尽，按剩余生命排名',
+  elimination: '场上存活者不足两人，战斗结束',
+  timeout: '时间耗尽，存活者按剩余生命排名',
 };
 
 export const ELEMENTS: readonly Element[] = ['arcane', 'fire', 'ice', 'storm'];
@@ -71,14 +86,30 @@ export function percentOf(part: number, whole: number): number {
   return Math.max(0, Math.min(100, Math.round((part / whole) * 100)));
 }
 
-export function clampHealth(hp: number, maxHp: number): number {
-  if (!Number.isFinite(hp)) return 0;
-  return Math.max(0, Math.min(maxHp > 0 ? maxHp : 0, Math.round(hp)));
+/**
+ * One clean game amount: integers stay plain, fractions round to at most two
+ * decimals with no trailing zeros. An equal-split share like `40 / 3` reads
+ * `13.33`, never `13.333333333333334`; every damage or health number the UI
+ * prints goes through here.
+ */
+export function formatAmount(value: number): string {
+  if (!Number.isFinite(value)) return '0';
+  const rounded = Math.round(value * 100) / 100;
+  return String(Object.is(rounded, -0) ? 0 : rounded);
 }
 
-/** `1234 / 2400` — the one health pair format used by the arena, HUD and results. */
+export function clampHealth(hp: number, maxHp: number): number {
+  if (!Number.isFinite(hp)) return 0;
+  return Math.max(0, Math.min(maxHp > 0 ? maxHp : 0, hp));
+}
+
+/**
+ * `1234 / 2400` — the one health pair format used by the arena, HUD and
+ * results. Health may be fractional (equal-split damage), so both sides are
+ * cleaned through `formatAmount` instead of rounded away.
+ */
 export function formatHealth(hp: number, maxHp: number): string {
-  return `${clampHealth(hp, maxHp)} / ${Math.max(0, Math.round(maxHp))}`;
+  return `${formatAmount(clampHealth(hp, maxHp))} / ${formatAmount(Math.max(0, maxHp))}`;
 }
 
 export function formatTimestamp(seconds: number): string {

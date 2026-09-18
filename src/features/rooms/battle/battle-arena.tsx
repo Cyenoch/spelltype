@@ -26,7 +26,9 @@ export function BattleArena(props: {
   players: Player[];
   selfId: string;
   selfCast: { progress: number; length: number };
-  myTarget: number | null;
+  /** Every seat the viewer's casts land on: all other living players. */
+  myTargets: Player[];
+  /** Every living opponent whose casts land on the viewer. */
   aimingAtMe: Player[];
   longTarget: boolean;
   render: RenderMode;
@@ -128,7 +130,7 @@ export function BattleArena(props: {
                 <SeatLabel
                   player={player()}
                   isSelf={id === props.selfId}
-                  isTarget={props.myTarget !== null && player().slot === props.myTarget}
+                  isTarget={props.myTargets.some((candidate) => candidate.id === id)}
                   aimedAtMe={props.aimingAtMe.some((candidate) => candidate.id === id)}
                   render={props.render}
                   selfCast={props.selfCast}

@@ -1,11 +1,21 @@
 {
-  "note": "Asset provenance for the Spelltype frontend. Every shipped bitmap under public/assets/ is either a generated source bitmap that the coordinating agent produced with its image-gen tool, a local derivation (split, trim, bleed, resize, re-encode) of such a bitmap, or an explicitly hand-authored SVG labelled \"hand-authored\" and never described as generated. The image model name is not exposed to this worker, so none is claimed. All processing is local and deterministic and reproducible with scripts/process-art.mjs: sharp/libvips for decode, resize and encode, alpha taken from the masters themselves or derived from luminance for glow art on a dark backdrop, and a sharp-rendered SVG gradient for the portrait backdrops. No external hosting, CDN or remote URL is used. This pass shipped 44 files (40 arena/character/icon/effect assets plus 4 portraits derived from them) out of 10 unique current masters. Superseded generations, deliberately not shipped: white-background icon atlas (was delivered as spell-icons-sheet.png, sha256 d3f63d73…) — superseded by the black-background regeneration spell-icons-black-sheet.png (sha256 97db63de…) because enclosed backdrop could not be told apart from white highlights inside the artwork.",
+  "note": "Asset provenance for the Spelltype frontend. Every shipped bitmap under public/assets/ is either a generated source bitmap that the coordinating agent produced with its image-gen tool, a local derivation (split, trim, bleed, resize, re-encode) of such a bitmap, or explicitly hand-authored vector/procedural artwork labelled \"hand-authored\" and never described as generated. The image model name is not exposed to this worker, so none is claimed. All processing is local and deterministic and reproducible with scripts/process-art.mjs: sharp/libvips for decode, resize and encode, alpha taken from the masters themselves or derived from luminance for glow art on a dark backdrop, and a sharp-rendered SVG gradient for the portrait backdrops. No external hosting, CDN or remote URL is used. This pass shipped 45 files (41 arena/character/icon/effect assets plus 4 portraits derived from them) out of 11 unique current masters. Superseded generations, deliberately not shipped: white-background icon atlas (was delivered as spell-icons-sheet.png, sha256 d3f63d73…) — superseded by the black-background regeneration spell-icons-black-sheet.png (sha256 97db63de…) because enclosed backdrop could not be told apart from white highlights inside the artwork. UI artwork is separately hand-authored SVG metalwork and deterministic periodic raster materials, reproduced by scripts/process-ui-art.mjs; not image-model output.",
   "generatedAt": "2026-09-18",
   "invocation": {
     "script": "scripts/process-art.mjs",
     "sourceDir": ".scratch/artdrop-final",
     "outDir": "public/assets",
-    "steps": ["arenas", "icons", "characters", "vfx", "portraits", "provenance", "check"],
+    "steps": [
+      "arenas",
+      "icons",
+      "characters",
+      "vfx",
+      "background",
+      "portraits",
+      "provenance",
+      "ui",
+      "check"
+    ],
     "supersededFlag": [
       "white-background icon atlas (was delivered as spell-icons-sheet.png, sha256 d3f63d73…) — superseded by the black-background regeneration spell-icons-black-sheet.png (sha256 97db63de…) because enclosed backdrop could not be told apart from white highlights inside the artwork"
     ]
@@ -13,10 +23,10 @@
   "toolchain": {
     "sharp": "0.35.4",
     "libvips": "8.18.6",
-    "node": "v26.8.2"
+    "node": "v24.21.0"
   },
   "summary": {
-    "uniqueGeneratedSources": 10,
+    "uniqueGeneratedSources": 11,
     "supersededGenerations": [
       "white-background icon atlas (was delivered as spell-icons-sheet.png, sha256 d3f63d73…) — superseded by the black-background regeneration spell-icons-black-sheet.png (sha256 97db63de…) because enclosed backdrop could not be told apart from white highlights inside the artwork"
     ],
@@ -36,6 +46,10 @@
       {
         "path": ".scratch/artdrop-final/arena-4.png",
         "sha256": "64b4a5965b370b4ed123b8614f39d85b5fb636a5eb04e8882512a707c6f5e1b8"
+      },
+      {
+        "path": ".scratch/artdrop-final/academy-hall.jpg",
+        "sha256": "d91381c95b899412ab011ce8628cd9c5af4f724d2618dc2eeb2e5a903c5ff80d"
       },
       {
         "path": ".scratch/artdrop-final/characters-sheet.png",
@@ -62,13 +76,14 @@
         "sha256": "b582551570bf8d8b8f4ac0f6a85e37d2cdd53b7941915bbde41f40147a74b255"
       }
     ],
-    "shippedFiles": 44,
+    "shippedFiles": 45,
+    "background": 1,
     "arenas": 4,
     "characters": 4,
     "spellIcons": 16,
     "combatFx": 16,
     "portraits": 4,
-    "totalBytes": 4980847,
+    "totalBytes": 4663858,
     "cutouts": {
       "icons": {
         "mode": "existing-alpha",
@@ -103,18 +118,6 @@
     }
   },
   "entries": [
-    {
-      "path": "public/assets/bg/academy-hall.jpg",
-      "kind": "background",
-      "origin": "generated-source",
-      "method": "generated bitmap, locally transcoded with ffmpeg (pre-existing asset, not touched by this pass)",
-      "tool": "session image_gen (via coordinating agent), ffmpeg",
-      "model": "not exposed to this worker (claimed as: the coordinating agent’s image-gen tool, model name unknown)",
-      "dimensions": "1672x941",
-      "processing": "source PNG (1672x941) converted to JPEG with ffmpeg; no other edits",
-      "usage": "Full-page backdrop: CSS layer plus PIXI texture for the parallax backdrop. Dark magical academy hall; contains no text, logo or watermark.",
-      "bytes": 367727
-    },
     {
       "path": "public/assets/arenas/arena-1.webp",
       "kind": "arena",
@@ -180,7 +183,23 @@
       "sourceBytes": 2731882
     },
     {
-      "path": "public/assets/characters/slot-0-arcane.png",
+      "path": "public/assets/bg/academy-hall.webp",
+      "kind": "background",
+      "origin": "generated-source",
+      "method": "generated bitmap, locally transcoded (no synthesis in the pipeline)",
+      "tool": "session image_gen (via coordinating agent), sharp/libvips",
+      "model": "not exposed to this worker (claimed as: the coordinating agent’s image-gen tool, model name unknown)",
+      "source": ".scratch/artdrop-final/academy-hall.jpg",
+      "sourceDimensions": "1672x941",
+      "dimensions": "1672x941",
+      "bytes": 182480,
+      "processing": "the sheet already carried a real alpha channel (38.7% fully clear, 44.7% fully solid) — alpha kept verbatim, no keying applied; then pre-existing generated JPEG master re-encoded to WebP q80 with sharp/libvips (no resampling, kept at native 1672x941)",
+      "usage": "Full-page backdrop: CSS layer plus PIXI texture for the parallax backdrop. Dark magical academy hall; contains no text, logo or watermark.",
+      "sourceSha256": "d91381c95b899412ab011ce8628cd9c5af4f724d2618dc2eeb2e5a903c5ff80d",
+      "sourceBytes": 367727
+    },
+    {
+      "path": "public/assets/characters/slot-0-arcane.webp",
       "kind": "character",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -189,8 +208,8 @@
       "source": ".scratch/artdrop-final/characters-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "768x958",
-      "bytes": 298442,
-      "processing": "the sheet already carried a real alpha channel (57.2% fully clear, 38.6% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to figure + 3% padding, fit within 768x1024, palette PNG with alpha",
+      "bytes": 228882,
+      "processing": "the sheet already carried a real alpha channel (57.2% fully clear, 38.6% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to figure + 3% padding, fit within 768x1024, WebP q92 with alpha",
       "usage": "Full-body combatant for seat slot 0 (arcane), drawn with real alpha in the arena.",
       "element": "arcane",
       "slot": 0,
@@ -198,7 +217,7 @@
       "sourceBytes": 2054317
     },
     {
-      "path": "public/assets/characters/slot-1-fire.png",
+      "path": "public/assets/characters/slot-1-fire.webp",
       "kind": "character",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -207,8 +226,8 @@
       "source": ".scratch/artdrop-final/characters-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "768x970",
-      "bytes": 263291,
-      "processing": "the sheet already carried a real alpha channel (57.2% fully clear, 38.6% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to figure + 3% padding, fit within 768x1024, palette PNG with alpha",
+      "bytes": 239864,
+      "processing": "the sheet already carried a real alpha channel (57.2% fully clear, 38.6% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to figure + 3% padding, fit within 768x1024, WebP q92 with alpha",
       "usage": "Full-body combatant for seat slot 1 (fire), drawn with real alpha in the arena.",
       "element": "fire",
       "slot": 1,
@@ -216,7 +235,7 @@
       "sourceBytes": 2054317
     },
     {
-      "path": "public/assets/characters/slot-2-ice.png",
+      "path": "public/assets/characters/slot-2-ice.webp",
       "kind": "character",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -225,8 +244,8 @@
       "source": ".scratch/artdrop-final/characters-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "768x904",
-      "bytes": 293304,
-      "processing": "the sheet already carried a real alpha channel (57.2% fully clear, 38.6% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to figure + 3% padding, fit within 768x1024, palette PNG with alpha",
+      "bytes": 236598,
+      "processing": "the sheet already carried a real alpha channel (57.2% fully clear, 38.6% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to figure + 3% padding, fit within 768x1024, WebP q92 with alpha",
       "usage": "Full-body combatant for seat slot 2 (ice), drawn with real alpha in the arena.",
       "element": "ice",
       "slot": 2,
@@ -234,7 +253,7 @@
       "sourceBytes": 2054317
     },
     {
-      "path": "public/assets/characters/slot-3-storm.png",
+      "path": "public/assets/characters/slot-3-storm.webp",
       "kind": "character",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -243,8 +262,8 @@
       "source": ".scratch/artdrop-final/characters-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "768x858",
-      "bytes": 270417,
-      "processing": "the sheet already carried a real alpha channel (57.2% fully clear, 38.6% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to figure + 3% padding, fit within 768x1024, palette PNG with alpha",
+      "bytes": 247330,
+      "processing": "the sheet already carried a real alpha channel (57.2% fully clear, 38.6% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to figure + 3% padding, fit within 768x1024, WebP q92 with alpha",
       "usage": "Full-body combatant for seat slot 3 (storm), drawn with real alpha in the arena.",
       "element": "storm",
       "slot": 3,
@@ -524,7 +543,7 @@
       "sourceBytes": 2848264
     },
     {
-      "path": "public/assets/combat-fx/arcane-1.png",
+      "path": "public/assets/combat-fx/arcane-1.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -533,15 +552,15 @@
       "source": ".scratch/artdrop-final/vfx-arcane-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 78386,
-      "processing": "the sheet already carried a real alpha channel (47.3% fully clear, 29.1% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 73166,
+      "processing": "the sheet already carried a real alpha channel (47.3% fully clear, 29.1% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the arcane element, played over the target when a spell lands.",
       "element": "arcane",
       "sourceSha256": "382ff296ac7e4abb5fcdaf47a7087eb9291c310da668ed994191e78e3147f1c0",
       "sourceBytes": 2233711
     },
     {
-      "path": "public/assets/combat-fx/arcane-2.png",
+      "path": "public/assets/combat-fx/arcane-2.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -550,15 +569,15 @@
       "source": ".scratch/artdrop-final/vfx-arcane-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 114693,
-      "processing": "the sheet already carried a real alpha channel (47.3% fully clear, 29.1% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 118412,
+      "processing": "the sheet already carried a real alpha channel (47.3% fully clear, 29.1% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the arcane element, played over the target when a spell lands.",
       "element": "arcane",
       "sourceSha256": "382ff296ac7e4abb5fcdaf47a7087eb9291c310da668ed994191e78e3147f1c0",
       "sourceBytes": 2233711
     },
     {
-      "path": "public/assets/combat-fx/arcane-3.png",
+      "path": "public/assets/combat-fx/arcane-3.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -567,15 +586,15 @@
       "source": ".scratch/artdrop-final/vfx-arcane-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 121097,
-      "processing": "the sheet already carried a real alpha channel (47.3% fully clear, 29.1% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 116060,
+      "processing": "the sheet already carried a real alpha channel (47.3% fully clear, 29.1% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the arcane element, played over the target when a spell lands.",
       "element": "arcane",
       "sourceSha256": "382ff296ac7e4abb5fcdaf47a7087eb9291c310da668ed994191e78e3147f1c0",
       "sourceBytes": 2233711
     },
     {
-      "path": "public/assets/combat-fx/arcane-4.png",
+      "path": "public/assets/combat-fx/arcane-4.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -584,15 +603,15 @@
       "source": ".scratch/artdrop-final/vfx-arcane-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 109239,
-      "processing": "the sheet already carried a real alpha channel (47.3% fully clear, 29.1% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 107912,
+      "processing": "the sheet already carried a real alpha channel (47.3% fully clear, 29.1% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the arcane element, played over the target when a spell lands.",
       "element": "arcane",
       "sourceSha256": "382ff296ac7e4abb5fcdaf47a7087eb9291c310da668ed994191e78e3147f1c0",
       "sourceBytes": 2233711
     },
     {
-      "path": "public/assets/combat-fx/fire-1.png",
+      "path": "public/assets/combat-fx/fire-1.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -601,15 +620,15 @@
       "source": ".scratch/artdrop-final/vfx-fire-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 88656,
-      "processing": "the sheet already carried a real alpha channel (40.8% fully clear, 46.9% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 80174,
+      "processing": "the sheet already carried a real alpha channel (40.8% fully clear, 46.9% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the fire element, played over the target when a spell lands.",
       "element": "fire",
       "sourceSha256": "e2289dfd938bd707dbac0d8f998185e1a1f89660bfd4a858dccd62b55be6d13a",
       "sourceBytes": 2251728
     },
     {
-      "path": "public/assets/combat-fx/fire-2.png",
+      "path": "public/assets/combat-fx/fire-2.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -618,15 +637,15 @@
       "source": ".scratch/artdrop-final/vfx-fire-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 151467,
-      "processing": "the sheet already carried a real alpha channel (40.8% fully clear, 46.9% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 128898,
+      "processing": "the sheet already carried a real alpha channel (40.8% fully clear, 46.9% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the fire element, played over the target when a spell lands.",
       "element": "fire",
       "sourceSha256": "e2289dfd938bd707dbac0d8f998185e1a1f89660bfd4a858dccd62b55be6d13a",
       "sourceBytes": 2251728
     },
     {
-      "path": "public/assets/combat-fx/fire-3.png",
+      "path": "public/assets/combat-fx/fire-3.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -635,15 +654,15 @@
       "source": ".scratch/artdrop-final/vfx-fire-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 154166,
-      "processing": "the sheet already carried a real alpha channel (40.8% fully clear, 46.9% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 130614,
+      "processing": "the sheet already carried a real alpha channel (40.8% fully clear, 46.9% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the fire element, played over the target when a spell lands.",
       "element": "fire",
       "sourceSha256": "e2289dfd938bd707dbac0d8f998185e1a1f89660bfd4a858dccd62b55be6d13a",
       "sourceBytes": 2251728
     },
     {
-      "path": "public/assets/combat-fx/fire-4.png",
+      "path": "public/assets/combat-fx/fire-4.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -652,15 +671,15 @@
       "source": ".scratch/artdrop-final/vfx-fire-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 115876,
-      "processing": "the sheet already carried a real alpha channel (40.8% fully clear, 46.9% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 103492,
+      "processing": "the sheet already carried a real alpha channel (40.8% fully clear, 46.9% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the fire element, played over the target when a spell lands.",
       "element": "fire",
       "sourceSha256": "e2289dfd938bd707dbac0d8f998185e1a1f89660bfd4a858dccd62b55be6d13a",
       "sourceBytes": 2251728
     },
     {
-      "path": "public/assets/combat-fx/ice-1.png",
+      "path": "public/assets/combat-fx/ice-1.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -669,15 +688,15 @@
       "source": ".scratch/artdrop-final/vfx-ice-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 120590,
-      "processing": "alpha derived from luminance of the dark-backdrop sheet (0.0% fully clear, 100.0% fully solid, floor 14/255, ceil 150/255) with colour un-premultiplied back to straight alpha; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 158902,
+      "processing": "alpha derived from luminance of the dark-backdrop sheet (0.0% fully clear, 100.0% fully solid, floor 14/255, ceil 150/255) with colour un-premultiplied back to straight alpha; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the ice element, played over the target when a spell lands.",
       "element": "ice",
       "sourceSha256": "ba826a125807f5f05234601ec9cbe2be21273a2c1cc998ed306e82b80b5e6ba5",
       "sourceBytes": 1881573
     },
     {
-      "path": "public/assets/combat-fx/ice-2.png",
+      "path": "public/assets/combat-fx/ice-2.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -686,15 +705,15 @@
       "source": ".scratch/artdrop-final/vfx-ice-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 66809,
-      "processing": "alpha derived from luminance of the dark-backdrop sheet (0.0% fully clear, 100.0% fully solid, floor 14/255, ceil 150/255) with colour un-premultiplied back to straight alpha; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 97356,
+      "processing": "alpha derived from luminance of the dark-backdrop sheet (0.0% fully clear, 100.0% fully solid, floor 14/255, ceil 150/255) with colour un-premultiplied back to straight alpha; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the ice element, played over the target when a spell lands.",
       "element": "ice",
       "sourceSha256": "ba826a125807f5f05234601ec9cbe2be21273a2c1cc998ed306e82b80b5e6ba5",
       "sourceBytes": 1881573
     },
     {
-      "path": "public/assets/combat-fx/ice-3.png",
+      "path": "public/assets/combat-fx/ice-3.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -703,15 +722,15 @@
       "source": ".scratch/artdrop-final/vfx-ice-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 110977,
-      "processing": "alpha derived from luminance of the dark-backdrop sheet (0.0% fully clear, 100.0% fully solid, floor 14/255, ceil 150/255) with colour un-premultiplied back to straight alpha; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 151318,
+      "processing": "alpha derived from luminance of the dark-backdrop sheet (0.0% fully clear, 100.0% fully solid, floor 14/255, ceil 150/255) with colour un-premultiplied back to straight alpha; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the ice element, played over the target when a spell lands.",
       "element": "ice",
       "sourceSha256": "ba826a125807f5f05234601ec9cbe2be21273a2c1cc998ed306e82b80b5e6ba5",
       "sourceBytes": 1881573
     },
     {
-      "path": "public/assets/combat-fx/ice-4.png",
+      "path": "public/assets/combat-fx/ice-4.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -720,15 +739,15 @@
       "source": ".scratch/artdrop-final/vfx-ice-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 102752,
-      "processing": "alpha derived from luminance of the dark-backdrop sheet (0.0% fully clear, 100.0% fully solid, floor 14/255, ceil 150/255) with colour un-premultiplied back to straight alpha; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 135898,
+      "processing": "alpha derived from luminance of the dark-backdrop sheet (0.0% fully clear, 100.0% fully solid, floor 14/255, ceil 150/255) with colour un-premultiplied back to straight alpha; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the ice element, played over the target when a spell lands.",
       "element": "ice",
       "sourceSha256": "ba826a125807f5f05234601ec9cbe2be21273a2c1cc998ed306e82b80b5e6ba5",
       "sourceBytes": 1881573
     },
     {
-      "path": "public/assets/combat-fx/storm-1.png",
+      "path": "public/assets/combat-fx/storm-1.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -737,15 +756,15 @@
       "source": ".scratch/artdrop-final/vfx-storm-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 136449,
-      "processing": "the sheet already carried a real alpha channel (41.9% fully clear, 40.8% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 142288,
+      "processing": "the sheet already carried a real alpha channel (41.9% fully clear, 40.8% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the storm element, played over the target when a spell lands.",
       "element": "storm",
       "sourceSha256": "b582551570bf8d8b8f4ac0f6a85e37d2cdd53b7941915bbde41f40147a74b255",
       "sourceBytes": 2496595
     },
     {
-      "path": "public/assets/combat-fx/storm-2.png",
+      "path": "public/assets/combat-fx/storm-2.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -754,15 +773,15 @@
       "source": ".scratch/artdrop-final/vfx-storm-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 87603,
-      "processing": "the sheet already carried a real alpha channel (41.9% fully clear, 40.8% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 91122,
+      "processing": "the sheet already carried a real alpha channel (41.9% fully clear, 40.8% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the storm element, played over the target when a spell lands.",
       "element": "storm",
       "sourceSha256": "b582551570bf8d8b8f4ac0f6a85e37d2cdd53b7941915bbde41f40147a74b255",
       "sourceBytes": 2496595
     },
     {
-      "path": "public/assets/combat-fx/storm-3.png",
+      "path": "public/assets/combat-fx/storm-3.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -771,15 +790,15 @@
       "source": ".scratch/artdrop-final/vfx-storm-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 138822,
-      "processing": "the sheet already carried a real alpha channel (41.9% fully clear, 40.8% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 133104,
+      "processing": "the sheet already carried a real alpha channel (41.9% fully clear, 40.8% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the storm element, played over the target when a spell lands.",
       "element": "storm",
       "sourceSha256": "b582551570bf8d8b8f4ac0f6a85e37d2cdd53b7941915bbde41f40147a74b255",
       "sourceBytes": 2496595
     },
     {
-      "path": "public/assets/combat-fx/storm-4.png",
+      "path": "public/assets/combat-fx/storm-4.webp",
       "kind": "combat-fx",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
@@ -788,73 +807,73 @@
       "source": ".scratch/artdrop-final/vfx-storm-sheet.png",
       "sourceDimensions": "1254x1254",
       "dimensions": "512x512",
-      "bytes": 131166,
-      "processing": "the sheet already carried a real alpha channel (41.9% fully clear, 40.8% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha",
+      "bytes": 122322,
+      "processing": "the sheet already carried a real alpha channel (41.9% fully clear, 40.8% fully solid) — alpha kept verbatim, no keying applied; then 2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha",
       "usage": "Impact effect for the storm element, played over the target when a spell lands.",
       "element": "storm",
       "sourceSha256": "b582551570bf8d8b8f4ac0f6a85e37d2cdd53b7941915bbde41f40147a74b255",
       "sourceBytes": 2496595
     },
     {
-      "path": "public/assets/avatars/seat-1.jpg",
+      "path": "public/assets/avatars/seat-1.webp",
       "kind": "portrait",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
       "tool": "session image_gen (via coordinating agent), sharp/libvips",
       "model": "not exposed to this worker (claimed as: the coordinating agent’s image-gen tool, model name unknown)",
-      "source": "public/assets/characters/slot-0-arcane.png",
+      "source": "public/assets/characters/slot-0-arcane.webp",
       "sourceDimensions": "768x958",
       "dimensions": "512x512",
-      "bytes": 40498,
-      "processing": "the sheet already carried a real alpha channel (38.7% fully clear, 44.7% fully solid) — alpha kept verbatim, no keying applied; then square head-and-shoulders crop around the measured alpha bounds of the derived full-body character, 512x512, composited over an element-tinted radial gradient (SVG rendered by sharp), JPEG q84 mozjpeg",
+      "bytes": 34576,
+      "processing": "the sheet already carried a real alpha channel (38.7% fully clear, 44.7% fully solid) — alpha kept verbatim, no keying applied; then square head-and-shoulders crop around the measured alpha bounds of the derived full-body character, 512x512, composited over an element-tinted radial gradient (SVG rendered by sharp), WebP q84",
       "usage": "Lobby/results portrait for seat 1 (arcane), cropped from the derived full-body character.",
       "element": "arcane",
       "slot": 0
     },
     {
-      "path": "public/assets/avatars/seat-2.jpg",
+      "path": "public/assets/avatars/seat-2.webp",
       "kind": "portrait",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
       "tool": "session image_gen (via coordinating agent), sharp/libvips",
       "model": "not exposed to this worker (claimed as: the coordinating agent’s image-gen tool, model name unknown)",
-      "source": "public/assets/characters/slot-1-fire.png",
+      "source": "public/assets/characters/slot-1-fire.webp",
       "sourceDimensions": "768x970",
       "dimensions": "512x512",
-      "bytes": 42631,
-      "processing": "the sheet already carried a real alpha channel (38.7% fully clear, 44.7% fully solid) — alpha kept verbatim, no keying applied; then square head-and-shoulders crop around the measured alpha bounds of the derived full-body character, 512x512, composited over an element-tinted radial gradient (SVG rendered by sharp), JPEG q84 mozjpeg",
+      "bytes": 36786,
+      "processing": "the sheet already carried a real alpha channel (38.7% fully clear, 44.7% fully solid) — alpha kept verbatim, no keying applied; then square head-and-shoulders crop around the measured alpha bounds of the derived full-body character, 512x512, composited over an element-tinted radial gradient (SVG rendered by sharp), WebP q84",
       "usage": "Lobby/results portrait for seat 2 (fire), cropped from the derived full-body character.",
       "element": "fire",
       "slot": 1
     },
     {
-      "path": "public/assets/avatars/seat-3.jpg",
+      "path": "public/assets/avatars/seat-3.webp",
       "kind": "portrait",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
       "tool": "session image_gen (via coordinating agent), sharp/libvips",
       "model": "not exposed to this worker (claimed as: the coordinating agent’s image-gen tool, model name unknown)",
-      "source": "public/assets/characters/slot-2-ice.png",
+      "source": "public/assets/characters/slot-2-ice.webp",
       "sourceDimensions": "768x904",
       "dimensions": "512x512",
-      "bytes": 43974,
-      "processing": "the sheet already carried a real alpha channel (38.7% fully clear, 44.7% fully solid) — alpha kept verbatim, no keying applied; then square head-and-shoulders crop around the measured alpha bounds of the derived full-body character, 512x512, composited over an element-tinted radial gradient (SVG rendered by sharp), JPEG q84 mozjpeg",
+      "bytes": 40002,
+      "processing": "the sheet already carried a real alpha channel (38.7% fully clear, 44.7% fully solid) — alpha kept verbatim, no keying applied; then square head-and-shoulders crop around the measured alpha bounds of the derived full-body character, 512x512, composited over an element-tinted radial gradient (SVG rendered by sharp), WebP q84",
       "usage": "Lobby/results portrait for seat 3 (ice), cropped from the derived full-body character.",
       "element": "ice",
       "slot": 2
     },
     {
-      "path": "public/assets/avatars/seat-4.jpg",
+      "path": "public/assets/avatars/seat-4.webp",
       "kind": "portrait",
       "origin": "derived",
       "method": "generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art",
       "tool": "session image_gen (via coordinating agent), sharp/libvips",
       "model": "not exposed to this worker (claimed as: the coordinating agent’s image-gen tool, model name unknown)",
-      "source": "public/assets/characters/slot-3-storm.png",
+      "source": "public/assets/characters/slot-3-storm.webp",
       "sourceDimensions": "768x858",
       "dimensions": "512x512",
-      "bytes": 44879,
-      "processing": "the sheet already carried a real alpha channel (38.7% fully clear, 44.7% fully solid) — alpha kept verbatim, no keying applied; then square head-and-shoulders crop around the measured alpha bounds of the derived full-body character, 512x512, composited over an element-tinted radial gradient (SVG rendered by sharp), JPEG q84 mozjpeg",
+      "bytes": 39366,
+      "processing": "the sheet already carried a real alpha channel (38.7% fully clear, 44.7% fully solid) — alpha kept verbatim, no keying applied; then square head-and-shoulders crop around the measured alpha bounds of the derived full-body character, 512x512, composited over an element-tinted radial gradient (SVG rendered by sharp), WebP q84",
       "usage": "Lobby/results portrait for seat 4 (storm), cropped from the derived full-body character.",
       "element": "storm",
       "slot": 3
@@ -917,7 +936,7 @@
       "tool": "text editor",
       "model": null,
       "dimensions": "256x256",
-      "usage": "onerror fallback for seat-1.jpg in lobby seats and results."
+      "usage": "onerror fallback for seat-1.webp in lobby seats and results."
     },
     {
       "path": "public/assets/avatars/seat-2.svg",
@@ -927,7 +946,7 @@
       "tool": "text editor",
       "model": null,
       "dimensions": "256x256",
-      "usage": "onerror fallback for seat-2.jpg in lobby seats and results."
+      "usage": "onerror fallback for seat-2.webp in lobby seats and results."
     },
     {
       "path": "public/assets/avatars/seat-3.svg",
@@ -937,7 +956,7 @@
       "tool": "text editor",
       "model": null,
       "dimensions": "256x256",
-      "usage": "onerror fallback for seat-3.jpg in lobby seats and results."
+      "usage": "onerror fallback for seat-3.webp in lobby seats and results."
     },
     {
       "path": "public/assets/avatars/seat-4.svg",
@@ -947,7 +966,7 @@
       "tool": "text editor",
       "model": null,
       "dimensions": "256x256",
-      "usage": "onerror fallback for seat-4.jpg in lobby seats and results."
+      "usage": "onerror fallback for seat-4.webp in lobby seats and results."
     },
     {
       "path": "public/assets/sigil.svg",
@@ -968,6 +987,124 @@
       "model": null,
       "dimensions": "64x64",
       "usage": "Mote texture for the backdrop particle field."
+    },
+    {
+      "path": "public/assets/ui/frame-panel.svg",
+      "kind": "ui-ornament",
+      "origin": "hand-authored",
+      "method": "Original SVG metalwork, fixed-corner nine-slice frames and decorative ornaments",
+      "tool": "scripts/process-ui-art.mjs; sharp/libvips",
+      "model": null,
+      "dimensions": "192x192",
+      "bytes": 2111,
+      "usage": "CSS border-image: 48 source pixels per corner; repeat stretch; center transparent. Minimum supported box 48x32 CSS pixels."
+    },
+    {
+      "path": "public/assets/ui/frame-inset.svg",
+      "kind": "ui-ornament",
+      "origin": "hand-authored",
+      "method": "Original SVG metalwork, fixed-corner nine-slice frames and decorative ornaments",
+      "tool": "scripts/process-ui-art.mjs; sharp/libvips",
+      "model": null,
+      "dimensions": "192x192",
+      "bytes": 1646,
+      "usage": "CSS border-image: 48 source pixels per corner; repeat stretch; center transparent. Minimum supported box 48x32 CSS pixels."
+    },
+    {
+      "path": "public/assets/ui/frame-control.svg",
+      "kind": "ui-ornament",
+      "origin": "hand-authored",
+      "method": "Original SVG metalwork, fixed-corner nine-slice frames and decorative ornaments",
+      "tool": "scripts/process-ui-art.mjs; sharp/libvips",
+      "model": null,
+      "dimensions": "192x192",
+      "bytes": 1646,
+      "usage": "CSS border-image: 48 source pixels per corner; repeat stretch; center transparent. Minimum supported box 48x32 CSS pixels."
+    },
+    {
+      "path": "public/assets/ui/frame-accent.svg",
+      "kind": "ui-ornament",
+      "origin": "hand-authored",
+      "method": "Original SVG metalwork, fixed-corner nine-slice frames and decorative ornaments",
+      "tool": "scripts/process-ui-art.mjs; sharp/libvips",
+      "model": null,
+      "dimensions": "192x192",
+      "bytes": 2111,
+      "usage": "CSS border-image: 48 source pixels per corner; repeat stretch; center transparent. Minimum supported box 48x32 CSS pixels."
+    },
+    {
+      "path": "public/assets/ui/chevron.svg",
+      "kind": "ui-ornament",
+      "origin": "hand-authored",
+      "method": "Original SVG metalwork, fixed-corner nine-slice frames and decorative ornaments",
+      "tool": "scripts/process-ui-art.mjs; sharp/libvips",
+      "model": null,
+      "dimensions": "18x16",
+      "bytes": 235,
+      "usage": "Decorative background artwork; no semantic content."
+    },
+    {
+      "path": "public/assets/ui/divider.svg",
+      "kind": "ui-ornament",
+      "origin": "hand-authored",
+      "method": "Original SVG metalwork, fixed-corner nine-slice frames and decorative ornaments",
+      "tool": "scripts/process-ui-art.mjs; sharp/libvips",
+      "model": null,
+      "dimensions": "320x24",
+      "bytes": 671,
+      "usage": "Decorative background artwork; no semantic content."
+    },
+    {
+      "path": "public/assets/ui/seal.svg",
+      "kind": "ui-ornament",
+      "origin": "hand-authored",
+      "method": "Original SVG metalwork, fixed-corner nine-slice frames and decorative ornaments",
+      "tool": "scripts/process-ui-art.mjs; sharp/libvips",
+      "model": null,
+      "dimensions": "96x98",
+      "bytes": 1061,
+      "usage": "Decorative background artwork; no semantic content."
+    },
+    {
+      "path": "public/assets/ui/leather.webp",
+      "kind": "ui-material",
+      "origin": "hand-authored",
+      "method": "Original deterministic periodic material synthesis; lossless WebP",
+      "tool": "scripts/process-ui-art.mjs; sharp/libvips",
+      "model": null,
+      "dimensions": "256x256",
+      "bytes": 17534,
+      "usage": "Seamless dark material: repeat at 256x256 CSS pixels; never scale to container dimensions."
+    },
+    {
+      "path": "public/assets/ui/vellum.webp",
+      "kind": "ui-material",
+      "origin": "hand-authored",
+      "method": "Original deterministic periodic material synthesis; lossless WebP",
+      "tool": "scripts/process-ui-art.mjs; sharp/libvips",
+      "model": null,
+      "dimensions": "256x256",
+      "bytes": 17258,
+      "usage": "Seamless dark material: repeat at 256x256 CSS pixels; never scale to container dimensions."
+    },
+    {
+      "path": "public/assets/ui/stone.webp",
+      "kind": "ui-material",
+      "origin": "hand-authored",
+      "method": "Original deterministic periodic material synthesis; lossless WebP",
+      "tool": "scripts/process-ui-art.mjs; sharp/libvips",
+      "model": null,
+      "dimensions": "256x256",
+      "bytes": 15468,
+      "usage": "Seamless dark material: repeat at 256x256 CSS pixels; never scale to container dimensions."
     }
-  ]
+  ],
+  "ui": {
+    "script": "scripts/process-ui-art.mjs",
+    "origin": "hand-authored",
+    "files": 10,
+    "bytes": 59741,
+    "frameSlice": 48,
+    "tileSize": 256
+  }
 }

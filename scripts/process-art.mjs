@@ -15,7 +15,7 @@
  * Options:
  *   --source-dir <dir>  directory holding the generated masters (required for processing)
  *   --out-dir <dir>     asset root to write into   (default: public/assets)
- *   --only <steps>      subset of arenas,icons,characters,vfx,portraits,provenance,check
+ *   --only <steps>      subset of arenas,icons,characters,vfx,background,portraits,provenance,check
  *   --superseded <text> a rejected generation that is deliberately not shipped;
  *                       defaults to the record already in provenance.json so the
  *                       history survives an ordinary re-run
@@ -31,11 +31,22 @@ import { createHash } from 'node:crypto';
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { processUiArt } from './process-ui-art.mjs';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const REGISTRY = path.join(REPO_ROOT, 'src/pixi/assets.ts');
 const ELEMENTS = ['arcane', 'fire', 'ice', 'storm'];
-const ALL_STEPS = ['arenas', 'icons', 'characters', 'vfx', 'portraits', 'provenance', 'check'];
+const ALL_STEPS = [
+  'arenas',
+  'icons',
+  'characters',
+  'vfx',
+  'background',
+  'portraits',
+  'provenance',
+  'ui',
+  'check',
+];
 
 function parseArgs(argv) {
   const flags = new Map();
@@ -481,10 +492,10 @@ async function processCharacters() {
     const cell = await trimWithPad(cells[slot], 0.03);
     const buffer = await asSharp(cell)
       .resize({ width: 768, height: 1024, fit: 'inside' })
-      .png({ compressionLevel: 9, palette: true, quality: 92, effort: 8 })
+      .webp({ quality: 92, alphaQuality: 95, effort: 6, smartSubsample: true })
       .toBuffer();
     const written = await sharp(buffer).metadata();
-    await emit(`characters/slot-${slot}-${element}.png`, buffer, {
+    await emit(`characters/slot-${slot}-${element}.webp`, buffer, {
       kind: 'character',
       element,
       slot,
@@ -492,7 +503,7 @@ async function processCharacters() {
       sourceDimensions: `${loaded.sheet.width}x${loaded.sheet.height}`,
       ...loaded.fingerprint,
       processing:
-        '2x2 cell split on the alpha mask, trim to figure + 3% padding, fit within 768x1024, palette PNG with alpha',
+        '2x2 cell split on the alpha mask, trim to figure + 3% padding, fit within 768x1024, WebP q92 with alpha',
       width: written.width,
       height: written.height,
     });
@@ -515,22 +526,54 @@ async function processVfx() {
           fit: 'contain',
           background: { r: 0, g: 0, b: 0, alpha: 0 },
         })
-        .png({ compressionLevel: 9, palette: true, quality: 90, effort: 8 })
+        .webp({ quality: 92, alphaQuality: 100, effort: 6, smartSubsample: true })
         .toBuffer();
       const written = await sharp(buffer).metadata();
-      await emit(`combat-fx/${element}-${index + 1}.png`, buffer, {
+      await emit(`combat-fx/${element}-${index + 1}.webp`, buffer, {
         kind: 'combat-fx',
         element,
         source: relativePath(loaded.file),
         sourceDimensions: `${loaded.sheet.width}x${loaded.sheet.height}`,
         ...loaded.fingerprint,
         processing:
-          '2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha',
+          '2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, WebP q92 with exact alpha',
         width: written.width,
         height: written.height,
       });
     }
   }
+}
+
+/**
+ * The pre-existing generated page backdrop, shipped as WebP like every other
+ * bitmap. Its JPEG master lives with the other generated sources and is only
+ * re-encoded, never resampled or edited.
+ */
+async function processBackground() {
+  const file = path.join(SOURCE_DIR, 'academy-hall.jpg');
+  if (!(await fileExists(file))) {
+    log('  skipped, academy-hall.jpg is not in the source directory');
+    return;
+  }
+  const meta = await sharp(file).metadata();
+  if (meta.hasAlpha)
+    throw new Error(`${relativePath(file)} has an alpha channel: a backdrop master must be opaque`);
+  if (meta.width < 1200 || meta.height < 600) {
+    throw new Error(
+      `${relativePath(file)} is ${meta.width}x${meta.height}: too small for a page backdrop (need at least 1200x600)`,
+    );
+  }
+  const buffer = await sharp(file).webp({ quality: 80, smartSubsample: true }).toBuffer();
+  const written = await sharp(buffer).metadata();
+  await emit('bg/academy-hall.webp', buffer, {
+    kind: 'background',
+    source: relativePath(file),
+    sourceDimensions: `${meta.width}x${meta.height}`,
+    ...(await fingerprint(file)),
+    processing: `pre-existing generated JPEG master re-encoded to WebP q80 with sharp/libvips (no resampling, kept at native ${written.width}x${written.height})`,
+    width: written.width,
+    height: written.height,
+  });
 }
 
 /**
@@ -546,7 +589,7 @@ async function processPortraits() {
   };
   for (let slot = 0; slot < 4; slot++) {
     const element = ELEMENTS[slot];
-    const characterPath = path.join(OUT_DIR, `characters/slot-${slot}-${element}.png`);
+    const characterPath = path.join(OUT_DIR, `characters/slot-${slot}-${element}.webp`);
     if (!(await fileExists(characterPath))) {
       log(
         `  portrait ${slot + 1}: skipped, run the characters step first (${relativePath(characterPath)} is missing)`,
@@ -593,16 +636,16 @@ async function processPortraits() {
     );
     const buffer = await sharp(backdrop)
       .composite([{ input: crop, blend: 'over' }])
-      .jpeg({ quality: 84, mozjpeg: true })
+      .webp({ quality: 84, smartSubsample: true })
       .toBuffer();
-    await emit(`avatars/seat-${slot + 1}.jpg`, buffer, {
+    await emit(`avatars/seat-${slot + 1}.webp`, buffer, {
       kind: 'portrait',
       element,
       slot,
-      source: `public/assets/characters/slot-${slot}-${element}.png`,
+      source: `public/assets/characters/slot-${slot}-${element}.webp`,
       sourceDimensions: `${body.width}x${body.height}`,
       processing:
-        'square head-and-shoulders crop around the measured alpha bounds of the derived full-body character, 512x512, composited over an element-tinted radial gradient (SVG rendered by sharp), JPEG q84 mozjpeg',
+        'square head-and-shoulders crop around the measured alpha bounds of the derived full-body character, 512x512, composited over an element-tinted radial gradient (SVG rendered by sharp), WebP q84',
       width: 512,
       height: 512,
     });
@@ -641,7 +684,7 @@ const HAND_AUTHORED = [
     tool: 'text editor',
     model: null,
     dimensions: '256x256',
-    usage: `onerror fallback for seat-${seat}.jpg in lobby seats and results.`,
+    usage: `onerror fallback for seat-${seat}.webp in lobby seats and results.`,
   })),
   {
     path: 'public/assets/sigil.svg',
@@ -665,22 +708,9 @@ const HAND_AUTHORED = [
   },
 ];
 
-const BACKGROUND_ENTRY = {
-  path: 'public/assets/bg/academy-hall.jpg',
-  kind: 'background',
-  origin: 'generated-source',
-  method:
-    'generated bitmap, locally transcoded with ffmpeg (pre-existing asset, not touched by this pass)',
-  tool: 'session image_gen (via coordinating agent), ffmpeg',
-  model:
-    'not exposed to this worker (claimed as: the coordinating agent’s image-gen tool, model name unknown)',
-  dimensions: '1672x941',
-  processing: 'source PNG (1672x941) converted to JPEG with ffmpeg; no other edits',
-  usage:
-    'Full-page backdrop: CSS layer plus PIXI texture for the parallax backdrop. Dark magical academy hall; contains no text, logo or watermark.',
-};
-
 const USAGE = {
+  background: () =>
+    'Full-page backdrop: CSS layer plus PIXI texture for the parallax backdrop. Dark magical academy hall; contains no text, logo or watermark.',
   arena: (entry) =>
     `Arena backdrop ${entry.path.match(/arena-(\d)/)?.[1]} of 4, drawn behind the fighters. Painterly dark-fantasy magic-academy hall.`,
   character: (entry) =>
@@ -720,9 +750,10 @@ async function writeProvenance() {
     const provenanceEntry = {
       path: entry.path,
       kind: entry.kind,
-      origin: entry.kind === 'arena' ? 'generated-source' : 'derived',
+      origin:
+        entry.kind === 'arena' || entry.kind === 'background' ? 'generated-source' : 'derived',
       method:
-        entry.kind === 'arena'
+        entry.kind === 'arena' || entry.kind === 'background'
           ? 'generated bitmap, locally transcoded (no synthesis in the pipeline)'
           : 'generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art',
       tool: 'session image_gen (via coordinating agent), sharp/libvips',
@@ -747,7 +778,14 @@ async function writeProvenance() {
     measured.push(provenanceEntry);
   }
 
-  const order = { arena: 0, character: 1, 'spell-icon': 2, 'combat-fx': 3, portrait: 4 };
+  const order = {
+    arena: 0,
+    background: 1,
+    character: 2,
+    'spell-icon': 3,
+    'combat-fx': 4,
+    portrait: 5,
+  };
   measured.sort((a, b) => order[a.kind] - order[b.kind] || a.path.localeCompare(b.path));
   const portraits = measured.filter((entry) => entry.kind === 'portrait');
   const assets = measured.filter((entry) => entry.kind !== 'portrait');
@@ -761,21 +799,13 @@ async function writeProvenance() {
     }
   }
   const generatedSources = [...masters.values()];
-  const backgroundBytes = (
-    await stat(path.join(REPO_ROOT, BACKGROUND_ENTRY.path)).catch(() => null)
-  )?.size;
-  const entries = [
-    backgroundBytes ? { ...BACKGROUND_ENTRY, bytes: backgroundBytes } : BACKGROUND_ENTRY,
-    ...assets,
-    ...portraits,
-    ...HAND_AUTHORED,
-  ];
+  const entries = [...assets, ...portraits, ...HAND_AUTHORED];
 
   const provenance = {
     note:
       'Asset provenance for the Spelltype frontend. Every shipped bitmap under public/assets/ is either a generated ' +
       'source bitmap that the coordinating agent produced with its image-gen tool, a local derivation (split, trim, ' +
-      'bleed, resize, re-encode) of such a bitmap, or an explicitly hand-authored SVG labelled "hand-authored" and ' +
+      'bleed, resize, re-encode) of such a bitmap, or explicitly hand-authored vector/procedural artwork labelled "hand-authored" and ' +
       'never described as generated. The image model name is not exposed to this worker, so none is claimed. All ' +
       'processing is local and deterministic and reproducible with scripts/process-art.mjs: sharp/libvips for decode, ' +
       'resize and encode, alpha taken from the masters themselves or derived from luminance for glow art on a dark ' +
@@ -805,6 +835,7 @@ async function writeProvenance() {
       supersededGenerations: SUPERSEDED,
       generatedSources,
       shippedFiles: measured.length,
+      background: measured.filter((entry) => entry.kind === 'background').length,
       arenas: measured.filter((entry) => entry.kind === 'arena').length,
       characters: measured.filter((entry) => entry.kind === 'character').length,
       spellIcons: measured.filter((entry) => entry.kind === 'spell-icon').length,
@@ -824,9 +855,11 @@ async function writeProvenance() {
 async function checkRegistry() {
   const urls = [
     ...new Set(
-      [...(await readFile(REGISTRY, 'utf8')).matchAll(/'(\/assets\/[^']+)'/g)].map(
-        (match) => match[1],
-      ),
+      [
+        ...`${await readFile(REGISTRY, 'utf8')}\n${await readFile(path.join(REPO_ROOT, 'src/styles.css'), 'utf8')}`.matchAll(
+          /'(\/assets\/[^']+)'/g,
+        ),
+      ].map((match) => match[1]),
     ),
   ].sort();
   const missing = [];
@@ -863,8 +896,10 @@ await run('arenas', processArenas);
 await run('icons', processIcons);
 await run('characters', processCharacters);
 await run('vfx', processVfx);
+await run('background', processBackground);
 await run('portraits', processPortraits);
 await run('provenance', writeProvenance);
+await run('ui', () => processUiArt(OUT_DIR, DRY_RUN));
 await run('check', checkRegistry);
 
 const total = report.reduce((sum, entry) => sum + entry.bytes, 0);

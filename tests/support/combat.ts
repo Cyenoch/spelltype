@@ -8,8 +8,15 @@
  * still require server acknowledgement, atomic damage and advancement.
  */
 import { expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
-import { DAMAGE_PER_CHARACTER, type Player, type RoomSnapshot } from '../../shared/protocol';
-import { apiJson, type Identity } from './api';
+import {
+  DAMAGE_PER_CHARACTER,
+  WS_PROTOCOL,
+  type Player,
+  type RoomSnapshot,
+  type SelfInputGate,
+} from '../../shared/protocol';
+import { apiJson, selfIdentity, type Identity } from './api';
+import { settle } from './app';
 
 /** Longest a single server round-trip may take before a spec should treat it as a failure. */
 const ACK_TIMEOUT = 30_000;
@@ -65,13 +72,6 @@ function arenaSeat(page: Page, userId: string): Locator {
   return page.locator(`[data-testid="arena-seat"][data-user="${userId}"]`);
 }
 
-/** The seat of the player the viewer's own completions currently damage. */
-export function targetSeat(page: Page): Locator {
-  return page.locator(
-    '[data-testid="arena-seat"][data-target="true"], [data-testid="arena-seat"][data-target="1"]',
-  );
-}
-
 /** Seat account ids in DOM order (visual columns: the viewer leftmost, then the other slots ascending). */
 export async function seatOrder(page: Page): Promise<string[]> {
   return page
@@ -103,13 +103,8 @@ export async function opponentProgress(page: Page, userId: string): Promise<numb
   );
 }
 
-/**
- * The authoritative target text of the viewer's current spell. The station renders a screen-reader
- * copy as well, so the visible character run is preferred and the plain copy is the fallback.
- */
+/** Read the accessible target, not the glyphs that now display the player's actual typos. */
 export async function spellText(page: Page): Promise<string> {
-  const visible = page.getByTestId('spell-text').locator('span[aria-hidden="true"]').first();
-  if ((await visible.count()) > 0) return ((await visible.textContent()) ?? '').trim();
   const plain = (await page.getByTestId('spell-text-plain').textContent()) ?? '';
   return plain.replace(/^[^：]*：/, '').trim();
 }
@@ -186,10 +181,104 @@ export function snapshotPlayer(snapshot: RoomSnapshot, identity: Identity): Play
   return player;
 }
 
+/**
+ * The room's authoritative snapshot, read the way every v2 client must: the exact room GET is
+ * version-gated, so the read carries the current protocol header. A missing or wrong header is the
+ * server's 409, never a snapshot.
+ */
 export async function roomSnapshot(context: BrowserContext, roomId: string): Promise<RoomSnapshot> {
-  const response = await apiJson<RoomSnapshot>(context, `/api/rooms/${roomId}`);
+  const response = await apiJson<RoomSnapshot>(context, `/api/rooms/${roomId}`, {
+    headers: { 'X-Spelltype-Protocol': WS_PROTOCOL },
+  });
   expect(response.status).toBe(200);
   return response.body;
+}
+
+/** The viewer's own input gate from a snapshot (null outside valid playing state). */
+export function snapshotGate(snapshot: RoomSnapshot, identity: Identity): SelfInputGate | null {
+  snapshotPlayer(snapshot, identity);
+  return snapshot.selfInputGate ?? null;
+}
+
+/* ------------------------------------------------------------- input gate */
+
+export interface GateIndicator {
+  present: boolean;
+  mode: string;
+  /** Milliseconds the gate still withholds readiness, or null when ready/absent. */
+  remainingMs: number | null;
+  reason: string;
+  text: string;
+}
+
+/** Reads the station's input-gate indicator (`data-testid="input-gate"`). */
+export async function gateIndicator(page: Page): Promise<GateIndicator> {
+  const gate = page.getByTestId('input-gate');
+  if ((await gate.count()) === 0)
+    return { present: false, mode: '', remainingMs: null, reason: '', text: '' };
+  const remaining = await gate.getAttribute('data-ready-remaining-ms');
+  return {
+    present: true,
+    mode: (await gate.getAttribute('data-mode')) ?? '',
+    remainingMs: remaining === null || remaining === '' ? null : Number(remaining),
+    reason: (await gate.getAttribute('data-reason')) ?? '',
+    text: ((await gate.textContent()) ?? '').trim(),
+  };
+}
+
+/**
+ * Waits until this page's viewer may lawfully complete their current spell: the room is playing,
+ * the viewer's own gate is published, and the server clock has reached `notBefore`.
+ *
+ * The identity the first observation captured — match, spell index, draft epoch — defines what is
+ * being waited for. A later snapshot whose match differs, whose viewer fell or whose state is
+ * broken fails fast with diagnostics instead of timing out on an entry that can never become
+ * ready. A mere index/epoch advance inside the same match just re-captures the current identity.
+ */
+export async function waitForInputGate(page: Page, timeout = 60_000): Promise<void> {
+  const roomId = new URL(page.url()).searchParams.get('room');
+  if (!roomId) throw new Error('waitForInputGate: the page is not in a room');
+  const identity = await selfIdentity(page.context());
+  const deadlineAt = Date.now() + timeout;
+  let captured: { matchId: string; spellIndex: number; draftEpoch: number } | null = null;
+  let last = '';
+  for (;;) {
+    if (Date.now() > deadlineAt)
+      throw new Error(
+        `waitForInputGate: not ready within ${timeout}ms (room ${roomId}, ${last || 'no snapshot yet'})`,
+      );
+    const snapshot = await roomSnapshot(page.context(), roomId);
+    const self = snapshotPlayer(snapshot, identity);
+    last = `phase=${snapshot.phase} match=${snapshot.matchId} index=${self.spellIndex} epoch=${snapshot.selfInputGate?.draftEpoch} notBefore=${snapshot.selfInputGate?.notBefore}`;
+    if (snapshot.phase === 'finished' || snapshot.matchId === null)
+      throw new Error(`waitForInputGate: the match settled before the gate opened (${last})`);
+    if (snapshot.phase !== 'playing')
+      throw new Error(`waitForInputGate: expected playing, saw ${snapshot.phase} (${last})`);
+    if (self.eliminatedAt !== null)
+      throw new Error(`waitForInputGate: this viewer is eliminated (${last})`);
+    const gate = snapshot.selfInputGate;
+    if (gate === null)
+      throw new Error(
+        `waitForInputGate: playing without a published gate is broken state (${last})`,
+      );
+    if (
+      captured === null ||
+      snapshot.matchId !== captured.matchId ||
+      self.spellIndex !== captured.spellIndex
+    ) {
+      if (captured !== null && snapshot.matchId !== captured.matchId)
+        throw new Error(
+          `waitForInputGate: the match changed while waiting (${captured.matchId} → ${snapshot.matchId})`,
+        );
+      captured = {
+        matchId: snapshot.matchId,
+        spellIndex: self.spellIndex,
+        draftEpoch: gate.draftEpoch,
+      };
+    }
+    if (snapshot.serverNow >= gate.notBefore) return;
+    await settle(120);
+  }
 }
 
 /* ------------------------------------------------------------------ waits */
@@ -274,8 +363,19 @@ async function waitForAdvanceOrEnd(
  * authoritative target is inserted, so a restored accepted draft is never duplicated. This
  * exercises the browser's input event, not paste or a direct WebSocket/API shortcut. Resolve
  * only when the server advances the viewer's cursor (or ends the match).
+ *
+ * The completion is lawful input: first wait until this viewer's own gate says the spell's time
+ * floor has passed (never a hardcoded sleep, never a client-side guess at 35ms). A match that
+ * settled while waiting is not an error — the loop callers treat a finished match as done.
  */
 export async function completeSpell(page: Page): Promise<string> {
+  if ((await battlePhase(page)) === 'playing') {
+    try {
+      await waitForInputGate(page);
+    } catch (error) {
+      if ((await battlePhase(page)) !== 'finished') throw error;
+    }
+  }
   const text = await spellText(page);
   const index = await selfSpellIndex(page);
   const current = await inputValue(page);

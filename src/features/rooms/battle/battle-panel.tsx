@@ -120,7 +120,7 @@ export function BattlePanel(props: BattlePanelProps) {
         players={view().players}
         selfId={props.selfId}
         selfCast={selfProgress()}
-        myTarget={view().myTarget}
+        myTargets={view().myTargets}
         aimingAtMe={view().aimingAtMe}
         longTarget={typing.glyphs.longTarget()}
         render={props.renderMode}

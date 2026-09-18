@@ -1,7 +1,7 @@
 import { For, Show, createMemo } from 'solid-js';
 import * as stylex from '@stylexjs/stylex';
 import type { RoomSnapshot } from '../../../../shared/protocol';
-import { DIFFICULTY_LABELS } from '../../../ui/format';
+import { DIFFICULTY_LABELS, isPresetTheme } from '../../../ui/format';
 import { ASSETS, SEAT_LIMIT } from '../../../pixi/assets';
 import { ui } from '../../../ui/primitives';
 import { styles } from './lobby-panel.styles';
@@ -11,7 +11,7 @@ export interface LobbyActions {
   onReady(ready: boolean): void;
   onStart(): void;
   onLeave(): void;
-  onCopyInvite(): void;
+  onCopyRoomId(): void;
 }
 
 /**
@@ -65,14 +65,14 @@ function startHint(snapshot: RoomSnapshot, isHost: boolean): string {
 /**
  * Lobby / preparation stage: the duel stage the queue screen promised — large
  * portraits on opposing sides around the central sigil — plus a compact brief
- * of room facts, the invitation link, and one focused action row. Quick-match
+ * of room facts — the room ID doubles as the invite code, one tap copies it —
+ * and one focused action row. Quick-match
  * rooms say plainly that they start themselves, and the reservation expiry
  * keeps an abandoned opponent an explained situation, not a dead end.
  */
 export function LobbyPanel(props: {
   snapshot: RoomSnapshot;
   selfId: string;
-  inviteUrl: string;
   reservationRemainingMs: number | null;
   /** The lobby stays mounted for the whole room; combat simply hides it. */
   hidden: boolean;
@@ -232,7 +232,9 @@ export function LobbyPanel(props: {
                 compact={rivalCompact(slot)}
                 searching={!playerAt(slot) && quickWaiting()}
                 emptyLabel={props.snapshot.mode === 'quick' ? '未知' : '空席位'}
-                emptyNote={props.snapshot.mode === 'quick' ? '等待对手进入…' : '把邀请链接发给朋友'}
+                emptyNote={
+                  props.snapshot.mode === 'quick' ? '等待对手进入…' : '复制房间 ID 发给朋友'
+                }
               />
             )}
           </For>
@@ -269,9 +271,12 @@ export function LobbyPanel(props: {
               ✶
             </span>
             <div>
-              <strong>正在为你们准备共用的咒文书…</strong>
+              <strong>正在准备咒文书…</strong>
               <p class={stylex.props(ui.smallText).className}>
-                所有人使用同一本咒文书，等待不计入对战时间。
+                {isPresetTheme(props.snapshot.theme)
+                  ? '正在获取本主题的共享咒文书；生成期间，有旧书的其他对局可直接开战。'
+                  : '自定义主题不使用缓存，正在为本局单独生成咒文。'}
+                等待不计入对战时间。
               </p>
             </div>
           </div>
@@ -303,39 +308,25 @@ export function LobbyPanel(props: {
             </dd>
           </div>
           <div class={stylex.props(styles.fact).className}>
-            <dt class={stylex.props(styles.factLabel).className}>房间</dt>
-            <dd
-              class={stylex.props(styles.factValue, styles.roomId).className}
-              data-testid="lobby-room-id"
-            >
-              {props.snapshot.id}
+            <dt class={stylex.props(styles.factLabel).className}>房间 ID（邀请码）</dt>
+            <dd class={stylex.props(styles.roomIdCell).className}>
+              <span
+                class={stylex.props(styles.factValue, styles.roomId).className}
+                data-testid="lobby-room-id"
+              >
+                {props.snapshot.id}
+              </span>
+              <button
+                type="button"
+                class={stylex.props(ui.button, ui.small, styles.copyCode).className}
+                data-testid="lobby-copy-room-id"
+                onClick={() => props.actions.onCopyRoomId()}
+              >
+                点击复制
+              </button>
             </dd>
           </div>
         </dl>
-
-        <div class={stylex.props(styles.invite).className} hidden={props.snapshot.mode === 'quick'}>
-          <label class={stylex.props(ui.srOnly).className} for="invite-link">
-            邀请链接
-          </label>
-          <input
-            type="text"
-            id="invite-link"
-            data-testid="lobby-invite-link"
-            class={stylex.props(ui.input, styles.inviteInput).className}
-            readonly
-            aria-label="邀请链接"
-            spellcheck={false}
-            value={props.inviteUrl}
-          />
-          <button
-            type="button"
-            class={stylex.props(ui.button).className}
-            data-testid="lobby-copy-invite"
-            onClick={() => props.actions.onCopyInvite()}
-          >
-            复制邀请链接
-          </button>
-        </div>
 
         <hr class={stylex.props(ui.rule).className} />
 
@@ -362,7 +353,7 @@ export function LobbyPanel(props: {
           </button>
           <button
             type="button"
-            class={stylex.props(ui.button, ui.danger, styles.leaveAction).className}
+            class={stylex.props(ui.button, ui.danger).className}
             data-testid="lobby-leave"
             onClick={() => props.actions.onLeave()}
           >

@@ -1,5 +1,6 @@
 import { For, Show, createMemo } from 'solid-js';
 import type { CombatEvent, Player } from '../../../../shared/protocol';
+import { formatAmount } from '../../../ui/format';
 import { ui } from '../../../ui/primitives';
 import * as stylex from '@stylexjs/stylex';
 import { styles } from './battle.styles';
@@ -75,9 +76,11 @@ function LogEntry(props: { event: CombatEvent; players: Player[] }) {
         }
         data-element={props.event.element}
       >
-        {`-${props.event.damage}`}
+        {`-${formatAmount(props.event.damage)}`}
       </span>
-      <span class={stylex.props(styles.logHp).className}>{`${props.event.targetHp} 剩余`}</span>
+      <span class={stylex.props(styles.logHp).className}>
+        {`${formatAmount(props.event.targetHp)} 剩余`}
+      </span>
       <Show when={props.event.eliminated}>
         <span class={stylex.props(styles.mark, styles.markDown).className}>击倒</span>
       </Show>

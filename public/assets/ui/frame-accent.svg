@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192"><defs>
+    <linearGradient id="metal" x2=".7" y2="1"><stop stop-color="#ffe0a5"/><stop offset=".28" stop-color="#bd9356"/><stop offset=".55" stop-color="#453526"/><stop offset=".72" stop-color="#bd9356"/><stop offset="1" stop-color="#ffe0a5"/></linearGradient>
+    <linearGradient id="gem" x2=".8" y2="1"><stop stop-color="#fae2a5"/><stop offset="1" stop-color="#453526"/></linearGradient>
+    <g id="corner"><path d="M5 43V18L18 5H43V10H22L10 22V43Z" fill="url(#metal)" stroke="#453526"/>
+       <path d="M9 37V20L20 9H37M13 34V23L23 13H34" fill="none" stroke="#ffe0a5" stroke-width=".7"/>
+       <path d="M8 8L22 13L30 6L28 21L39 26L25 28L20 40L15 25L5 22L14 17Z" fill="#453526" stroke="#bd9356" stroke-width=".9"/>
+       <path d="M10 10L23 17L18 24Z M23 17L28 10L26 23L34 26L24 26L20 33L18 24Z" fill="url(#metal)"/>
+       <path d="M20 14L26 20L20 27L14 20Z" fill="#453526" stroke="#ffe0a5" stroke-width=".8"/>
+       <path d="M20 16L24 20L20 25L16 20Z" fill="url(#gem)"/>
+       <path d="M20 16L20 21L16 20Z" fill="#ffe0a5" opacity=".75"/>
+       <path d="M35 13L43 13M13 35V43M31 31L36 36M32 36L36 32" stroke="#bd9356" stroke-width=".8"/>
+       <circle cx="39" cy="7" r="1.4" fill="#ffe0a5"/><circle cx="7" cy="39" r="1.4" fill="#ffe0a5"/></g>
+  </defs>
+  <path d="M18 4H174L188 18V174L174 188H18L4 174V18Z" fill="none" stroke="#06080f" stroke-width="7"/>
+  <path d="M18 4H174L188 18V174L174 188H18L4 174V18Z" fill="none" stroke="#bd9356" stroke-width="3"/>
+  <path d="M18 3H174L189 18V174L174 189H18L3 174V18Z" fill="none" stroke="#ffe0a5" stroke-width=".65" opacity=".8"/>
+  <path d="M20 8H172L184 20V172L172 184H20L8 172V20Z" fill="none" stroke="#453526" stroke-width="2"/>
+  <path d="M22 11H170L181 22V170L170 181H22L11 170V22Z" fill="none" stroke="#bd9356" stroke-width=".7" opacity=".65"/>
+  <use href="#corner"/><use href="#corner" transform="translate(192 0) scale(-1 1)"/>
+  <use href="#corner" transform="translate(0 192) scale(1 -1)"/><use href="#corner" transform="translate(192 192) scale(-1 -1)"/></svg>

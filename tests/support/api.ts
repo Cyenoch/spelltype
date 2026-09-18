@@ -9,14 +9,20 @@ import { runtime } from './runtime';
 export async function apiJson<T>(
   context: BrowserContext,
   url: string,
-  init?: { method?: string; data?: unknown; origin?: string },
+  init?: {
+    method?: string;
+    data?: unknown;
+    origin?: string;
+    /** Extra request headers, e.g. the room snapshot's protocol version header. */
+    headers?: Record<string, string>;
+  },
 ): Promise<{ status: number; body: T }> {
   const absolute = /^https?:/.test(url) ? url : new URL(url, runtime().appUrl).toString();
   const response = await context.request.fetch(absolute, {
     method: init?.method ?? 'GET',
     data: init?.data,
     // The app rejects state-changing requests without a same-host, same-scheme Origin.
-    headers: { origin: init?.origin ?? new URL(absolute).origin },
+    headers: { origin: init?.origin ?? new URL(absolute).origin, ...init?.headers },
     failOnStatusCode: false,
   });
   const text = await response.text();

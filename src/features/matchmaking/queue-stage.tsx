@@ -5,7 +5,7 @@ import { styles } from './queue-view.styles';
 import type { QueueState } from './queue-controller';
 
 const SELF_NOTES: Record<QueueState, string> = {
-  waiting: '已进入排队',
+  waiting: '等待对手',
   matched: '已配对',
   cancelled: '已退出排队',
   blocked: '未加入排队',
@@ -18,29 +18,15 @@ const RIVAL_NOTES: Record<QueueState, string> = {
   blocked: '本次匹配未开始',
 };
 
-/**
- * The search stage: the viewer's own crest, the spinning sigil and the veiled
- * rival. Purely decorative — every word of status lives in the panel below it,
- * and `paused` freezes the whole animation where it stands.
- */
-export function QueueStage(props: {
-  state: QueueState;
-  username: string;
-  paused: boolean;
-  retry: boolean;
-}) {
+/** Decorative search stage; system reduced-motion preferences disable animation. */
+export function QueueStage(props: { state: QueueState; username: string; retry: boolean }) {
   const searching = createMemo(() => props.state === 'waiting');
   const settled = createMemo(() => props.state === 'cancelled' || props.state === 'blocked');
 
   return (
     <div
       class={
-        stylex.props(
-          styles.stage,
-          styles.stageRing,
-          searching() && styles.stageSheen,
-          props.paused && styles.paused,
-        ).className
+        stylex.props(styles.stage, styles.stageRing, searching() && styles.stageSheen).className
       }
     >
       <div
@@ -77,13 +63,7 @@ export function QueueStage(props: {
         aria-hidden="true"
       >
         <img
-          class={
-            stylex.props(
-              styles.spark,
-              searching() && styles.sparkRun,
-              props.paused && styles.paused,
-            ).className
-          }
+          class={stylex.props(styles.spark, searching() && styles.sparkRun).className}
           src={ASSETS.spark}
           alt=""
           width="240"
@@ -92,12 +72,8 @@ export function QueueStage(props: {
         />
         <span
           class={
-            stylex.props(
-              styles.ring,
-              styles.ringPulse,
-              searching() && styles.ringPulseRun,
-              props.paused && styles.paused,
-            ).className
+            stylex.props(styles.ring, styles.ringPulse, searching() && styles.ringPulseRun)
+              .className
           }
         />
         <span
@@ -107,55 +83,21 @@ export function QueueStage(props: {
               styles.ringSweep,
               props.retry && searching() && styles.ringSweepRetry,
               searching() && styles.ringSweepRun,
-              props.paused && styles.paused,
             ).className
           }
         />
-        <div
-          class={
-            stylex.props(
-              styles.orbit,
-              searching() && styles.orbitRun,
-              props.paused && styles.paused,
-            ).className
-          }
-        >
+        <div class={stylex.props(styles.orbit, searching() && styles.orbitRun).className}>
           <span class={stylex.props(styles.ring, styles.ringInner).className} />
+          <span class={stylex.props(styles.mote, searching() && styles.moteRun).className} />
           <span
-            class={
-              stylex.props(
-                styles.mote,
-                searching() && styles.moteRun,
-                props.paused && styles.paused,
-              ).className
-            }
+            class={stylex.props(styles.mote, styles.moteB, searching() && styles.moteRun).className}
           />
           <span
-            class={
-              stylex.props(
-                styles.mote,
-                styles.moteB,
-                searching() && styles.moteRun,
-                props.paused && styles.paused,
-              ).className
-            }
-          />
-          <span
-            class={
-              stylex.props(
-                styles.mote,
-                styles.moteC,
-                searching() && styles.moteRun,
-                props.paused && styles.paused,
-              ).className
-            }
+            class={stylex.props(styles.mote, styles.moteC, searching() && styles.moteRun).className}
           />
         </div>
         <img
-          class={
-            stylex.props(styles.core, searching() && styles.coreRun, props.paused && styles.paused)
-              .className
-          }
+          class={stylex.props(styles.core, searching() && styles.coreRun).className}
           src={ASSETS.sigil}
           alt=""
           width="80"
@@ -180,15 +122,7 @@ export function QueueStage(props: {
             height="80"
             decoding="async"
           />
-          <span
-            class={
-              stylex.props(
-                styles.veil,
-                searching() && styles.veilScan,
-                props.paused && styles.paused,
-              ).className
-            }
-          />
+          <span class={stylex.props(styles.veil, searching() && styles.veilScan).className} />
           <span class={stylex.props(styles.unknown).className} aria-hidden="true">
             ?
           </span>

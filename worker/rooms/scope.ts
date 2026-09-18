@@ -41,6 +41,12 @@ export interface RoomScope {
     set(when: number): Promise<void>;
     clear(): Promise<void>;
   };
+  /**
+   * Runs `callback` inside one synchronous storage transaction: either every SQL write it makes
+   * commits together or none of it does, and an exception leaves the database exactly as it was.
+   * There is no await inside — network, alarms and snapshot sends stay outside the boundary.
+   */
+  transactionSync<T>(callback: () => T): T;
   /** The sockets this instance owns at this instant: the only ones allowed to receive room state. */
   sockets(): WebSocket[];
 }

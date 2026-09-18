@@ -2,8 +2,10 @@
  * Combat rules unit tests — the numbers the room is authoritative for, without a room.
  *
  * Only the rules a plausible bug would silently break: code-point accounting, the edit-diff that
- * turns a typed snapshot into attempts/errors/progress, automatic clockwise targeting, competition
- * ranks and the two aggregate figures that reach the results table.
+ * turns a typed snapshot into attempts/errors/progress, competition ranks and the two aggregate
+ * figures that reach the results table. Targeting itself is no longer a scoring concern: a cast's
+ * power goes to every other living player, and the batched application of that rule is covered by
+ * the room-level volley regression suite.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -12,7 +14,8 @@ import {
   cpmOf,
   damageOf,
   diffSnapshot,
-  nextAliveBySeat,
+  inputCompletionRatio,
+  inputNotBefore,
   spellAt,
   survivalRanks,
   type MatchStanding,
@@ -102,66 +105,50 @@ describe('输入快照差异', () => {
   });
 });
 
-describe('自动目标', () => {
-  const seats = [
-    { slot: 0, id: 'a' },
-    { slot: 1, id: 'b' },
-    { slot: 2, id: 'c' },
-    { slot: 3, id: 'd' },
-  ];
-  const aliveExcept =
-    (...dead: number[]) =>
-    (seat: { slot: number }) =>
-      !dead.includes(seat.slot);
-
-  it('取座位顺时针的下一个存活玩家，跳过出局者并跨过座位表回绕', () => {
-    expect(nextAliveBySeat(seats, 0, aliveExcept())?.id).toBe('b');
-    expect(nextAliveBySeat(seats, 0, aliveExcept(1, 2))?.id).toBe('d');
-    expect(nextAliveBySeat(seats, 3, aliveExcept())?.id).toBe('a');
-    expect(nextAliveBySeat(seats, 3, aliveExcept(0, 1))?.id).toBe('c');
-  });
-
-  it('没有其他存活玩家时没有目标', () => {
-    expect(nextAliveBySeat(seats, 0, aliveExcept(1, 2, 3))).toBeNull();
-  });
-});
-
 describe('最终名次', () => {
   const standing = (userId: string, over: Partial<MatchStanding> = {}): MatchStanding => ({
     userId,
     hp: 2400,
-    damageDealt: 0,
-    correctChars: 0,
     eliminatedAt: null,
     ...over,
   });
 
-  it('存活者按剩余生命、伤害、确认字符排序，并列共享名次并跳号', () => {
+  it('存活者只按剩余生命排名，同血即并列共享名次并跳号', () => {
     const ranks = survivalRanks([
       standing('tied-a'),
       standing('tied-b'),
-      standing('most-damage', { damageDealt: 20, correctChars: 5 }),
-      standing('most-chars', { damageDealt: 20, correctChars: 9 }),
+      standing('more-damage'),
+      standing('most-chars'),
       standing('hurt', { hp: 100 }),
     ]);
+    // 输出统计不再是名次的输入：四个满血幸存者并列第一，掉血者垫底并跳号。
+    expect(ranks.get('tied-a')).toBe(1);
+    expect(ranks.get('tied-b')).toBe(1);
+    expect(ranks.get('more-damage')).toBe(1);
     expect(ranks.get('most-chars')).toBe(1);
-    expect(ranks.get('most-damage')).toBe(2);
-    expect(ranks.get('tied-a')).toBe(3);
-    expect(ranks.get('tied-b')).toBe(3);
     expect(ranks.get('hurt')).toBe(5);
   });
 
-  it('出局者排在所有存活者之后，出局越晚名次越高，同时出局共享名次', () => {
+  it('出局者排在所有存活者之后，出局越晚名次越高，同一批次共享名次', () => {
     const ranks = survivalRanks([
       standing('winner'),
       standing('late', { hp: 0, eliminatedAt: 900 }),
       standing('early', { hp: 0, eliminatedAt: 100 }),
-      standing('together', { hp: 0, eliminatedAt: 100 }),
+      standing('same-batch', { hp: 0, eliminatedAt: 100 }),
     ]);
     expect(ranks.get('winner')).toBe(1);
     expect(ranks.get('late')).toBe(2);
     expect(ranks.get('early')).toBe(3);
-    expect(ranks.get('together')).toBe(3);
+    expect(ranks.get('same-batch')).toBe(3);
+  });
+
+  it('最后的幸存者互相击倒时，同批双亡共享第一', () => {
+    const ranks = survivalRanks([
+      standing('mutual-a', { hp: 0, eliminatedAt: 500 }),
+      standing('mutual-b', { hp: 0, eliminatedAt: 500 }),
+    ]);
+    expect(ranks.get('mutual-a')).toBe(1);
+    expect(ranks.get('mutual-b')).toBe(1);
   });
 });
 
@@ -176,5 +163,61 @@ describe('聚合指标', () => {
     expect(cpmOf(120, 0)).toBe(0);
     expect(cpmOf(100, 60)).toBe(100);
     expect(cpmOf(100, 90)).toBe(67);
+  });
+});
+
+describe('施法时间门槛', () => {
+  const OPENED = 1_700_000_000_000;
+
+  it('资格时刻是开启时刻加目标码点数乘每码点成本', () => {
+    expect(inputNotBefore(50, OPENED, 35)).toBe(OPENED + 1_750);
+    expect(inputNotBefore(1, OPENED, 35)).toBe(OPENED + 35);
+    // 安全整数边界：结果恰好到达上限仍然合法。
+    expect(inputNotBefore(1, Number.MAX_SAFE_INTEGER - 35, 35)).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it('首次完成资格比值是真实经过时间与规则成本的商，开启前为零', () => {
+    expect(inputCompletionRatio(50, OPENED, OPENED + 1_750, 35)).toBe(1);
+    expect(inputCompletionRatio(50, OPENED, OPENED + 875, 35)).toBe(0.5);
+    expect(inputCompletionRatio(50, OPENED, OPENED, 35)).toBe(0);
+    expect(inputCompletionRatio(50, OPENED, OPENED - 10_000, 35)).toBe(0);
+  });
+
+  it('比值不取整也不封顶：它是策略指标，不是作弊分数', () => {
+    expect(inputCompletionRatio(50, OPENED, OPENED + 1_749, 35)).toBe(1_749 / 1_750);
+    expect(inputCompletionRatio(1, OPENED, OPENED + 3_500_000, 35)).toBe(100_000);
+  });
+
+  it('零成本与零长度不是就绪：非法状态抛 input_gate_state_invalid', () => {
+    expect(() => inputNotBefore(0, OPENED, 35)).toThrow('input_gate_state_invalid');
+    expect(() => inputNotBefore(-1, OPENED, 35)).toThrow('input_gate_state_invalid');
+    expect(() => inputNotBefore(50, OPENED, 0)).toThrow('input_gate_state_invalid');
+    expect(() => inputNotBefore(50, OPENED, 35.5)).toThrow('input_gate_state_invalid');
+    expect(() => inputCompletionRatio(0, OPENED, OPENED + 35, 35)).toThrow(
+      'input_gate_state_invalid',
+    );
+    expect(() => inputCompletionRatio(50, OPENED, OPENED + 35, 0)).toThrow(
+      'input_gate_state_invalid',
+    );
+  });
+
+  it('非整数与非有限时间非法，资格结果溢出安全整数即拒绝', () => {
+    expect(() => inputNotBefore(50.5, OPENED, 35)).toThrow('input_gate_state_invalid');
+    expect(() => inputNotBefore(50, Number.NaN, 35)).toThrow('input_gate_state_invalid');
+    expect(() => inputNotBefore(50, Number.POSITIVE_INFINITY, 35)).toThrow(
+      'input_gate_state_invalid',
+    );
+    expect(() => inputNotBefore(Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER - 1, 35)).toThrow(
+      'input_gate_state_invalid',
+    );
+    expect(() => inputCompletionRatio(50, Number.NaN, OPENED, 35)).toThrow(
+      'input_gate_state_invalid',
+    );
+    expect(() => inputCompletionRatio(50, OPENED, Number.POSITIVE_INFINITY, 35)).toThrow(
+      'input_gate_state_invalid',
+    );
+    expect(() => inputCompletionRatio(50, OPENED, OPENED + 0.5, 35)).toThrow(
+      'input_gate_state_invalid',
+    );
   });
 });

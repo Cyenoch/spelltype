@@ -21,6 +21,17 @@ const PLAYER_COLUMNS = new Set<string>([
   'cpm',
   'last_input',
   'eliminated_at',
+  'input_opened_at',
+  'input_not_before',
+  'draft_epoch',
+  'input_reset_reason',
+  'input_sampled',
+  'input_gate_hits',
+  'input_recoveries',
+  'input_min_completion_ratio',
+  'input_overloads',
+  'input_recovered_completions',
+  'input_recovery_departures',
 ]);
 
 export type PlayerPatch = Partial<Omit<PlayerRow, 'user_id' | 'username' | 'joined_at'>>;
@@ -126,14 +137,20 @@ export function expireSeats(sql: SqlStore, now: number): number {
 
 /**
  * Puts every seat back to a fresh pre-match state: full health, first spell,
- * empty draft and zero aggregates. Called when a match starts, so a previous
- * match's numbers can never leak into the next one.
+ * empty draft and zero aggregates. Also clears the input gate's per-spell
+ * eligibility and every per-match policy summary, so neither a previous match's
+ * numbers nor its timing state can leak into the next one. Called when a match
+ * starts. The per-spell reset a new spell needs (eligibility, epoch, reason,
+ * sample flag) is a combat-time patch, deliberately not part of this.
  */
 export function resetPlayersForMatch(sql: SqlStore): void {
   sql.exec(
     `UPDATE players SET progress = 0, spell_index = 0, spells_cast = 0, hp = ${INITIAL_HEALTH},
       max_hp = ${INITIAL_HEALTH}, damage_dealt = 0, correct_chars = 0, attempt_total = 0, error_total = 0,
-      cpm = 0, last_input = '', eliminated_at = NULL`,
+      cpm = 0, last_input = '', eliminated_at = NULL,
+      input_opened_at = NULL, input_not_before = NULL, draft_epoch = 0, input_reset_reason = NULL,
+      input_sampled = 0, input_gate_hits = 0, input_recoveries = 0, input_min_completion_ratio = NULL,
+      input_overloads = 0, input_recovered_completions = 0, input_recovery_departures = 0`,
   );
 }
 

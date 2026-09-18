@@ -94,7 +94,7 @@ export function PlayerCard(props: { ctx: AppContext }) {
             <p class={stylex.props(styles.pcMeta, styles.pcNote).className}>
               注册账号，开启你的第一场对决。
             </p>
-            <div class={stylex.props(ui.buttonRow).className}>
+            <div class={stylex.props(ui.buttonRow, styles.pcActions).className}>
               <button
                 class={stylex.props(ui.button, ui.primary, styles.pcButton).className}
                 type="button"
@@ -207,7 +207,7 @@ export function PlayerCard(props: { ctx: AppContext }) {
             )}
           </Show>
 
-          <div class={stylex.props(ui.buttonRow).className}>
+          <div class={stylex.props(ui.buttonRow, styles.pcActions).className}>
             <button
               class={stylex.props(ui.button, styles.pcButton).className}
               type="button"

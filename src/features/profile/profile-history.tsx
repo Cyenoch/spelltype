@@ -46,17 +46,17 @@ export function ProfileHistory(props: { history: MatchResult[] }) {
             <input
               id="history-filter"
               type="search"
-              class={stylex.props(ui.input).className}
+              class={stylex.props(ui.input, styles.toolbarControl).className}
               data-testid="profile-history-filter"
               placeholder="主题或时间，例如：图书馆 / 09-18"
               value={String(table.atoms.globalFilter.get() ?? '')}
               onInput={(event) => table.setGlobalFilter(event.currentTarget.value)}
             />
           </div>
-          <div class={stylex.props(ui.buttonRow).className}>
+          <div class={stylex.props(styles.pagination).className}>
             <button
               type="button"
-              class={stylex.props(ui.button, ui.small).className}
+              class={stylex.props(ui.button, ui.small, styles.toolbarControl).className}
               data-testid="profile-history-prev"
               disabled={!table.getCanPreviousPage()}
               onClick={() => table.previousPage()}
@@ -72,25 +72,35 @@ export function ProfileHistory(props: { history: MatchResult[] }) {
             </span>
             <button
               type="button"
-              class={stylex.props(ui.button, ui.small).className}
+              class={stylex.props(ui.button, ui.small, styles.toolbarControl).className}
               data-testid="profile-history-next"
               disabled={!table.getCanNextPage()}
               onClick={() => table.nextPage()}
             >
               下一页
             </button>
-            <label class={stylex.props(ui.label).className} for="history-page-size">
-              每页
-            </label>
-            <select
-              id="history-page-size"
-              class={stylex.props(ui.input, styles.pageSize).className}
-              data-testid="profile-history-page-size"
-              value={String(table.atoms.pagination.get().pageSize)}
-              onChange={(event) => table.setPageSize(Number(event.currentTarget.value))}
-            >
-              <For each={HISTORY_PAGE_SIZES}>{(size) => <option value={size}>{size}</option>}</For>
-            </select>
+            <div class={stylex.props(styles.pageSizeGroup).className}>
+              <label
+                class={stylex.props(ui.label, styles.inlineLabel).className}
+                for="history-page-size"
+              >
+                每页
+              </label>
+              <select
+                id="history-page-size"
+                class={
+                  stylex.props(ui.input, ui.select, styles.pageSize, styles.toolbarControl)
+                    .className
+                }
+                data-testid="profile-history-page-size"
+                value={String(table.atoms.pagination.get().pageSize)}
+                onChange={(event) => table.setPageSize(Number(event.currentTarget.value))}
+              >
+                <For each={HISTORY_PAGE_SIZES}>
+                  {(size) => <option value={size}>{size}</option>}
+                </For>
+              </select>
+            </div>
           </div>
         </div>
       </Show>
@@ -121,6 +131,7 @@ export function ProfileHistory(props: { history: MatchResult[] }) {
                             type="button"
                             class={stylex.props(styles.sortButton).className}
                             onClick={header.column.getToggleSortingHandler()}
+                            disabled={!header.column.getCanSort()}
                           >
                             <FlexRender header={header} />
                             <span
@@ -147,7 +158,10 @@ export function ProfileHistory(props: { history: MatchResult[] }) {
               when={table.getRowModel().rows.length > 0}
               fallback={
                 <tr>
-                  <td class={stylex.props(ui.td, ui.muted).className} colspan="8">
+                  <td
+                    class={stylex.props(ui.td, ui.muted).className}
+                    colspan={historyColumns.length}
+                  >
                     {emptyMessage()}
                   </td>
                 </tr>

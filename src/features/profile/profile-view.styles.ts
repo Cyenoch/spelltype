@@ -13,6 +13,22 @@ export const styles = stylex.create({
     gap: 10,
     marginBottom: 12,
   },
+  toolbarControl: {
+    height: 44,
+    minHeight: 44,
+    paddingTop: 0,
+    paddingBottom: 0,
+    fontSize: '.88rem',
+  },
+  pagination: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 10,
+    '@media (max-width: 600px)': { width: '100%' },
+  },
+  pageSizeGroup: { display: 'flex', alignItems: 'center', gap: 8 },
+  inlineLabel: { marginBottom: 0, whiteSpace: 'nowrap' },
 
   filterBox: {
     flex: '1 1 220px',
@@ -22,6 +38,7 @@ export const styles = stylex.create({
   /** A page-size picker is a control, not a text field: it keeps its natural width. */
   pageSize: {
     width: 'auto',
+    minWidth: 82,
   },
 
   /** A column header is a sort control, so it keeps the header's own type. */

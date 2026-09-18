@@ -1,6 +1,6 @@
 import { createMemo } from 'solid-js';
 import type { Player } from '../../../../shared/protocol';
-import { formatHealth, percentOf } from '../../../ui/format';
+import { formatAmount, formatHealth, percentOf } from '../../../ui/format';
 import { ui } from '../../../ui/primitives';
 import * as stylex from '@stylexjs/stylex';
 import { styles } from './battle.styles';
@@ -27,11 +27,9 @@ function hpTone(hp: number, maxHp: number, eliminated: boolean): HpTone {
 }
 
 /**
- * One combatant's overhead label: the name floating above the character's head
- * and the targeting tags under it. It draws no health of its own — the feet bar
- * on the canvas is the one visual presentation — while the authoritative HP and
- * cast progress stay in the DOM here: read by assistive tech in canvas mode and
- * drawn as the fallback readout when the canvas is not rendering.
+ * One combatant's overhead label, targeting tags and always-visible cast progress.
+ * Canvas feet bars own the visual health presentation; DOM health remains available
+ * to assistive tech and becomes visible when the canvas cannot render.
  */
 export function SeatLabel(props: {
   player: Player;
@@ -48,7 +46,15 @@ export function SeatLabel(props: {
     props.isSelf
       ? { progress: Math.max(0, props.selfCast.progress), length: props.selfCast.length }
       : { progress: props.player.progress, length: props.player.spellLength };
-  const castPercent = createMemo(() => percentOf(cast().progress, cast().length));
+  const castPercent = createMemo(() =>
+    eliminated() ? 0 : percentOf(cast().progress, cast().length),
+  );
+  const castText = () =>
+    eliminated()
+      ? '施法中断'
+      : castPercent() >= 85
+        ? `即将施法 ${castPercent()}%`
+        : `咏唱进度 ${castPercent()}%`;
   /**
    * The readout darkens a downed bar; the player's own bar keeps its normal
    * gradient, mirroring the two rules the old sheet had.
@@ -129,7 +135,7 @@ export function SeatLabel(props: {
             role="progressbar"
             aria-valuemin="0"
             aria-valuemax={String(Math.max(0, props.player.maxHp))}
-            aria-valuenow={String(Math.max(0, props.player.hp))}
+            aria-valuenow={formatAmount(Math.max(0, props.player.hp))}
             aria-valuetext={tone().text}
             aria-label="生命值"
           >
@@ -150,6 +156,8 @@ export function SeatLabel(props: {
             {tone().text}
           </span>
         </div>
+      </div>
+      <div class={stylex.props(styles.seatCast).className} data-ready={castPercent() >= 85}>
         <div
           class={stylex.props(styles.castbar).className}
           data-testid="player-progress"
@@ -157,14 +165,22 @@ export function SeatLabel(props: {
           aria-valuemin="0"
           aria-valuemax="100"
           aria-valuenow={String(castPercent())}
-          aria-valuetext={`${cast().progress} / ${cast().length} 字`}
-          aria-label="咒文进度"
+          aria-valuetext={eliminated() ? '施法中断' : `${cast().progress} / ${cast().length} 字`}
+          aria-label={`${props.player.username}的咒文进度`}
         >
           <div
             class={stylex.props(styles.castbarFill).className}
             style={`width:${castPercent()}%`}
           />
         </div>
+        <span
+          class={
+            stylex.props(styles.seatCastText, castPercent() >= 85 && styles.seatCastReady).className
+          }
+          data-testid="player-progress-text"
+        >
+          {castText()}
+        </span>
       </div>
     </div>
   );

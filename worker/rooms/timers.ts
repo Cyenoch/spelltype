@@ -4,6 +4,7 @@ import { readSocketMeta } from './sockets';
 import { listPlayers } from './storage/players';
 import { countUnsavedResults } from './storage/results';
 import { getRoom } from './storage/room';
+import { readVolley } from './storage/volley';
 
 /**
  * Arms the room's single alarm at the earliest instant something is due, and clears it when nothing
@@ -19,6 +20,10 @@ export async function scheduleAlarm(scope: RoomScope): Promise<void> {
   const timers: number[] = [];
   if (room.phase === 'generating' && room.generation_token !== null) timers.push(Date.now());
   if (TIMED_PHASES[room.phase] && room.deadline > 0) timers.push(room.deadline);
+  if (room.phase === 'playing') {
+    const volley = readVolley(scope.sql);
+    if (volley) timers.push(volley.endsAt);
+  }
   if (room.reservation_state === 'reserved' && room.reservation_expires_at !== null)
     timers.push(room.reservation_expires_at);
   // Unsaved result rows always keep a timer: a scheduled lease/backoff when

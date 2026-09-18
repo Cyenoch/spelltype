@@ -7,6 +7,19 @@ import * as stylex from '@stylexjs/stylex';
  * partially overrides through `stylex.props` can drop the shorthand's remaining
  * parts, which would silently lose a border width or a background image.
  */
+/**
+ * Completed glyphs drift while an elemental gradient sweeps through the strokes.
+ * Current and untyped glyphs stay still; per-glyph custom properties vary the
+ * completed glyphs' phase and amplitude without layout or per-frame script.
+ */
+const glyphDriftFlow = stylex.keyframes({
+  '0%, 100%': { transform: 'translate3d(0, 0, 0)', backgroundPosition: '0% 50%' },
+  '50%': {
+    transform: 'translate3d(var(--drift-x, 1.2px), var(--drift-y, -1px), 0)',
+    backgroundPosition: '100% 50%',
+  },
+});
+
 export const styles = stylex.create({
   combat: { display: 'flex', flexDirection: 'column', gap: 10 },
   sideTitle: {
@@ -15,6 +28,11 @@ export const styles = stylex.create({
     letterSpacing: '.2em',
     textTransform: 'uppercase',
     color: 'var(--ink-faint)',
+    paddingBottom: 20,
+    backgroundImage: 'var(--ornament-divider)',
+    backgroundSize: '240px 18px',
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'left bottom',
   },
 
   /* ---------------------------------------------------------------- notices */
@@ -29,14 +47,32 @@ export const styles = stylex.create({
     display: 'flex',
     flexDirection: 'column',
     minHeight: 'clamp(300px, 44vh, 520px)',
-    borderRadius: 'calc(var(--radius) + 4px)',
+    /* Reserve a safe content inset; the scene itself remains full bleed. */
+    padding: 26,
+    borderRadius: 0,
     borderWidth: 1,
     borderStyle: 'solid',
-    borderColor: 'var(--line-strong)',
+    borderColor: 'transparent',
     backgroundImage:
-      'radial-gradient(120% 100% at 50% 108%, rgba(70, 54, 150, .34), transparent 66%), linear-gradient(180deg, rgba(14, 11, 32, .9), rgba(6, 5, 14, .94))',
+      'radial-gradient(120% 100% at 50% 108%, rgba(70, 54, 150, .34), transparent 66%), linear-gradient(180deg, rgba(14, 11, 32, .9), rgba(6, 5, 14, .94)), var(--surface-stone)',
+    backgroundSize: 'auto, auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, no-repeat, repeat',
     boxShadow: 'var(--shadow)',
     overflow: 'hidden',
+    '::before': {
+      content: '""',
+      position: 'absolute',
+      inset: 0,
+      zIndex: 4,
+      pointerEvents: 'none',
+      borderWidth: 1,
+      borderStyle: 'solid',
+      borderColor: 'transparent',
+      borderImageSource: 'var(--frame-panel)',
+      borderImageSlice: 48,
+      borderImageWidth: '26px',
+      borderImageRepeat: 'stretch',
+    },
     '@media (max-height: 860px)': { minHeight: 'clamp(240px, 36vh, 380px)' },
     '@media (max-height: 760px)': { minHeight: 'clamp(200px, 30vh, 300px)' },
     '@media (max-width: 880px)': { minHeight: 'clamp(260px, 40vh, 420px)' },
@@ -97,15 +133,15 @@ export const styles = stylex.create({
     position: 'relative',
     zIndex: 1,
     flex: '1 1 auto',
-    minHeight: 0,
+    minHeight: 220,
   },
 
   arenaBackdrop: {
     position: 'absolute',
     inset: 0,
-    zIndex: 0,
     width: '100%',
     height: '100%',
+    zIndex: 0,
     objectFit: 'cover',
     opacity: 0.8,
     filter: 'saturate(1.05) brightness(.85)',
@@ -207,6 +243,24 @@ export const styles = stylex.create({
     marginTop: 2,
   },
   seatReadoutHp: { display: 'flex', alignItems: 'center', gap: 8 },
+  seatCast: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 3,
+    width: 'min(144px, 100%)',
+    padding: '4px 8px',
+    borderRadius: 7,
+    backgroundColor: 'rgba(6, 5, 14, .72)',
+  },
+  seatCastText: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '.66rem',
+    lineHeight: 1.2,
+    color: 'var(--ink-dim)',
+    fontVariantNumeric: 'tabular-nums',
+    whiteSpace: 'nowrap',
+  },
+  seatCastReady: { color: 'var(--storm)', textShadow: '0 0 10px rgba(230, 255, 92, .45)' },
 
   hpbar: {
     position: 'relative',
@@ -291,10 +345,29 @@ export const styles = stylex.create({
     alignItems: 'center',
     gap: 3,
     padding: '2px 12px',
-    borderRadius: 8,
+    borderRadius: 0,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-control)',
+    borderImageSlice: 48,
+    borderImageWidth: '10px',
+    borderImageRepeat: 'stretch',
     minWidth: 96,
+    backgroundColor: 'transparent',
+    backgroundImage:
+      'linear-gradient(rgba(10, 8, 22, .55), rgba(10, 8, 22, .55)), var(--surface-stone)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
   },
-  timerUrgent: { backgroundColor: 'rgba(255, 107, 125, .08)' },
+  /* Urgency restates the full material stack so the red wash survives above
+     the stone texture instead of being painted over by it. */
+  timerUrgent: {
+    backgroundImage:
+      'linear-gradient(rgba(255, 107, 125, .12), rgba(255, 107, 125, .12)), var(--surface-stone)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
+  },
   timerValue: {
     fontFamily: 'var(--font-mono)',
     fontSize: 'clamp(1.4rem, 2.4vw, 1.8rem)',
@@ -338,12 +411,19 @@ export const styles = stylex.create({
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
-    padding: 'clamp(12px, 1.5vw, 16px)',
-    borderRadius: 'calc(var(--radius) + 2px)',
+    padding: 'clamp(24px, 2.6vw, 30px)',
+    borderRadius: 0,
     borderWidth: 1,
     borderStyle: 'solid',
-    borderColor: 'var(--line-strong)',
-    backgroundImage: 'linear-gradient(180deg, rgba(18, 14, 38, .88), rgba(10, 8, 22, .9))',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-panel)',
+    borderImageSlice: 48,
+    borderImageWidth: '26px',
+    borderImageRepeat: 'stretch',
+    backgroundImage:
+      'linear-gradient(180deg, rgba(18, 14, 38, .88), rgba(10, 8, 22, .9)), var(--surface-leather)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
     boxShadow: 'var(--shadow)',
   },
   stationHead: {
@@ -357,15 +437,28 @@ export const styles = stylex.create({
   spellHeadArt: {
     display: 'inline-flex',
     flex: 'none',
-    width: 40,
-    height: 40,
+    width: 52,
+    height: 52,
+    /* Content starts exactly at the 10px frame's inner edge so the spell art
+       never paints over the slot's metalwork. */
+    paddingTop: 9,
+    paddingRight: 9,
+    paddingBottom: 9,
+    paddingLeft: 9,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 12,
+    borderRadius: 0,
     borderWidth: 1,
     borderStyle: 'solid',
-    borderColor: 'var(--line)',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-control)',
+    borderImageSlice: 48,
+    borderImageWidth: '10px',
+    borderImageRepeat: 'stretch',
     backgroundColor: 'rgba(6, 5, 14, .7)',
+    backgroundImage: 'var(--surface-leather)',
+    backgroundSize: '256px 256px',
+    backgroundRepeat: 'repeat',
     overflow: 'hidden',
   },
   spellArt: { width: '100%', height: '100%', objectFit: 'cover' },
@@ -422,21 +515,33 @@ export const styles = stylex.create({
     color: 'var(--ink-dim)',
   },
 
-  /* The target readout and its decorative particle layer share one box. */
+  /* The target readout, the invisible native field and the decorative particle
+     layer share one box. */
   stationTarget: {
     position: 'relative',
     overflow: 'visible',
     minHeight: 'calc(clamp(1.5rem, 2.05vw, 1.85rem) * 1.6 + 26px)',
   },
+  /* Wraps exactly the spell text box so the field can float over it and the
+     focus ring can hug it: the ring appears whenever the hidden field inside
+     has focus, which is the "you can type here" affordance. */
+  spellSurface: {
+    position: 'relative',
+    borderRadius: 0,
+    ':focus-within': {
+      boxShadow: '0 0 0 2px rgba(159, 146, 255, .55), 0 0 26px rgba(159, 146, 255, .16)',
+    },
+  },
   targetFx: {
     position: 'absolute',
-    top: -26,
-    right: -18,
-    bottom: -26,
-    left: -18,
+    top: -80,
+    right: -64,
+    bottom: -80,
+    left: -64,
     zIndex: 2,
     pointerEvents: 'none',
     overflow: 'visible',
+    '@media (max-width: 640px)': { left: -20, right: -20 },
   },
   targetFxFailed: { display: 'none' },
 
@@ -450,11 +555,19 @@ export const styles = stylex.create({
     paddingRight: 14,
     paddingBottom: 12,
     paddingLeft: 14,
-    borderRadius: 'var(--radius-sm)',
+    borderRadius: 0,
     borderWidth: 1,
     borderStyle: 'solid',
-    borderColor: 'var(--line)',
-    backgroundColor: 'rgba(6, 5, 14, .72)',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-inset)',
+    borderImageSlice: 48,
+    borderImageWidth: '12px',
+    borderImageRepeat: 'stretch',
+    backgroundColor: 'transparent',
+    backgroundImage:
+      'linear-gradient(rgba(5, 4, 12, .78), rgba(5, 4, 12, .78)), var(--surface-stone)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
     userSelect: 'none',
   },
   spellTextCompact: { lineHeight: 1.5 },
@@ -466,8 +579,13 @@ export const styles = stylex.create({
     color: 'var(--ink-dim)',
   },
 
+  /*
+   * Inline blocks let completed glyphs drift without touching layout. Current
+   * and untyped glyphs have no animation; only chFlow enables the motion.
+   */
   ch: {
-    color: 'var(--ink-faint)',
+    display: 'inline-block',
+    color: '#85858f',
     transitionProperty: 'color',
     transitionDuration: '120ms',
     transitionTimingFunction: 'ease',
@@ -488,20 +606,80 @@ export const styles = stylex.create({
   },
   chDone: { color: 'var(--good)', textShadow: '0 0 14px rgba(100, 230, 176, .4)' },
 
-  typeArea: { display: 'flex', flexDirection: 'column', gap: 6 },
-  typeField: {
-    fontSize: 'clamp(1.05rem, 2.1vw, 1.3rem)',
-    letterSpacing: '.03em',
-    lineHeight: 1.5,
-    paddingTop: 8,
-    paddingRight: 12,
-    paddingBottom: 8,
-    paddingLeft: 12,
-    resize: 'none',
-    backgroundColor: 'rgba(5, 4, 12, .85)',
-    borderColor: 'var(--line-strong)',
+  /*
+   * Flowing elemental fill for completed glyphs: the gradient is clipped to the
+   * stroke shapes and sweeps with the drift, and the glow stays restrained.
+   * `chFlow` carries the shared mechanics and must always be paired with one
+   * element class — alone it would leave transparent text without a fill. The
+   * neutral `chOk`/`chDone` tones above remain the between-spells fallback.
+   */
+  chFlow: {
+    color: 'transparent',
+    textShadow: 'none',
+    backgroundSize: '220% 100%',
+    WebkitBackgroundClip: 'text',
+    backgroundClip: 'text',
+    animationName: glyphDriftFlow,
+    animationDuration: 'var(--drift-dur, 6s)',
+    animationDelay: 'var(--drift-delay, 0s)',
+    animationTimingFunction: 'ease-in-out',
+    animationIterationCount: 'infinite',
+    '@media (prefers-reduced-motion: reduce)': { animationName: 'none' },
   },
-  typeFieldLocked: { opacity: 0.72, cursor: 'not-allowed' },
+  chFlowArcane: {
+    backgroundImage: 'linear-gradient(105deg, #d9d2ff, #9f92ff 32%, #eee9ff 52%, #7f6ee8 78%)',
+    filter: 'drop-shadow(0 0 6px rgba(159, 146, 255, .4))',
+  },
+  chFlowFire: {
+    backgroundImage: 'linear-gradient(105deg, #ffd9a8, #ff8a4c 32%, #ffe6c2 52%, #f0641e 78%)',
+    filter: 'drop-shadow(0 0 6px rgba(255, 138, 76, .4))',
+  },
+  chFlowIce: {
+    backgroundImage: 'linear-gradient(105deg, #c9ecff, #62d3ff 32%, #ddf4ff 52%, #2ea6e6 78%)',
+    filter: 'drop-shadow(0 0 6px rgba(98, 211, 255, .4))',
+  },
+  chFlowStorm: {
+    backgroundImage: 'linear-gradient(105deg, #f6ffc4, #e6ff5c 32%, #fbffd9 52%, #b8c22e 78%)',
+    filter: 'drop-shadow(0 0 6px rgba(230, 255, 92, .34))',
+  },
+
+  typeArea: { display: 'flex', flexDirection: 'column', gap: 6 },
+  /*
+   * The native field floats invisibly over the glyphs it drives: same metrics
+   * as `spellText` (size, leading, tracking, padding) so the IME candidate
+   * window anchors where the player is actually typing. Everything visible —
+   * caret included — is drawn by the glyph run underneath; the selection is
+   * kept transparent so edits never paint a stray box over the spell.
+   */
+  typeField: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 1,
+    width: '100%',
+    height: '100%',
+    margin: 0,
+    borderWidth: 0,
+    borderStyle: 'none',
+    paddingTop: 12,
+    paddingRight: 14,
+    paddingBottom: 12,
+    paddingLeft: 14,
+    fontSize: 'clamp(1.5rem, 2.05vw, 1.85rem)',
+    lineHeight: 1.6,
+    letterSpacing: '.02em',
+    resize: 'none',
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+    color: 'transparent',
+    caretColor: 'transparent',
+    outlineStyle: 'none',
+    cursor: 'text',
+    '::selection': { backgroundColor: 'transparent' },
+  },
+  typeFieldLocked: { cursor: 'not-allowed' },
   typeAreaRow: {
     display: 'flex',
     alignItems: 'baseline',
@@ -517,8 +695,47 @@ export const styles = stylex.create({
     fontSize: '.85rem',
     color: 'var(--ink-dim)',
   },
+  /*
+   * The input gate line: one quiet row that renders the server's rule state.
+   * The countdown text updates on the room tick without any live region; only
+   * the rejection explanation below is announced.
+   */
+  inputGate: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    gap: '2px 12px',
+    fontSize: '.85rem',
+    color: 'var(--gold)',
+  },
+  inputGateAlert: { color: 'var(--danger)' },
+  inputGateText: { margin: 0 },
+  inputGateReason: { margin: 0, color: 'var(--ink-dim)' },
   pasteNotice: { fontSize: '.85rem', color: 'var(--gold)' },
   pasteNoticeEmpty: { display: 'none' },
+  /* Mirrors the provisional IME composition that the invisible field hides. */
+  composingChip: {
+    display: 'inline-flex',
+    alignSelf: 'flex-start',
+    alignItems: 'center',
+    maxWidth: '100%',
+    overflow: 'hidden',
+    paddingTop: 2,
+    paddingRight: 10,
+    paddingBottom: 2,
+    paddingLeft: 10,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'rgba(255, 197, 122, .4)',
+    backgroundColor: 'rgba(64, 46, 12, .4)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: '.82rem',
+    whiteSpace: 'nowrap',
+    textOverflow: 'ellipsis',
+    color: 'var(--gold)',
+  },
+  typeHint: { margin: 0, color: 'var(--ink-faint)' },
   castFeedback: {
     display: 'inline-flex',
     alignItems: 'center',
@@ -529,9 +746,15 @@ export const styles = stylex.create({
   },
   castFeedbackIdle: { color: 'var(--ink-faint)' },
   castFeedbackPending: { color: 'var(--gold)' },
+  /* Composed over ui.notice, which now carries a material background: the red
+     state cue must restate the full stack or the stone texture paints over it. */
   eliminatedNotice: {
     borderColor: 'rgba(255, 107, 125, .5)',
-    backgroundColor: 'rgba(52, 16, 26, .6)',
+    backgroundImage:
+      'linear-gradient(rgba(52, 16, 26, .78), rgba(52, 16, 26, .78)), var(--surface-stone)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
+    backgroundColor: 'transparent',
     color: '#ffd8de',
     alignItems: 'center',
   },
@@ -578,12 +801,19 @@ export const styles = stylex.create({
   /* ------------------------------------------------------------- combat log */
 
   side: {
-    padding: 'clamp(12px, 1.8vw, 18px)',
-    borderRadius: 'var(--radius)',
+    padding: 'clamp(14px, 1.8vw, 18px)',
+    borderRadius: 0,
     borderWidth: 1,
     borderStyle: 'solid',
-    borderColor: 'var(--line)',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-inset)',
+    borderImageSlice: 48,
+    borderImageWidth: '12px',
+    borderImageRepeat: 'stretch',
     backgroundColor: 'rgba(14, 11, 30, .7)',
+    backgroundImage: 'var(--surface-stone)',
+    backgroundSize: '256px 256px',
+    backgroundRepeat: 'repeat',
   },
   log: { display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto' },
   logEntry: {
@@ -625,37 +855,67 @@ export const styles = stylex.create({
     display: 'flex',
     flexDirection: 'column',
     gap: 14,
-    padding: 'clamp(16px, 2.4vw, 24px)',
-    borderRadius: 'calc(var(--radius) + 2px)',
+    padding: 'clamp(22px, 2.6vw, 30px)',
+    borderRadius: 0,
     borderWidth: 1,
     borderStyle: 'solid',
-    borderColor: 'var(--line-strong)',
-    backgroundImage: 'linear-gradient(180deg, rgba(20, 16, 44, .9), rgba(10, 8, 22, .92))',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-panel)',
+    borderImageSlice: 48,
+    borderImageWidth: '26px',
+    borderImageRepeat: 'stretch',
+    backgroundImage:
+      'linear-gradient(180deg, rgba(20, 16, 44, .9), rgba(10, 8, 22, .92)), var(--surface-vellum)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
     boxShadow: 'var(--shadow)',
   },
   result: {
     padding: 'clamp(20px, 4vw, 40px)',
     textAlign: 'center',
-    borderRadius: 'var(--radius)',
+    borderRadius: 0,
     borderWidth: 1,
     borderStyle: 'solid',
-    borderColor: 'var(--line-strong)',
-    backgroundColor: 'rgba(12, 10, 28, .72)',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-accent)',
+    borderImageSlice: 48,
+    borderImageWidth: '16px',
+    borderImageRepeat: 'stretch',
+    backgroundColor: 'transparent',
+    /* The verdict stamped on a seal: the watermark sits behind the title and
+       every outcome variant restates this layer stack over its own material. */
+    backgroundImage:
+      'linear-gradient(180deg, rgba(10, 8, 20, .35), rgba(8, 6, 16, .55)), var(--ornament-seal), var(--surface-stone)',
+    backgroundSize: 'auto, 96px 98px, 256px 256px',
+    backgroundPosition: 'center, center 24%, center',
+    backgroundRepeat: 'no-repeat, no-repeat, repeat',
   },
   resultWin: {
     borderColor: 'rgba(255, 215, 154, .6)',
-    backgroundImage: 'linear-gradient(135deg, rgba(92, 66, 16, .6), rgba(20, 15, 34, .85))',
+    backgroundImage:
+      'linear-gradient(135deg, rgba(92, 66, 16, .6), rgba(20, 15, 34, .85)), var(--ornament-seal), var(--surface-leather)',
+    backgroundSize: 'auto, 96px 98px, 256px 256px',
+    backgroundPosition: 'center, center 24%, center',
+    backgroundRepeat: 'no-repeat, no-repeat, repeat',
     backgroundColor: 'rgba(0, 0, 0, 0)',
     boxShadow: '0 0 42px rgba(255, 197, 122, .22)',
   },
   resultDown: {
     borderColor: 'rgba(255, 107, 125, .5)',
-    backgroundImage: 'linear-gradient(135deg, rgba(64, 18, 30, .62), rgba(18, 12, 26, .85))',
+    backgroundImage:
+      'linear-gradient(135deg, rgba(64, 18, 30, .62), rgba(18, 12, 26, .85)), var(--ornament-seal), var(--surface-leather)',
+    backgroundSize: 'auto, 96px 98px, 256px 256px',
+    backgroundPosition: 'center, center 24%, center',
+    backgroundRepeat: 'no-repeat, no-repeat, repeat',
     backgroundColor: 'rgba(0, 0, 0, 0)',
   },
   resultDraw: {
     borderColor: 'rgba(98, 211, 255, .5)',
-    backgroundImage: 'linear-gradient(135deg, rgba(20, 55, 72, .65), rgba(18, 12, 26, .85))',
+    backgroundImage:
+      'linear-gradient(135deg, rgba(20, 55, 72, .65), rgba(18, 12, 26, .85)), var(--ornament-seal), var(--surface-leather)',
+    backgroundSize: 'auto, 96px 98px, 256px 256px',
+    backgroundPosition: 'center, center 24%, center',
+    backgroundRepeat: 'no-repeat, no-repeat, repeat',
   },
   resultTitle: {
     margin: '0 0 4px',

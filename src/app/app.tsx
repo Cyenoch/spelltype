@@ -32,7 +32,6 @@ function Application(props: { queryClient: QueryClient }) {
     clock: new ServerClock(),
     pendingInvite: pending,
     setPendingInvite: setPending,
-    inviteUrl: (room) => `${location.origin}/?room=${room}`,
     notify: toast,
     reportGraphicsFailure: () => {
       if (!graphicsFailed()) toast('战场画面暂不可用，已切换为文字模式。', 'warn');

@@ -53,10 +53,16 @@ export const styles = stylex.create({
     justifyItems: 'center',
     rowGap: 'clamp(10px, 2.2vw, 24px)',
     columnGap: 'clamp(10px, 2.4vw, 30px)',
-    padding: 'clamp(18px, 3.2vw, 40px) clamp(14px, 2.6vw, 34px)',
+    padding: 'clamp(30px, 3.2vw, 44px) clamp(28px, 2.6vw, 38px)',
     marginBottom: 18,
-    border: '1px solid var(--line-strong)',
-    borderRadius: 'calc(var(--radius) + 6px)',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-panel)',
+    borderImageSlice: 48,
+    borderImageWidth: '26px',
+    borderImageRepeat: 'stretch',
+    borderRadius: 0,
     backgroundImage:
       "radial-gradient(120% 130% at 50% -30%, rgba(122, 96, 255, 0.24), transparent 62%), linear-gradient(180deg, rgba(24, 18, 52, 0.72), rgba(9, 7, 22, 0.94)), url('/assets/arenas/arena-1.webp')",
     backgroundPosition: '0% 0%, 0% 0%, center',
@@ -69,7 +75,7 @@ export const styles = stylex.create({
       gridTemplateAreas: '"self rival" "center center"',
       rowGap: 18,
     },
-    '@media (max-width: 420px)': { padding: '16px 12px' },
+    '@media (max-width: 420px)': { padding: '26px 22px' },
   },
 
   stagePrivate: {
@@ -308,9 +314,19 @@ export const styles = stylex.create({
   },
 
   emblemNote: {
-    padding: '2px 14px',
-    border: '1px solid var(--line-strong)',
-    borderRadius: 999,
+    padding: '3px 14px',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-control)',
+    borderImageSlice: 48,
+    borderImageWidth: '10px',
+    borderImageRepeat: 'stretch',
+    borderRadius: 0,
+    backgroundColor: '#161127',
+    backgroundImage: 'var(--surface-stone)',
+    backgroundSize: '256px 256px',
+    backgroundRepeat: 'repeat',
     fontFamily: 'var(--font-display)',
     fontSize: '.8rem',
     letterSpacing: '.32em',
@@ -320,8 +336,11 @@ export const styles = stylex.create({
   },
 
   emblemNoteVS: {
-    borderColor: 'rgba(255, 215, 154, 0.45)',
     color: 'var(--gold)',
+    backgroundImage:
+      'linear-gradient(rgba(255, 215, 154, 0.1), rgba(255, 215, 154, 0.1)), var(--surface-stone)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
   },
 
   /* ------------------------------------------------------------- seats --- */
@@ -337,12 +356,27 @@ export const styles = stylex.create({
   },
 
   /* Extra rivals and open invitation slots read as a row, so three of them
-     never outgrow the stage. */
+     never outgrow the stage. A quiet stone inset keeps their text legible on
+     the arena art without framing the big duel portraits twice. */
   cardCompact: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
     textAlign: 'left',
+    padding: '10px 14px',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-inset)',
+    borderImageSlice: 48,
+    borderImageWidth: '12px',
+    borderImageRepeat: 'stretch',
+    borderRadius: 0,
+    backgroundColor: '#141126',
+    backgroundImage:
+      'linear-gradient(180deg, rgba(24, 18, 52, 0.42), rgba(10, 8, 22, 0.52)), var(--surface-stone)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
     '@media (max-width: 720px)': { flexDirection: 'column', textAlign: 'center', flex: '1 1 0' },
   },
 
@@ -468,9 +502,19 @@ export const styles = stylex.create({
   },
 
   tag: {
-    padding: '1px 10px',
-    border: '1px solid var(--line)',
-    borderRadius: 999,
+    padding: '3px 10px',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-control)',
+    borderImageSlice: 48,
+    borderImageWidth: '10px',
+    borderImageRepeat: 'stretch',
+    borderRadius: 0,
+    backgroundColor: '#181331',
+    backgroundImage: 'var(--surface-stone)',
+    backgroundSize: '256px 256px',
+    backgroundRepeat: 'repeat',
     fontSize: '.72rem',
     letterSpacing: '.18em',
     color: 'var(--ink-faint)',
@@ -478,8 +522,11 @@ export const styles = stylex.create({
   },
 
   tagSelf: {
-    borderColor: 'rgba(255, 215, 154, 0.45)',
     color: 'var(--gold)',
+    backgroundImage:
+      'linear-gradient(rgba(255, 215, 154, 0.1), rgba(255, 215, 154, 0.1)), var(--surface-stone)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
   },
 
   name: {
@@ -511,19 +558,45 @@ export const styles = stylex.create({
 
   badge: {
     fontSize: '.72rem',
-    paddingTop: 2,
-    paddingRight: 8,
-    paddingBottom: 2,
-    paddingLeft: 8,
-    borderRadius: 999,
+    paddingTop: 3,
+    paddingRight: 9,
+    paddingBottom: 3,
+    paddingLeft: 9,
+    borderRadius: 0,
     borderWidth: 1,
     borderStyle: 'solid',
-    borderColor: 'var(--line)',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-control)',
+    borderImageSlice: 48,
+    borderImageWidth: '10px',
+    borderImageRepeat: 'stretch',
+    backgroundColor: '#151221',
+    backgroundImage: 'var(--surface-stone)',
+    backgroundSize: '256px 256px',
+    backgroundRepeat: 'repeat',
     color: 'var(--ink-dim)',
   },
-  badgeHost: { borderColor: 'rgba(255, 215, 154, .5)', color: 'var(--gold)' },
-  badgeReady: { borderColor: 'rgba(100, 230, 176, .5)', color: 'var(--good)' },
-  badgeOffline: { borderColor: 'rgba(255, 107, 125, .45)', color: 'var(--danger)' },
+  badgeHost: {
+    color: 'var(--gold)',
+    backgroundImage:
+      'linear-gradient(rgba(255, 215, 154, 0.12), rgba(255, 215, 154, 0.12)), var(--surface-stone)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
+  },
+  badgeReady: {
+    color: 'var(--good)',
+    backgroundImage:
+      'linear-gradient(rgba(100, 230, 176, 0.1), rgba(100, 230, 176, 0.1)), var(--surface-stone)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
+  },
+  badgeOffline: {
+    color: 'var(--danger)',
+    backgroundImage:
+      'linear-gradient(rgba(255, 107, 125, 0.1), rgba(255, 107, 125, 0.1)), var(--surface-stone)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
+  },
 
   /* ------------------------------------------------------------- brief --- */
 
@@ -582,14 +655,23 @@ export const styles = stylex.create({
     fontWeight: 500,
     color: 'var(--ink-dim)',
     letterSpacing: '.04em',
+    userSelect: 'all',
   },
 
-  invite: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', margin: '0 0 14px' },
-  inviteInput: {
-    flex: '1 1 260px',
-    fontFamily: 'var(--font-mono)',
-    fontSize: '.84rem',
+  /** The invite row inside the facts: code first, copy action beside it. */
+  roomIdCell: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+    margin: 0,
+    minWidth: 0,
+    maxWidth: '100%',
   },
+
+  copyCode: {
+    flex: 'none',
+  },
+
   actions: { marginTop: 2, marginBottom: 0 },
-  leaveAction: { marginInlineStart: 'auto' },
 });

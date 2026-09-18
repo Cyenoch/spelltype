@@ -1,5 +1,10 @@
 import { DurableObject } from 'cloudflare:workers';
-import { MAX_MESSAGE_BYTES, RESERVATION_TTL_MS, WS_CLOSE } from '../../shared/protocol';
+import {
+  MAX_MESSAGE_BYTES,
+  RESERVATION_TTL_MS,
+  WS_CLOSE,
+  WS_PROTOCOL,
+} from '../../shared/protocol';
 import type { ReservationState, RoomInit, RoomSnapshot, User } from '../../shared/protocol';
 import { clientMessageSchema, roomInitSchema } from '../../shared/validation';
 import { registerSessionRoom } from '../auth/sessions';
@@ -24,12 +29,16 @@ import { InputBudget } from './scope';
 import type { RoomScope } from './scope';
 import { pushSnapshots, snapshotFor } from './snapshots';
 import {
+  PROTOCOL_REFRESH_MESSAGE,
   closeSocket,
+  currentProtocolSocket,
   dropSessionRef,
   readSocketAuth,
   readSocketMeta,
   reconcileHost,
+  rejectStaleSocket,
   sendTo,
+  sweepStaleProtocolSockets,
   unbindSocket,
 } from './sockets';
 import type { SocketAuth } from './sockets';
@@ -48,7 +57,7 @@ type HandshakeRefusal = { status: number; message: string };
  * hibernation safe. Every phase transition is driven by persisted deadlines and
  * the single alarm; nothing about the match lives only in memory.
  *
- * The match itself is continuous survival combat: one generated ordered spell
+ * The match itself is continuous survival combat: one immutable ordered spell
  * book per match, a private spell cursor per seat, a single 3s opening countdown,
  * then one 240s combat phase whose deadline is set once and never extends.
  *
@@ -67,11 +76,23 @@ export class GameRoom extends DurableObject<Env> {
       input: new InputBudget(),
       alarm: { set: (when) => ctx.storage.setAlarm(when), clear: () => ctx.storage.deleteAlarm() },
       sockets: () => ctx.getWebSockets(),
+      transactionSync: (callback) => ctx.storage.transactionSync(callback),
     };
     void ctx.blockConcurrencyWhile(async () => {
       // The room's own database, opened once per instance. A database already in
-      // this layout is left exactly as it is, live match and queued rows included.
-      createSchema(ctx.storage.sql);
+      // this layout is left exactly as it is, live match and queued rows included;
+      // one upgrade either lands whole or aborts this wake-up — never half a schema
+      // under a live match.
+      this.scope.transactionSync(() => createSchema(ctx.storage.sql));
+      // Attachments persisted by an older build wake up with the instance. Strip,
+      // tell and close them once, then reconcile the room they can no longer act
+      // on — the trio here, not per socket, and never left to a close callback
+      // the early unbind has already bypassed.
+      if (sweepStaleProtocolSockets(this.scope) > 0) {
+        reconcileHost(this.scope);
+        pushSnapshots(this.scope);
+        await scheduleAlarm(this.scope);
+      }
     });
   }
 
@@ -227,6 +248,18 @@ export class GameRoom extends DurableObject<Env> {
     if ((request.headers.get('Upgrade') ?? '').toLowerCase() !== 'websocket') {
       return Response.json({ error: '需要 WebSocket 升级请求。' }, { status: 400 });
     }
+    // The Worker's route checks this first; the room repeats it because it is the
+    // boundary that actually speaks v2. A handshake that cannot name the protocol
+    // never becomes a socket an old client could act on.
+    const offered = (request.headers.get('Sec-WebSocket-Protocol') ?? '')
+      .split(',')
+      .map((value) => value.trim());
+    if (!offered.includes(WS_PROTOCOL)) {
+      return Response.json(
+        { error: PROTOCOL_REFRESH_MESSAGE, protocolVersion: WS_PROTOCOL },
+        { status: 426 },
+      );
+    }
 
     let auth: SocketAuth;
     try {
@@ -317,7 +350,11 @@ export class GameRoom extends DurableObject<Env> {
     pushSnapshots(scope);
     await scheduleAlarm(scope);
 
-    return new Response(null, { status: 101, webSocket: client });
+    return new Response(null, {
+      status: 101,
+      webSocket: client,
+      headers: { 'Sec-WebSocket-Protocol': WS_PROTOCOL },
+    });
   }
 
   async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): Promise<void> {
@@ -328,6 +365,17 @@ export class GameRoom extends DurableObject<Env> {
       } catch {
         // Socket already gone; nothing to clean up.
       }
+      return;
+    }
+    // An attachment persisted by an older build may deliver its first frame after
+    // this instance woke: parse nothing from a protocol this room does not speak.
+    // Strip its authority first, then the usual trio — the close callback will
+    // find the seat already unbound and skip them.
+    if (!currentProtocolSocket(meta)) {
+      rejectStaleSocket(this.scope, ws, meta);
+      reconcileHost(this.scope);
+      pushSnapshots(this.scope);
+      await scheduleAlarm(this.scope);
       return;
     }
     if (typeof message !== 'string') {
@@ -353,6 +401,23 @@ export class GameRoom extends DurableObject<Env> {
       parsed = JSON.parse(message);
     } catch {
       sendTo(ws, { type: 'error', message: '消息格式错误。' });
+      return;
+    }
+    // A v2-shaped input without the mandatory draft epoch is an old client in
+    // everything but its self-declared version: cut it off like one instead of
+    // answering every packet with a generic schema error. Any other invalid v2
+    // data stays an ordinary schema rejection below.
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'type' in parsed &&
+      parsed.type === 'input' &&
+      !('draftEpoch' in parsed)
+    ) {
+      rejectStaleSocket(this.scope, ws, meta);
+      reconcileHost(this.scope);
+      pushSnapshots(this.scope);
+      await scheduleAlarm(this.scope);
       return;
     }
     const clientMessage = clientMessageSchema.safeParse(parsed);

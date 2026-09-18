@@ -1,11 +1,11 @@
-import { Index, Show, createMemo } from 'solid-js';
+import { Show, createMemo } from 'solid-js';
 import type { Player, RoomSnapshot } from '../../../../shared/protocol';
 import { ELEMENT_LABELS, formatAccuracyPercent, percentOf, prefixLength } from '../../../ui/format';
 import { elementGlyph, spellIconFor } from '../../../pixi/assets';
 import { ELEMENT_CSS } from '../../../ui/elements';
 import { ui } from '../../../ui/primitives';
 import * as stylex from '@stylexjs/stylex';
-import { charHook, charTitle, charTones } from './battle-glyphs';
+import { SpellTypingSurface } from './spell-typing-surface';
 import { BattleSelfbar } from './battle-selfbar';
 import { styles } from './battle.styles';
 import type { BattleTyping } from './battle-typing';
@@ -31,45 +31,71 @@ export function BattleStation(props: {
     () => props.typing.phase() !== 'playing' && props.typing.target() !== '',
   );
 
-  /** Where the judged prefix ends: a settled phase shows the whole target as read. */
-  const matched = createMemo(() =>
-    settled()
-      ? targetChars().length
-      : prefixLength(props.typing.target(), props.typing.local().text),
-  );
-
-  const tones = createMemo(() =>
-    charTones(targetChars(), props.typing.local().text, matched(), settled()),
-  );
-
   const statusText = createMemo(() => {
     const self = props.selfPlayer;
     if (settled()) {
       const read = self?.progress ?? prefixLength(props.typing.target(), props.typing.fieldText());
-      return [
-        `已正确 ${read} / ${targetChars().length} 字`,
-        `准确率 ${formatAccuracyPercent(self?.accuracy ?? null)}`,
-      ].join(' · ');
+      return `已正确 ${read} / ${targetChars().length} 字 · 本局准确率 ${formatAccuracyPercent(
+        self?.accuracy ?? null,
+      )}`;
     }
+    // Live play separates this spell's progress from the match-cumulative
+    // counters. The local state IS the cumulative truth: it was calibrated from
+    // the server's stats at bind/reconnect/restore and every edit since is a
+    // diff on top — an ordinary ack never stacks onto it.
     const state = props.typing.local();
     const parts: string[] = [];
     if (state.composing) parts.push('输入法组合中，暂不判定');
-    parts.push(`已正确 ${state.progress} / ${state.targetLength} 字`);
-    if (state.errors > 0) parts.push(`错误 ${state.errors} 次`);
+    parts.push(`本篇已正确 ${state.progress} / ${state.targetLength} 字`);
+    parts.push(`本局错误 ${state.errors} 次`);
     parts.push(
-      `准确率 ${formatAccuracyPercent(state.attempts === 0 ? (self?.accuracy ?? null) : state.accuracy)}`,
+      `本局准确率 ${formatAccuracyPercent(
+        state.attempts === 0 ? (self?.accuracy ?? null) : state.accuracy,
+      )}`,
     );
     return parts.join(' · ');
+  });
+
+  /**
+   * The input gate's visible state, evaluated on the room's 100 ms tick. A
+   * playing snapshot for a living player must carry a gate; when it does not,
+   * that is a corrupt state and submitting stays disabled — it is never shown
+   * as ordinary waiting.
+   */
+  const gateView = createMemo(() => {
+    if (props.typing.phase() !== 'playing' || props.typing.eliminated()) return null;
+    const gate = props.snapshot.selfInputGate;
+    if (gate === null) {
+      if (!props.snapshot.spell) return null;
+      return {
+        mode: 'invalid',
+        reason: '',
+        remaining: null,
+        text: '施法状态异常，暂不能施法，请稍后重试。',
+      };
+    }
+    const remaining = props.typing.gateRemainingMs();
+    const ready = remaining === null || remaining <= 0;
+    const seconds = remaining === null ? null : (remaining / 1000).toFixed(1);
+    const text =
+      gate.mode === 'enforce'
+        ? ready
+          ? '已满足施法时间规则'
+          : `施法就绪还需 ${seconds} 秒`
+        : ready
+          ? '观察模式：仅记录施法时间，不限制施法'
+          : `观察模式：仅记录施法时间，不限制施法 · 就绪还需 ${seconds} 秒`;
+    return { mode: gate.mode, reason: gate.resetReason ?? '', remaining, text };
   });
 
   const castText = () => {
     const state = props.typing.castState();
     if (state === 'done') {
       const element = props.typing.castElement();
-      return `${element ? ELEMENT_LABELS[element] : '咒文'}命中，下一条咒文已就绪。`;
+      return `${element ? ELEMENT_LABELS[element] : '咒文'}命中，继续输入下一条咒文。`;
     }
     if (state === 'pending') return '施法中…';
-    return props.typing.castElement() ? '开始输入，完成后立刻施法。' : '等待施法…';
+    return props.typing.castElement() ? '开始输入；满足施法时间规则后完成即可施法。' : '等待施法…';
   };
 
   const meter = createMemo(() => {
@@ -104,6 +130,18 @@ export function BattleStation(props: {
 
   const elementColor = () =>
     props.snapshot.spell ? ELEMENT_CSS[props.snapshot.spell.element] : undefined;
+
+  /**
+   * What the IME is staging beyond the confirmed prefix. The field itself is
+   * invisible, so this chip is the only place provisional composition text
+   * shows; the native field stays the accessible copy for assistive tech.
+   */
+  const composingTail = createMemo(() => {
+    const state = props.typing.local();
+    if (!state.composing) return '';
+    const field = props.typing.fieldText();
+    return field.startsWith(state.text) ? field.slice(state.text.length) : field;
+  });
 
   return (
     <div class={stylex.props(styles.station).className}>
@@ -170,46 +208,32 @@ export function BattleStation(props: {
         </div>
       </div>
 
+      {/* Combat and practice share the same glyphs, caret and floating native input. */}
       <div class={stylex.props(styles.stationTarget).className}>
-        <div
-          class={
-            stylex.props(
-              styles.spellText,
-              props.typing.glyphs.longTarget() && styles.spellTextCompact,
-            ).className
-          }
-          data-testid="spell-text"
+        <SpellTypingSurface
+          target={props.typing.target()}
+          text={props.typing.local().text}
+          settled={settled()}
+          completed={props.typing.castState() === 'done'}
+          composing={props.typing.local().composing}
+          element={props.snapshot.spell?.element ?? null}
+          compact={props.typing.glyphs.longTarget()}
           hidden={!hasSpell()}
-        >
-          <span class={stylex.props(ui.srOnly).className} data-testid="spell-text-plain">
-            {`目标咒文：${props.typing.target()}`}
-          </span>
-          <span
-            aria-hidden="true"
-            ref={(el) => {
-              props.typing.attachColumn(el);
-            }}
-          >
-            <Index each={targetChars()}>
-              {(char, index) => (
-                <span
-                  class={`${
-                    stylex.props(
-                      styles.ch,
-                      tones()[index] === 'done' && styles.chDone,
-                      tones()[index] === 'ok' && styles.chOk,
-                      tones()[index] === 'cur' && styles.chCur,
-                      tones()[index] === 'err' && styles.chErr,
-                    ).className
-                  } ${charHook(tones()[index])}`}
-                  title={charTitle(tones()[index], index, targetChars()[index])}
-                >
-                  {char()}
-                </span>
-              )}
-            </Index>
-          </span>
-        </div>
+          attachColumn={(el) => props.typing.attachColumn(el)}
+          input={{
+            id: 'typing-input',
+            'data-testid': 'typing-input',
+            'aria-label': '咒文输入区',
+            'aria-describedby': 'input-status',
+            ref: (el) => props.typing.attachTextarea(el),
+            get hidden() {
+              return props.typing.finished();
+            },
+            get readOnly() {
+              return !judgeable();
+            },
+          }}
+        />
         {/* The Chinese meaning is display-only metadata: it lives outside the typed target
             (spell-text) and outside the input path, so it can never join the English text that
             drives judging, damage or progress, and it never touches the IME or caret. */}
@@ -241,28 +265,34 @@ export function BattleStation(props: {
       </div>
 
       <div class={stylex.props(styles.typeArea).className} hidden={props.typing.finished()}>
-        <label class={stylex.props(ui.srOnly).className} for="typing-input">
-          咒文输入区
-        </label>
-        <textarea
-          id="typing-input"
-          data-testid="typing-input"
-          class={
-            stylex.props(styles.typeField, judgeable() ? null : styles.typeFieldLocked).className
-          }
-          rows={2}
-          spellcheck={false}
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="off"
-          aria-describedby="input-status"
-          aria-label="咒文输入区"
-          ref={(el) => {
-            props.typing.attachTextarea(el);
-          }}
-          hidden={props.typing.finished()}
-          readOnly={!judgeable()}
-        />
+        <Show when={gateView()}>
+          {(view) => (
+            <div
+              class={
+                stylex.props(styles.inputGate, view().mode === 'invalid' && styles.inputGateAlert)
+                  .className
+              }
+              data-testid="input-gate"
+              data-mode={view().mode}
+              data-ready-remaining-ms={view().remaining === null ? '' : String(view().remaining)}
+              data-reason={view().reason}
+            >
+              <span class={stylex.props(styles.inputGateText).className}>{view().text}</span>
+              {/* The rejection explanation lives here — not in the countdown —
+                  so the polite announcement fires once per state change while
+                  the per-tick remaining time stays silent to screen readers. */}
+              <Show when={view().reason === 'completion_too_early'}>
+                <span
+                  class={stylex.props(styles.inputGateReason).className}
+                  data-testid="input-gate-reason"
+                  aria-live="polite"
+                >
+                  输入完成早于本局施法规则，已恢复上一次接受的输入；就绪后请重新补全。
+                </span>
+              </Show>
+            </div>
+          )}
+        </Show>
         <div
           class={stylex.props(styles.inputStatus).className}
           id="input-status"
@@ -270,6 +300,18 @@ export function BattleStation(props: {
         >
           {statusText()}
         </div>
+        {/* The field is invisible, so a live IME composition would be hidden raw
+            text: this chip mirrors what is staged but not yet judged. Visual
+            only — the native field remains the accessible input. */}
+        <Show when={props.typing.local().composing}>
+          <div
+            class={stylex.props(styles.composingChip).className}
+            data-testid="composing-text"
+            aria-hidden="true"
+          >
+            {`组合中：${composingTail() === '' ? '…' : composingTail()}`}
+          </div>
+        </Show>
         <div
           class={
             stylex.props(
@@ -298,6 +340,14 @@ export function BattleStation(props: {
           >
             {castText()}
           </div>
+          <Show when={!props.typing.eliminated()}>
+            <p
+              class={stylex.props(ui.smallText, styles.typeHint).className}
+              data-testid="typing-hint"
+            >
+              点击咒文即可直接输入，退格可改正。
+            </p>
+          </Show>
           <p
             class={stylex.props(ui.smallText, styles.tip).className}
             data-testid="battle-tip"

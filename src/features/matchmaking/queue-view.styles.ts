@@ -6,9 +6,7 @@
  * the old file used as hooks (`.duelist--self .duelist__art`, `[data-state="waiting"] …`)
  * are resolved at the JSX call site, where the state that drove them already lives.
  *
- * Motion has three states and they are composed, never overridden:
- * `waiting` applies an animation, `paused` freezes whatever is running, and the reduced
- * preference (mirrored onto <html> by motion.ts) drops the animation name entirely.
+ * System reduced-motion preferences disable decorative animation.
  */
 import * as stylex from '@stylexjs/stylex';
 
@@ -57,10 +55,16 @@ export const styles = stylex.create({
     justifyItems: 'center',
     rowGap: 'clamp(10px, 2.2vw, 28px)',
     columnGap: 'clamp(10px, 2.2vw, 28px)',
-    padding: 'clamp(18px, 3.2vw, 40px) clamp(14px, 2.6vw, 34px)',
+    padding: 'clamp(30px, 3.2vw, 44px) clamp(28px, 2.6vw, 38px)',
     marginBottom: 18,
-    border: '1px solid var(--line-strong)',
-    borderRadius: 'calc(var(--radius) + 6px)',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-panel)',
+    borderImageSlice: 48,
+    borderImageWidth: '26px',
+    borderImageRepeat: 'stretch',
+    borderRadius: 0,
     backgroundImage:
       "radial-gradient(120% 130% at 50% -30%, rgba(122, 96, 255, 0.24), transparent 62%), linear-gradient(180deg, rgba(24, 18, 52, 0.72), rgba(9, 7, 22, 0.94)), url('/assets/arenas/arena-1.webp')",
     backgroundPosition: '0% 0%, 0% 0%, center',
@@ -69,11 +73,11 @@ export const styles = stylex.create({
     overflow: 'hidden',
     isolation: 'isolate',
     '@media (max-width: 720px)': {
-      gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
-      gridTemplateAreas: '"self rival" "sigil sigil"',
-      rowGap: 20,
+      gridTemplateColumns: 'minmax(0, 1fr) 64px minmax(0, 1fr)',
+      gridTemplateAreas: '"self sigil rival"',
+      columnGap: 10,
     },
-    '@media (max-width: 420px)': { padding: '16px 12px' },
+    '@media (max-width: 420px)': { padding: '26px 22px' },
   },
 
   /* Faint arena ring, so the stage reads as a place rather than a card. */
@@ -150,7 +154,7 @@ export const styles = stylex.create({
     borderRadius: '50%',
     background:
       'radial-gradient(72% 72% at 50% 28%, rgba(159, 146, 255, 0.26), rgba(10, 8, 24, 0.92))',
-    '@media (max-width: 420px)': { width: 'clamp(76px, 26vw, 100px)' },
+    '@media (max-width: 420px)': { width: 'min(100%,88px)' },
   },
 
   selfArt: {
@@ -237,17 +241,30 @@ export const styles = stylex.create({
   },
 
   tag: {
-    padding: '1px 10px',
-    border: '1px solid var(--line)',
-    borderRadius: 999,
+    padding: '3px 10px',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-control)',
+    borderImageSlice: 48,
+    borderImageWidth: '10px',
+    borderImageRepeat: 'stretch',
+    borderRadius: 0,
+    backgroundColor: '#181331',
+    backgroundImage: 'var(--surface-stone)',
+    backgroundSize: '256px 256px',
+    backgroundRepeat: 'repeat',
     fontSize: '.72rem',
     letterSpacing: '.18em',
     color: 'var(--ink-faint)',
   },
 
   selfTag: {
-    borderColor: 'rgba(255, 215, 154, 0.45)',
     color: 'var(--gold)',
+    backgroundImage:
+      'linear-gradient(rgba(255, 215, 154, 0.1), rgba(255, 215, 154, 0.1)), var(--surface-stone)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
   },
 
   name: {
@@ -280,7 +297,7 @@ export const styles = stylex.create({
     placeItems: 'center',
     width: 'clamp(168px, 22vw, 244px)',
     aspectRatio: 1,
-    '@media (max-width: 720px)': { gridArea: 'sigil', width: 'clamp(148px, 52vw, 200px)' },
+    '@media (max-width: 720px)': { gridArea: 'sigil', width: 64 },
   },
 
   sigilSettled: {
@@ -439,8 +456,24 @@ export const styles = stylex.create({
 
   /* ------------------------------------------------------------ brief --- */
 
+  workspace: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1fr)',
+    alignItems: 'start',
+    gap: 18,
+  },
+
   brief: {
     marginBottom: 0,
+  },
+
+  /** Title and the 1v1 chip read as one unit. */
+  titleGroup: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 10,
+    minWidth: 0,
+    flexWrap: 'wrap',
   },
 
   state: {
@@ -459,22 +492,33 @@ export const styles = stylex.create({
 
   /** The shared notice is neutral; a failed poll is the one tone this screen shows. */
   noticeError: {
-    borderColor: 'rgba(255, 107, 125, 0.45)',
-    background: 'rgba(56, 18, 28, 0.62)',
+    backgroundImage:
+      'linear-gradient(rgba(88, 20, 34, 0.72), rgba(88, 20, 34, 0.72)), var(--surface-stone)',
+    backgroundSize: 'auto, 256px 256px',
+    backgroundRepeat: 'no-repeat, repeat',
     color: '#ffd8de',
   },
 
   facts: {
     margin: '0 0 14px',
+    gap: 10,
+    gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  },
+  fact: { minWidth: 0, '@media (max-width: 640px)': { padding: '14px 10px' } },
+
+  /** Live-population footnote: loading, stale, or a failed refresh. */
+  activityNote: {
+    margin: '0 0 14px',
+    fontSize: '.82rem',
+    color: 'var(--ink-faint)',
+  },
+
+  activityNoteError: {
+    color: '#ffd8de',
   },
 
   elapsed: {
-    fontSize: 'clamp(1.7rem, 3.6vw, 2.3rem)',
-    lineHeight: 1.15,
     color: 'var(--gold)',
-    whiteSpace: 'nowrap',
-    textShadow: '0 0 26px rgba(255, 215, 154, 0.26)',
-    '@media (max-width: 420px)': { fontSize: '1.55rem' },
   },
 
   home: {
@@ -483,24 +527,5 @@ export const styles = stylex.create({
 
   hint: {
     margin: '12px 0 0',
-  },
-
-  motion: {
-    '@media (prefers-reduced-motion: reduce)': { display: 'none' },
-  },
-
-  /* A settled screen is visibly not searching. */
-  motionSettled: {
-    visibility: 'hidden',
-  },
-
-  /**
-   * Freezes every running animation where it stands, including the two animated
-   * pseudo-elements. Composed last, so it needs no `!important`.
-   */
-  paused: {
-    animationPlayState: 'paused',
-    '::before': { animationPlayState: 'paused' },
-    '::after': { animationPlayState: 'paused' },
   },
 });

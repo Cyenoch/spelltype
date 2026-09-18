@@ -25,7 +25,7 @@ export function TimerBox(props: { phase: RoomSnapshot['phase']; remainingMs: num
       case 'lobby':
         return '等待开始';
       case 'generating':
-        return '正在生成咒文';
+        return '准备咒文书';
       case 'finished':
         return '本局已结束';
       default:

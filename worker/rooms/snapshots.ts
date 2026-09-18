@@ -1,10 +1,25 @@
-import { MAX_PRIVATE_PLAYERS, WS_CLOSE } from '../../shared/protocol';
-import type { CombatEvent, Player, RoomSnapshot, Spell, User } from '../../shared/protocol';
+import { MAX_PRIVATE_PLAYERS, WS_CLOSE, WS_PROTOCOL } from '../../shared/protocol';
+import type {
+  CombatEvent,
+  Player,
+  RoomSnapshot,
+  SelfInputGate,
+  SelfInputStats,
+  Spell,
+  User,
+} from '../../shared/protocol';
 import { accuracyOf, charCount, cpmOf, spellAt, survivalRanks } from '../scoring';
+import { INPUT_GATE_ERROR_MESSAGE, inputGateState } from './input-gate';
 import { RoomRejection } from './rejection';
 import { BOOK_PHASES, TIMED_PHASES, reservationIsGone } from './rules';
 import type { RoomScope } from './scope';
-import { closeSocket, currentConns, readSocketMeta, sendTo } from './sockets';
+import {
+  closeSocket,
+  currentConns,
+  currentProtocolSocket,
+  readSocketMeta,
+  sendTo,
+} from './sockets';
 import type { SocketAuth } from './sockets';
 import { abandonedMatch } from './storage/departures';
 import { readEvents } from './storage/events';
@@ -59,8 +74,6 @@ function snapshotContext(scope: RoomScope, room: RoomRow): SnapshotContext {
           players.map((row) => ({
             userId: row.user_id,
             hp: row.hp,
-            damageDealt: row.damage_dealt,
-            correctChars: row.correct_chars,
             eliminatedAt: row.eliminated_at,
           })),
         )
@@ -121,6 +134,39 @@ function buildSnapshot(context: SnapshotContext, viewerId: string): RoomSnapshot
   const spell =
     viewer !== null && viewer.eliminated_at === null ? spellAt(book, viewer.spell_index) : null;
   const typing = viewer !== null && room.phase === 'playing' && viewer.eliminated_at === null;
+  // The gate is the viewer's private contract with the room: it is published while the
+  // viewer is alive in a playing match with a current spell to type — the spell is the
+  // target; a settled-or-settling table with no standing opponent does not hide it. It is
+  // published only when the stored eligibility actually agrees with the room's locked
+  // policy, and a seat whose current spell is missing is damaged like any other incoherent
+  // state: null gates plus an explicit error — never a forged zero-moment "ready" — so the
+  // client stops submitting instead of treating the state as sane. Nothing here writes: a
+  // snapshot read never repairs or amplifies a damaged row.
+  let selfInputGate: SelfInputGate = null;
+  let selfInputStats: SelfInputStats = null;
+  let damagedGate = false;
+  if (typing && viewer !== null) {
+    if (spell === null) {
+      damagedGate = true;
+    } else {
+      const gate = inputGateState(room, viewer, charCount(spell.text));
+      if (gate === null) {
+        damagedGate = true;
+      } else {
+        selfInputGate = {
+          policyVersion: gate.policyVersion,
+          mode: gate.mode,
+          draftEpoch: viewer.draft_epoch,
+          notBefore: gate.notBefore,
+          resetReason: viewer.input_reset_reason,
+        };
+        selfInputStats = {
+          attemptTotal: viewer.attempt_total,
+          errorTotal: viewer.error_total,
+        };
+      }
+    }
+  }
   return {
     id: room.id,
     matchId: room.match_id,
@@ -134,14 +180,17 @@ function buildSnapshot(context: SnapshotContext, viewerId: string): RoomSnapshot
     startedAt: room.started_at,
     endedAt: room.ended_at,
     endReason: room.end_reason,
+    protocolVersion: WS_PROTOCOL,
     spell,
     selfInput: typing && viewer !== null ? viewer.last_input : '',
+    selfInputGate,
+    selfInputStats,
     events: context.events,
     persistence: room.persistence,
     reservationExpiresAt:
       room.reservation_state === 'reserved' ? room.reservation_expires_at : null,
     players,
-    error: room.error,
+    error: damagedGate ? (room.error ?? INPUT_GATE_ERROR_MESSAGE) : room.error,
   };
 }
 
@@ -160,6 +209,10 @@ export function pushSnapshots(scope: RoomScope): void {
     if (ws.readyState !== WebSocket.OPEN) continue;
     const meta = readSocketMeta(ws);
     if (!meta) continue;
+    // A stale-protocol attachment is not a receiver: skip it and leave the
+    // cut-off to the wake-up sweep, which closes it with the protocol code —
+    // a snapshot push must never masquerade as a replacement.
+    if (!currentProtocolSocket(meta)) continue;
     if (!context.conns.has(meta.connId)) {
       closeSocket(ws, WS_CLOSE.replaced, 'not the current connection');
       continue;

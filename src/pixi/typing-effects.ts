@@ -7,33 +7,24 @@ import { drawElementShard } from './effects/shapes';
 import type { Element } from '../../shared/protocol';
 
 /**
- * Particles that come off the confirmed spell text itself.
- *
- * This is a second, deliberately tiny PIXI application overlaid on the DOM spell
- * run: it is bounded (96 pooled particles), it prefers the Canvas renderer so it
- * does not open a third GPU context next to the arena and the backdrop, and its
- * ticker only runs while something is alive. Nothing is drawn above the text
- * baseline, so no glyph is ever obscured and the DOM text stays the only source
- * of truth — this layer is decoration and nothing else.
+ * Power Mode sparks emitted by each committed character, including mistakes.
+ * A small Canvas application overlays the native spell input. Four fixed pools
+ * bound the particle count; the ticker sleeps once every trail has faded.
+ * Bursts stay local to the glyph and never move the sentence or the battlefield.
  */
 export interface TypingEffects {
-  /** Emits off a confirmed glyph, in CSS pixels local to the host. */
-  emit(x: number, y: number, element: Element, count: number): void;
+  /** One local burst per committed character; errors use red instead of element tint. */
+  emit(x: number, y: number, element: Element, error: boolean): void;
   /** Re-reads the host size; also self-observed. */
   resize(): void;
   destroy(): void;
 }
 
 /** Total pool, split evenly across the four element shapes. */
-const CAPACITY_PER_ELEMENT = 24;
-/** Hard cap per emit call, whatever the caller asks for. */
-const MAX_PER_EMIT = 6;
-const LIFE_MIN_MS = 450;
-const LIFE_MAX_MS = 650;
-/** Downwards is positive y: sparks leave the baseline without crossing a glyph. */
-const SPREAD_SPEED = 0.055;
-const FALL_MIN = 0.018;
-const FALL_MAX = 0.055;
+const CAPACITY_PER_ELEMENT = 96;
+const SPARKS_PER_CHARACTER = 12;
+const LIFE_MIN_MS = 360;
+const LIFE_MAX_MS = 680;
 const MAX_FRAME_MS = 48;
 
 export async function createTypingEffects(host: HTMLElement): Promise<TypingEffects> {
@@ -41,7 +32,7 @@ export async function createTypingEffects(host: HTMLElement): Promise<TypingEffe
   await app.init({
     backgroundAlpha: 0,
     resizeTo: host,
-    // Nothing animates until the first confirmed character arrives.
+    // Nothing animates until a committed character arrives.
     autoStart: false,
     antialias: false,
     preference: ['canvas'],
@@ -59,6 +50,7 @@ export async function createTypingEffects(host: HTMLElement): Promise<TypingEffe
 
   let destroyed = false;
   let reduced = motion.reduced;
+  let burstSerial = 0;
   const owned: Texture[] = [];
   const shapes = {} as Record<Element, Texture>;
 
@@ -124,37 +116,43 @@ export async function createTypingEffects(host: HTMLElement): Promise<TypingEffe
 
   const unsubscribeMotion = motion.subscribe((isReduced) => {
     reduced = isReduced;
-    if (isReduced) clearAll();
+    if (isReduced) {
+      clearAll();
+      app.stop();
+    }
   });
 
+  const pauseWhenHidden = () => {
+    if (!document.hidden) return;
+    clearAll();
+    app.stop();
+  };
+  document.addEventListener('visibilitychange', pauseWhenHidden);
+
   return {
-    emit(x: number, y: number, element: Element, count: number): void {
-      if (destroyed || reduced) return;
-      const total = Math.max(1, Math.min(MAX_PER_EMIT, Math.trunc(count)));
-      const pool = pools[element] ?? pools.arcane;
-      const color = ELEMENT_COLORS[element];
-      const core = ELEMENT_CORE[element];
-      for (let index = 0; index < total; index += 1) {
-        // Fan outwards and downwards from just under the baseline: the sparks are
-        // always below the glyphs, so the text stays fully legible.
-        const fan = (index - (total - 1) / 2) * 0.42;
-        const speed = SPREAD_SPEED * (0.6 + (index % 3) * 0.25);
-        const fall = FALL_MIN + (FALL_MAX - FALL_MIN) * ((index % 4) / 3);
-        // A third of them float a hair upwards, never more than a pixel or two.
-        const lift = index % 3 === 0 ? -0.006 : 0;
+    emit(x: number, y: number, element: Element, error: boolean): void {
+      if (destroyed || reduced || document.hidden) return;
+      const pool = pools[element];
+      const color = error ? 0xff536f : ELEMENT_COLORS[element];
+      const core = error ? 0xffc4d0 : ELEMENT_CORE[element];
+      // A soft leftward drift leaves unread text clear without looking like a jet.
+      const phase = burstSerial++ * 2.399963;
+      for (let index = 0; index < SPARKS_PER_CHARACTER; index += 1) {
+        const angle = phase + (index / SPARKS_PER_CHARACTER) * Math.PI * 2;
+        const speed = (0.09 + (index % 3) * 0.025) * (element === 'storm' ? 1.1 : 1);
         pool.spawn(
-          x + fan * 6,
-          y + 1,
-          Math.sin(fan) * speed,
-          fall + lift,
+          x - 2,
+          y,
+          -0.016 - Math.abs(Math.cos(angle)) * speed * 0.4,
+          Math.sin(angle) * speed * 0.75 - 0.02,
           LIFE_MIN_MS + (LIFE_MAX_MS - LIFE_MIN_MS) * ((index % 5) / 4),
-          0.5,
-          0.16,
-          index % 2 === 0 ? core : color,
-          0.92,
-          0.004,
-          0.00004,
-          0.0016,
+          index % 3 === 0 ? 0.66 : 0.42,
+          0.06,
+          index % 3 === 0 ? core : color,
+          0.95,
+          element === 'arcane' ? 0.012 : 0.004,
+          element === 'fire' || error ? 0.00013 : 0.000045,
+          0.0014,
         );
       }
       if (!app.ticker.started) app.start();
@@ -170,6 +168,7 @@ export async function createTypingEffects(host: HTMLElement): Promise<TypingEffe
       destroyed = true;
       resizeObserver.disconnect();
       unsubscribeMotion();
+      document.removeEventListener('visibilitychange', pauseWhenHidden);
       app.ticker.remove(tick);
       for (const element of ELEMENT_ORDER) pools[element].destroy();
       // Renderer first: it owns one bind group per texture it has drawn and only

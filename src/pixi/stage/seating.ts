@@ -1,5 +1,13 @@
 import type { Fighter } from '../fighter/fighter';
 
+/**
+ * Canvas-local y below which arena art may draw. The DOM overhead labels (name,
+ * tags, progress readout) float over roughly the top 82–94px of the canvas, so
+ * the fighters, their charge runes and the damage-float ascent all start below
+ * this band. One constant: the label stack is sized in px, not in canvas %.
+ */
+export const TOP_RESERVED_PX = 96;
+
 /** Where one seat sits and how much room its fighter actually took, in host pixels. */
 export interface SeatGeometry {
   x: number;
@@ -10,6 +18,11 @@ export interface SeatGeometry {
 }
 
 export interface Seating {
+  /**
+   * The reserved top band in canvas-local px: everything drawn by the arena —
+   * bodies, charge runes, damage floats — stays at or below this y.
+   */
+  readonly topBand: number;
   /** One entry per seat, in slot order. */
   readonly geometry: SeatGeometry[];
   /**
@@ -32,6 +45,8 @@ export function createSeating(fighters: readonly Fighter[]): Seating {
   }));
 
   return {
+    topBand: TOP_RESERVED_PX,
+
     geometry,
 
     layout(width: number, height: number, present: readonly number[]): boolean {
@@ -44,7 +59,10 @@ export function createSeating(fighters: readonly Fighter[]): Seating {
       const columnWidth = span / present.length;
       // Leave the raised damage segment visible on both sides of the feet bar.
       const feetY = height - Math.max(32, height * 0.08);
-      const bodyHeight = Math.max(1, feetY - height * 0.1);
+      // The body starts below the reserved label band, not at a canvas fraction:
+      // a proportional margin is what let the old above-head dial and the
+      // damage floats climb into — and past — the top edge on short canvases.
+      const bodyHeight = Math.max(1, feetY - this.topBand);
       const barOffsetY = Math.max(14, Math.min(26, height * 0.04));
 
       present.forEach((slot, index) => {

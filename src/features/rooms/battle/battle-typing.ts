@@ -52,6 +52,13 @@ export interface BattleTyping {
   /** Exactly what the field holds: the composed value while an IME is open. */
   fieldText(): string;
   remainingMs(): number | null;
+  /**
+   * Time until the current spell's input gate opens, from the same room tick
+   * that repaints the combat clock: `0` once ready, `null` with no gate. The
+   * client never computes the rule itself — it only renders the server's
+   * `notBefore`.
+   */
+  gateRemainingMs(): number | null;
   castState(): 'idle' | 'pending' | 'done';
   castElement(): Element | null;
   tip(): string;
@@ -120,6 +127,15 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
     return active ? props.clock.remainingMs(snapshot.deadline) : null;
   });
 
+  const gateRemainingMs = createMemo(() => {
+    // Derived from the same tick and the same clock as the combat deadline, so
+    // both countdowns move together without a second interval.
+    void props.tick;
+    const gate = props.snapshot.selfInputGate;
+    if (!gate) return null;
+    return props.clock.remainingMs(gate.notBefore);
+  });
+
   const setCast = (element: Element | null, state: 'idle' | 'pending' | 'done') => {
     setCastElement(element);
     setCastState(state);
@@ -174,11 +190,7 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
         typing?.startSpell(change.spell);
         return;
       case 'adopt':
-        glyphs.adopt(() =>
-          change.mode === 'resync'
-            ? typing?.resync(change.draft)
-            : typing?.restoreDraft(change.draft),
-        );
+        glyphs.adopt(() => typing?.restoreInput(change.restore, change.mode));
         return;
       case 'cast':
         setCast(change.element, change.hit ? 'done' : 'idle');
@@ -200,7 +212,7 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
       onCommit: (commit) => props.onCommit(commit),
       onLocalState: (state) => setLocal(state),
       onPasteBlocked: () => {
-        setPasteMessage('已阻止粘贴：咒文必须自己输入，这样伤害才算数。');
+        setPasteMessage('已阻止粘贴：此输入框不支持粘贴。');
         props.onPasteBlocked();
       },
       onTooLong: () => setPasteMessage('输入过长，已截断到 256 个字符。'),
@@ -235,7 +247,6 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
           const element = snapshot.spell?.element ?? null;
           if (state.pending) {
             setCast(element, 'pending');
-            setTip('施法中，请稍候…');
           } else if (state.progress > 0 && castState() === 'done') {
             // The first keystroke of the next spell clears the previous cast banner.
             setCast(element, 'idle');
@@ -292,7 +303,7 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
     const alive = Boolean(self && self.eliminatedAt === null);
     if (ms <= 30_000 && !warnedLastThirty && alive && snapshot.players.length > 1) {
       warnedLastThirty = true;
-      setTip('最后 30 秒：截止后按剩余生命排名，稳住输出。');
+      setTip('最后 30 秒：截止后存活者按剩余生命排名，稳住输出。');
     }
   });
 
@@ -306,6 +317,7 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
     local,
     fieldText: () => textarea?.value ?? props.snapshot.selfInput,
     remainingMs,
+    gateRemainingMs,
     castState,
     castElement,
     tip,

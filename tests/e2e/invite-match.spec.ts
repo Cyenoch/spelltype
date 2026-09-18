@@ -58,10 +58,20 @@ test('受邀玩家登录后加入，两名玩家完成整场对战后看到相�
   const invite = await inviteUrl(host.page);
   expect(invite).toContain(`?room=${roomId}`);
 
-  // A signed-out visitor opens the invite: the destination survives the auth flow.
+  // A signed-out visitor joins by code from the home dialog: the destination survives the
+  // auth flow. A malformed code keeps the dialog open and flags the field; uppercase input
+  // and stray spaces are trimmed and lowercased before the room is resolved.
   const guestContext = await newContext(browser, { reducedMotion: 'no-preference' });
   const guestPage = await guestContext.newPage();
-  await gotoApp(guestPage, `/?room=${roomId}`);
+  await gotoApp(guestPage, '/');
+  await guestPage.getByTestId('home-join-room').click();
+  await expect(guestPage.getByTestId('join-room-dialog')).toBeVisible();
+  await guestPage.getByTestId('join-room-code').fill('g'.repeat(24));
+  await guestPage.getByTestId('join-room-submit').click();
+  await expect(guestPage.getByTestId('join-room-dialog')).toBeVisible();
+  await expect(guestPage.getByTestId('join-room-code')).toHaveAttribute('aria-invalid', 'true');
+  await guestPage.getByTestId('join-room-code').fill(`  ${roomId.toUpperCase()}  `);
+  await guestPage.getByTestId('join-room-submit').click();
   await expect(guestPage.getByTestId('view-auth')).toBeVisible();
   await expect(guestPage.getByTestId('invite-notice')).toContainText(roomId);
   const guestName = uniqueName('guest');

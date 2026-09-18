@@ -6,9 +6,9 @@
  * queue's idempotency key. `tests/support/sql-storage.ts` gives `node:sqlite` the workerd `SqlStorage`
  * surface, so these run in milliseconds instead of through a booted room.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { COMBAT_EVENT_RING_SIZE, INITIAL_HEALTH, type CombatEvent } from '../../shared/protocol';
-import { appendEvent, readEvents } from '../../worker/rooms/storage/events';
+import { appendEvents, readEvents } from '../../worker/rooms/storage/events';
 import {
   abandonedMatch,
   getDeparture,
@@ -33,8 +33,10 @@ import {
   queueResults,
 } from '../../worker/rooms/storage/results';
 import { getRoom, insertRoom, updateRoom } from '../../worker/rooms/storage/room';
+import { INPUT_POLICY_VERSION } from '../../worker/rooms/rules';
 import { createSchema } from '../../worker/rooms/storage/schema';
 import { openTestStorage, type TestStorage } from '../support/sql-storage';
+import type { SqlStore } from '../../worker/sql';
 
 const ROOM_ID = 'a'.repeat(24);
 const NOW = 1_700_000_000_000;
@@ -87,6 +89,14 @@ function resultRow(matchId: string) {
     rank: 1,
     cpm: 120,
     accuracy: 1,
+    input_policy_version: INPUT_POLICY_VERSION,
+    input_policy_mode: 'enforce' as const,
+    input_gate_hits: 2,
+    input_recoveries: 1,
+    input_overloads: 0,
+    input_recovered_completions: 1,
+    input_recovery_departures: 0,
+    input_min_completion_ratio: 0.25,
     created_at: NOW,
   };
 }
@@ -177,7 +187,7 @@ describe('座位', () => {
     }
   });
 
-  it('开新一局会把座位恢复为满血、第一篇与空草稿', () => {
+  it('开新一局会把座位恢复为满血、第一篇与空草稿，并清空输入资格与本局摘要', () => {
     const storage = withRoom();
     try {
       seat(storage, 'a');
@@ -194,6 +204,17 @@ describe('座位', () => {
         last_input: '霜月幽炎',
         eliminated_at: NOW,
         ready: 1,
+        input_opened_at: NOW,
+        input_not_before: NOW + 1_750,
+        draft_epoch: 4,
+        input_reset_reason: 'completion_too_early',
+        input_sampled: 1,
+        input_gate_hits: 3,
+        input_recoveries: 2,
+        input_min_completion_ratio: 0.5,
+        input_overloads: 1,
+        input_recovered_completions: 1,
+        input_recovery_departures: 1,
       });
       resetPlayersForMatch(storage.sql);
       expect(getPlayer(storage.sql, 'a')).toMatchObject({
@@ -210,6 +231,17 @@ describe('座位', () => {
         last_input: '',
         eliminated_at: null,
         ready: 1,
+        input_opened_at: null,
+        input_not_before: null,
+        draft_epoch: 0,
+        input_reset_reason: null,
+        input_sampled: 0,
+        input_gate_hits: 0,
+        input_recoveries: 0,
+        input_min_completion_ratio: null,
+        input_overloads: 0,
+        input_recovered_completions: 0,
+        input_recovery_departures: 0,
       });
       expect(countPlayers(storage.sql)).toBe(1);
     } finally {
@@ -251,7 +283,7 @@ describe('事件环', () => {
     const storage = withRoom();
     try {
       for (let seq = 1; seq <= COMBAT_EVENT_RING_SIZE + 8; seq += 1)
-        appendEvent(storage.sql, event(seq));
+        appendEvents(storage.sql, [event(seq)]);
       const events = readEvents(getRoom(storage.sql)!);
       expect(events).toHaveLength(COMBAT_EVENT_RING_SIZE);
       expect(events[0].seq).toBe(9);
@@ -340,6 +372,172 @@ describe('离场记录', () => {
       createSchema(storage.sql);
       expect(abandonedMatch(storage.sql, 'a', 'm1')).toBe(true);
       expect(getRoom(storage.sql)?.id).toBe(ROOM_ID);
+    } finally {
+      storage.close();
+    }
+  });
+});
+
+/** Frozen pre-policy layout: migration tests must not derive their baseline from current DDL. */
+function legacyRoom(phase: 'finished' | 'generating' | 'countdown' | 'playing'): TestStorage {
+  const storage = openTestStorage();
+  storage.sql.exec(`CREATE TABLE room (
+    singleton INTEGER PRIMARY KEY CHECK (singleton = 1), id TEXT NOT NULL, host_id TEXT NOT NULL,
+    mode TEXT NOT NULL, theme TEXT NOT NULL, difficulty TEXT NOT NULL, phase TEXT NOT NULL,
+    deadline INTEGER NOT NULL DEFAULT 0, started_at INTEGER, ended_at INTEGER, end_reason TEXT,
+    match_id TEXT, spell_book TEXT, events_json TEXT NOT NULL DEFAULT '[]', event_seq INTEGER NOT NULL DEFAULT 0,
+    error TEXT, generation_token TEXT, generation_claim TEXT, generation_seq INTEGER NOT NULL DEFAULT 0,
+    reservation_state TEXT NOT NULL DEFAULT 'none', reservation_expires_at INTEGER,
+    locked INTEGER NOT NULL DEFAULT 0, persistence TEXT NOT NULL DEFAULT 'idle',
+    persist_attempts INTEGER NOT NULL DEFAULT 0, persist_retry_at INTEGER,
+    created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)`);
+  storage.sql.exec(`CREATE TABLE players (
+    user_id TEXT PRIMARY KEY, username TEXT NOT NULL, slot INTEGER NOT NULL, joined_at INTEGER NOT NULL,
+    slot_expires_at INTEGER, conn_id TEXT, seated INTEGER NOT NULL DEFAULT 0, ready INTEGER NOT NULL DEFAULT 0,
+    progress INTEGER NOT NULL DEFAULT 0, spell_index INTEGER NOT NULL DEFAULT 0,
+    spells_cast INTEGER NOT NULL DEFAULT 0, hp INTEGER NOT NULL DEFAULT 2400, max_hp INTEGER NOT NULL DEFAULT 2400,
+    damage_dealt INTEGER NOT NULL DEFAULT 0, correct_chars INTEGER NOT NULL DEFAULT 0,
+    attempt_total INTEGER NOT NULL DEFAULT 0, error_total INTEGER NOT NULL DEFAULT 0,
+    cpm INTEGER NOT NULL DEFAULT 0, last_input TEXT NOT NULL DEFAULT '', eliminated_at INTEGER)`);
+  storage.sql.exec(`CREATE TABLE match_results (
+    match_id TEXT NOT NULL, user_id TEXT NOT NULL, theme TEXT NOT NULL,
+    damage_dealt INTEGER NOT NULL, hp_remaining INTEGER NOT NULL, spells_cast INTEGER NOT NULL,
+    correct_chars INTEGER NOT NULL, duration_ms INTEGER NOT NULL, rank INTEGER NOT NULL,
+    cpm INTEGER NOT NULL, accuracy REAL, created_at INTEGER NOT NULL,
+    saved INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (match_id, user_id))`);
+  insertRoom(storage.sql, {
+    id: ROOM_ID,
+    hostId: 'host-1',
+    mode: 'private',
+    theme: '旧局',
+    difficulty: 'hard',
+    reservationState: 'none',
+    reservationExpiresAt: null,
+    now: NOW,
+  });
+  seat(storage, 'host-1');
+  updateRoom(storage.sql, { phase, match_id: 'legacy-match', deadline: NOW - 1 });
+  updatePlayer(storage.sql, 'host-1', {
+    last_input: 'accepted',
+    attempt_total: 12,
+    error_total: 3,
+    hp: 1234,
+  });
+  storage.sql.exec(
+    `INSERT INTO match_results
+    (match_id,user_id,theme,damage_dealt,hp_remaining,spells_cast,correct_chars,duration_ms,rank,cpm,accuracy,created_at)
+    VALUES ('legacy-match','host-1','旧局',1166,1234,3,150,30000,1,300,0.75,?)`,
+    NOW,
+  );
+  return storage;
+}
+
+describe('输入规则升级', () => {
+  it('旧终局与待保存结果升级两次仍可重试，不伪造测量零值', () => {
+    const storage = legacyRoom('finished');
+    try {
+      storage.transactionSync(() => createSchema(storage.sql));
+      storage.transactionSync(() => createSchema(storage.sql));
+      expect(getPlayer(storage.sql, 'host-1')).toMatchObject({
+        last_input: 'accepted',
+        attempt_total: 12,
+        error_total: 3,
+        hp: 1234,
+      });
+      const rows = listUnsavedResults(storage.sql);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        match_id: 'legacy-match',
+        damage_dealt: 1166,
+        input_policy_version: 'legacy-unmeasured',
+        input_policy_mode: null,
+        input_gate_hits: null,
+        input_recoveries: null,
+        input_overloads: null,
+        input_min_completion_ratio: null,
+        input_recovered_completions: null,
+        input_recovery_departures: null,
+      });
+      queueResults(storage.sql, rows);
+      expect(listUnsavedResults(storage.sql)).toEqual(rows);
+      markResultsSaved(storage.sql, rows);
+      expect(listUnsavedResults(storage.sql)).toEqual([]);
+    } finally {
+      storage.close();
+    }
+  });
+
+  it.each(['generating', 'countdown', 'playing'] as const)(
+    '旧 %s 局即使截止已过也拒绝启用，回滚所有DDL',
+    (phase) => {
+      const storage = legacyRoom(phase);
+      const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const before = storage.sql
+          .exec('SELECT name,sql FROM sqlite_master ORDER BY name')
+          .toArray();
+        const players = listPlayers(storage.sql);
+        expect(() => storage.transactionSync(() => createSchema(storage.sql))).toThrow(
+          'input_policy_drain_required',
+        );
+        expect(
+          storage.sql.exec('SELECT name,sql FROM sqlite_master ORDER BY name').toArray(),
+        ).toEqual(before);
+        expect(listPlayers(storage.sql)).toEqual(players);
+        expect(getRoom(storage.sql)?.phase).toBe(phase);
+        expect(storage.sql.exec('SELECT damage_dealt FROM match_results').one().damage_dealt).toBe(
+          1166,
+        );
+      } finally {
+        log.mockRestore();
+        storage.close();
+      }
+    },
+  );
+
+  it('中途ALTER失败回滚结构和旧数据；排除故障后仍可完整升级', () => {
+    const storage = legacyRoom('finished');
+    try {
+      const before = storage.sql.exec('SELECT name,sql FROM sqlite_master ORDER BY name').toArray();
+      let alters = 0;
+      const broken: SqlStore = {
+        exec(query, ...bindings) {
+          if (query.startsWith('ALTER TABLE') && ++alters === 5)
+            throw new Error('injected ALTER failure');
+          return storage.sql.exec(query, ...bindings);
+        },
+      };
+      expect(() => storage.transactionSync(() => createSchema(broken))).toThrow(
+        'injected ALTER failure',
+      );
+      expect(
+        storage.sql.exec('SELECT name,sql FROM sqlite_master ORDER BY name').toArray(),
+      ).toEqual(before);
+      storage.transactionSync(() => createSchema(storage.sql));
+      expect(listUnsavedResults(storage.sql)[0]).toMatchObject({
+        match_id: 'legacy-match',
+        damage_dealt: 1166,
+        input_gate_hits: null,
+      });
+    } finally {
+      storage.close();
+    }
+  });
+
+  it('新局改变策略不改变已入队摘要；重试不能覆盖首次测量', () => {
+    const storage = withRoom();
+    try {
+      const result = resultRow('measured');
+      queueResults(storage.sql, [result]);
+      updateRoom(storage.sql, {
+        match_id: 'another',
+        input_policy_version: 'next-version',
+        input_policy_mode: 'observe',
+        input_min_ms_per_code_point: 20,
+      });
+      resetPlayersForMatch(storage.sql);
+      queueResults(storage.sql, [{ ...result, input_policy_mode: 'observe', input_gate_hits: 0 }]);
+      expect(listUnsavedResults(storage.sql)).toEqual([{ ...result, saved: 0 }]);
     } finally {
       storage.close();
     }

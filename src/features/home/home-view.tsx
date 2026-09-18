@@ -8,13 +8,14 @@ import { ASSETS } from '../../pixi/assets';
 import { ui } from '../../ui/primitives';
 import { styles } from './home.styles';
 import { PlayerCard } from './home-player-card';
+import { JoinRoom } from './home-join-room';
 import { noticeStyles } from '../../ui/notice.styles';
 import type { AppContext } from '../../app/context';
 
 /** The four numbers every player should know before their first match. */
-export function MatchFacts(props: { spaced?: boolean }) {
+export function MatchFacts() {
   return (
-    <div class={stylex.props(styles.facts, props.spaced && styles.factsSpaced).className}>
+    <div class={stylex.props(styles.facts).className}>
       <div class={stylex.props(styles.fact).className}>
         <b class={stylex.props(styles.factValue).className}>2400</b>
         <span class={stylex.props(styles.factLabel).className}>每人生命</span>
@@ -25,7 +26,7 @@ export function MatchFacts(props: { spaced?: boolean }) {
       </div>
       <div class={stylex.props(styles.fact).className}>
         <b class={stylex.props(styles.factValue).className}>×4</b>
-        <span class={stylex.props(styles.factLabel).className}>每字伤害</span>
+        <span class={stylex.props(styles.factLabel).className}>每字总伤害</span>
       </div>
       <div class={stylex.props(styles.fact).className}>
         <b class={stylex.props(styles.factValue).className}>24 条</b>
@@ -156,7 +157,6 @@ export function HomeView(props: { ctx: AppContext }) {
 
             <h1 class={stylex.props(ui.title, styles.heroTitle).className}>咒文对决</h1>
             <p class={stylex.props(styles.heroLead).className}>以文字为咒，以速度决胜。</p>
-            <MatchFacts spaced />
 
             {/* Kept mounted so availability stays observable even while hidden. */}
             <div
@@ -167,7 +167,7 @@ export function HomeView(props: { ctx: AppContext }) {
               hidden={configured()}
             >
               <Show when={!configured()}>
-                咒文服务暂不可用。你仍可匹配或建房，请稍后再开始对决。
+                咒文生成暂不可用。预设主题的共享咒文书在有效期内仍可正常开战；自定义主题需等生成恢复。
               </Show>
             </div>
 
@@ -221,6 +221,23 @@ export function HomeView(props: { ctx: AppContext }) {
                 <p class={stylex.props(styles.entryNote).className}>
                   直接进入队列，与另一位玩家一起对决。
                 </p>
+                <div class={stylex.props(styles.entrySeats).className} aria-hidden="true">
+                  <img
+                    class={stylex.props(styles.seatImg).className}
+                    src={ASSETS.avatars[0]}
+                    alt=""
+                    width="28"
+                    height="28"
+                  />
+                  <span class={stylex.props(styles.duelMark).className}>VS</span>
+                  <img
+                    class={stylex.props(styles.seatImg).className}
+                    src={ASSETS.avatars[1]}
+                    alt=""
+                    width="28"
+                    height="28"
+                  />
+                </div>
                 <button
                   class={stylex.props(ui.button, ui.primary, styles.entryButton).className}
                   type="button"
@@ -232,9 +249,12 @@ export function HomeView(props: { ctx: AppContext }) {
               </div>
 
               <div class={stylex.props(styles.entry).className}>
-                <h2 class={stylex.props(ui.title, styles.entryTitleRoom).className}>私人房</h2>
+                <div class={stylex.props(styles.entryHead).className}>
+                  <h2 class={stylex.props(ui.title, styles.entryTitle).className}>私人房</h2>
+                  <JoinRoom ctx={props.ctx} />
+                </div>
                 <p class={stylex.props(styles.entryNote).className}>
-                  选一个咒文主题，把邀请链接发给朋友一起打。
+                  选一个咒文主题，把邀请码发给朋友一起打。
                 </p>
                 <div class={stylex.props(styles.entrySeats).className} aria-hidden="true">
                   <For each={ASSETS.avatars}>
@@ -251,9 +271,7 @@ export function HomeView(props: { ctx: AppContext }) {
                   </For>
                 </div>
                 <button
-                  class={
-                    stylex.props(ui.button, styles.entryButton, styles.entryButtonRoom).className
-                  }
+                  class={stylex.props(ui.button, styles.entryButton).className}
                   type="button"
                   data-testid="home-create"
                   onClick={() => requireAuth(() => void navigate({ to: '/create', search: {} }))}
@@ -265,6 +283,9 @@ export function HomeView(props: { ctx: AppContext }) {
           </div>
 
           <PlayerCard ctx={props.ctx} />
+          <div class={stylex.props(styles.heroFacts).className}>
+            <MatchFacts />
+          </div>
         </div>
       </div>
 
@@ -277,13 +298,13 @@ export function HomeView(props: { ctx: AppContext }) {
         </div>
         <ol class={stylex.props(styles.tutorialSteps).className}>
           <li class={stylex.props(styles.tutorialStep).className}>
-            登录后快速匹配，或创建私人房把邀请链接发给朋友。
+            登录后快速匹配，或创建私人房把邀请码发给朋友。
           </li>
           <li class={stylex.props(styles.tutorialStep).className}>
             快速匹配自动开战；私人房准备就绪后，由房主开始。
           </li>
           <li class={stylex.props(styles.tutorialStep).className}>
-            打完一条咒文造成伤害，自动打向顺时针下一个还活着的人。
+            打完一条咒文，总伤害平均分给场上所有还活着的对手——一次施法，同时命中所有人。
           </li>
         </ol>
         <Link

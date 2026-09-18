@@ -184,7 +184,13 @@ export const IMPACT_STYLES: Record<Element, ImpactStyle> = {
   },
 };
 
-export const BOLT_SLOTS = 8;
+/**
+ * Bolts in flight at once. A settlement batch launches every one of its hits in
+ * the same frame — worst case four casts × three targets = twelve — so the
+ * budget must cover that plus stragglers from the previous batch; a recycled
+ * in-flight bolt would land as nothing at all.
+ */
+export const BOLT_SLOTS = 16;
 export const IMPACT_SLOTS = 10;
 export const WAVE_SLOTS = 6;
 export const FLOAT_SLOTS = 6;

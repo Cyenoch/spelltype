@@ -87,10 +87,12 @@ export async function createBattleStage(host: HTMLElement): Promise<BattleStage>
         silhouette: assets.silhouettes[slot % assets.characters.length],
         glow: shapes.glow,
         ring: shapes.ring,
+        rune: shapes.rune[ELEMENT_ORDER[slot % ELEMENT_ORDER.length]],
       },
       ELEMENT_CORE[ELEMENT_ORDER[slot % ELEMENT_ORDER.length]],
     );
     fighter.setActive(false);
+    fighter.setMotion(reduced);
     fighterLayer.addChild(fighter.view);
     return fighter;
   });
@@ -228,6 +230,7 @@ export async function createBattleStage(host: HTMLElement): Promise<BattleStage>
     }
     reduced = isReduced;
     fx.setReducedMotion(isReduced);
+    for (const fighter of fighters) fighter.setMotion(isReduced);
     host.dataset.motion = isReduced ? 'reduced' : 'full';
     if (isReduced) {
       combat.flush(clock);

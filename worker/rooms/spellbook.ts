@@ -1,4 +1,4 @@
-import { OPENING_COUNTDOWN_MS } from '../../shared/protocol';
+import { OPENING_COUNTDOWN_MS, THEME_PRESETS } from '../../shared/protocol';
 import { generateSpellSet } from '../generation/spells';
 import { SEAT_TTL_MS } from './rules';
 import type { RoomScope } from './scope';
@@ -9,17 +9,19 @@ import { getRoom, updateRoom } from './storage/room';
 import type { RoomRow } from './storage/schema';
 
 /**
- * One match = one provider request. The token captured here is re-checked after the call, so a
- * response from a superseded match or attempt can never overwrite newer state — and a stale response
- * never triggers another paid call.
+ * Preset themes share their cached book; custom themes generate once per match.
+ * Recheck the room token after either operation so a departed or superseded match
+ * cannot be resurrected by a delayed response. The book is frozen in the room at admission.
  */
 export async function runGeneration(scope: RoomScope, room: RoomRow): Promise<void> {
   const token = room.generation_token;
   if (token === null) return;
-  const outcome = await generateSpellSet(scope.env, {
-    theme: room.theme,
-    variation: `${room.match_id ?? ''}:${room.generation_seq}`,
-  });
+  const outcome = THEME_PRESETS.some((preset) => preset.theme === room.theme)
+    ? await scope.env.SPELL_BOOKS.getByName(room.theme).getSpellBook(room.theme)
+    : await generateSpellSet(scope.env, {
+        theme: room.theme,
+        variation: `${room.match_id ?? ''}:${room.generation_seq}`,
+      });
 
   const fresh = getRoom(scope.sql);
   if (!fresh || fresh.phase !== 'generating' || fresh.generation_token !== token) return;

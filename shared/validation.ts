@@ -72,6 +72,7 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
     type: z.literal('input'),
     matchId: z.string(),
     spellIndex: z.number().int().min(0),
+    draftEpoch: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
     text: z.string(),
   }),
   z.object({ type: z.literal('rematch') }),

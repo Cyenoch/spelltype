@@ -23,7 +23,7 @@ import {
   type SortFn,
 } from '@tanstack/solid-table';
 import type { MatchResult } from '../../../shared/protocol';
-import { formatAccuracyPercent, formatTimestamp } from '../../ui/format';
+import { formatAccuracyPercent, formatAmount, formatTimestamp } from '../../ui/format';
 
 /** The per-row cell attributes the retired table carried alongside the measured text. */
 export interface HistoryCellAttrs {
@@ -103,7 +103,7 @@ export const historyColumns = helper.columns([
   helper.accessor('damage_dealt', {
     header: '造成伤害',
     sortFn: sortFn_basic,
-    cell: (info) => String(info.getValue()),
+    cell: (info) => formatAmount(info.getValue()),
     meta: {
       testid: 'history-damage',
       num: true,
@@ -113,7 +113,7 @@ export const historyColumns = helper.columns([
   helper.accessor('hp_remaining', {
     header: '剩余生命',
     sortFn: sortFn_basic,
-    cell: (info) => String(info.getValue()),
+    cell: (info) => formatAmount(info.getValue()),
     meta: {
       testid: 'history-hp',
       num: true,
@@ -138,4 +138,21 @@ export const historyColumns = helper.columns([
     cell: (info) => formatAccuracyPercent(info.getValue()),
     meta: { testid: 'history-accuracy', num: true },
   }),
+  helper.accessor(
+    (row) => {
+      if (row.input_policy_version === 'legacy-unmeasured') return '旧记录：未测量';
+      const ratio =
+        row.input_min_completion_ratio === null
+          ? '未采样'
+          : row.input_min_completion_ratio.toFixed(2);
+      return `${row.input_policy_version} · ${row.input_policy_mode === 'enforce' ? '执行' : '观察'} · 触及规则 ${row.input_gate_hits} 条 · 恢复 ${row.input_recoveries} 次 · 最小资格比值 ${ratio} · 连接超限 ${row.input_overloads} 次 · 非真人认证`;
+    },
+    {
+      id: 'input-policy',
+      header: '输入规则',
+      enableSorting: false,
+      cell: (info) => info.getValue(),
+      meta: { testid: 'history-input-policy' },
+    },
+  ),
 ]);

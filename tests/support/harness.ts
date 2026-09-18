@@ -190,10 +190,37 @@ export async function startHarness(): Promise<Harness> {
   let instance: AppInstance | null = null;
 
   // Stops and re-boots the instance on the same address, so a spec can prove that Durable Object
-  // state survives process reactivation.
-  const restart = async (): Promise<{ restarted: boolean; url: string } | undefined> => {
+  // state survives process reactivation. The optional overrides patch ONLY this instance's
+  // generated config vars for the next boot; anything unexpected is a spec bug and fails loudly
+  // instead of booting an instance under a misunderstood policy.
+  const restart = async (
+    overrides: { inputPolicyMode?: string; matchAdmission?: string } = {},
+  ): Promise<{ restarted: boolean; url: string } | undefined> => {
     if (!instance) return undefined;
+    if (
+      overrides.inputPolicyMode !== undefined &&
+      overrides.inputPolicyMode !== 'observe' &&
+      overrides.inputPolicyMode !== 'enforce'
+    )
+      throw new Error(`restart: unsupported inputPolicyMode ${overrides.inputPolicyMode}`);
+    if (
+      overrides.matchAdmission !== undefined &&
+      overrides.matchAdmission !== 'open' &&
+      overrides.matchAdmission !== 'draining'
+    )
+      throw new Error(`restart: unsupported matchAdmission ${overrides.matchAdmission}`);
     await stopChild(instance.child);
+    if (overrides.inputPolicyMode !== undefined || overrides.matchAdmission !== undefined) {
+      const raw = JSON.parse(fs.readFileSync(instance.configPath, 'utf8')) as {
+        vars?: Record<string, unknown>;
+      };
+      raw.vars ??= {};
+      if (overrides.inputPolicyMode !== undefined)
+        raw.vars.INPUT_POLICY_MODE = overrides.inputPolicyMode;
+      if (overrides.matchAdmission !== undefined)
+        raw.vars.MATCH_ADMISSION = overrides.matchAdmission;
+      fs.writeFileSync(instance.configPath, `${JSON.stringify(raw, null, 2)}\n`);
+    }
     instance = await boot(instance);
     return { restarted: true, url: instance.url };
   };
@@ -217,7 +244,10 @@ export async function startHarness(): Promise<Harness> {
   };
 
   const fixture: FixtureServer = await startFixtureServer({
-    control: async (controlPath) => (controlPath === '/restart' ? restart() : undefined),
+    control: async (controlPath, body) =>
+      controlPath === '/restart'
+        ? restart(typeof body === 'object' && body !== null ? body : {})
+        : undefined,
   });
 
   const typesFile = path.join(ROOT, 'worker-configuration.d.ts');
@@ -243,7 +273,14 @@ export async function startHarness(): Promise<Harness> {
       root: ROOT,
       configDir,
       instance: 'app',
-      vars: { TEST_DEEPSEEK_BASE_URL: fixture.url, DEEPSEEK_API_KEY: TEST_AI_KEY },
+      vars: {
+        TEST_DEEPSEEK_BASE_URL: fixture.url,
+        DEEPSEEK_API_KEY: TEST_AI_KEY,
+        // The suite's default rules: admissions open, the input gate enforcing. Specs that need
+        // the other value switch it through restartInstance({ ... }) on the isolated config only.
+        MATCH_ADMISSION: 'open',
+        INPUT_POLICY_MODE: 'enforce',
+      },
       limiterLimit: TEST_ONLY_AUTH_LIMIT,
     });
     const port = await freePort();

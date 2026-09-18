@@ -34,13 +34,17 @@ export const styles = stylex.create({
     '@media (max-width: 700px)': { gridColumn: '1 / -1', justifyContent: 'flex-start' },
   },
   noticeError: {
-    borderColor: 'rgba(255, 107, 125, .45)',
-    backgroundColor: 'rgba(56, 18, 28, .62)',
+    boxShadow: 'inset 3px 0 #ae5668',
+    backgroundImage: 'linear-gradient(#70223933,#70223933),var(--surface-stone)',
+    backgroundSize: 'auto,256px 256px',
+    backgroundRepeat: 'no-repeat,repeat',
     color: '#ffd8de',
   },
   noticeWarn: {
-    borderColor: 'rgba(255, 196, 108, .4)',
-    backgroundColor: 'rgba(48, 34, 12, .62)',
+    borderImageSource: 'var(--frame-control)',
+    backgroundImage: 'linear-gradient(#7c501b22,#7c501b22),var(--surface-stone)',
+    backgroundSize: 'auto,256px 256px',
+    backgroundRepeat: 'no-repeat,repeat',
     color: '#ffe4b8',
   },
 });

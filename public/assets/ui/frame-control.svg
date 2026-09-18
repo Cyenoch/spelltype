@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="192" height="192" viewBox="0 0 192 192"><defs>
+    <linearGradient id="metal" x2=".7" y2="1"><stop stop-color="#c9b899"/><stop offset=".28" stop-color="#827154"/><stop offset=".55" stop-color="#302c35"/><stop offset=".72" stop-color="#827154"/><stop offset="1" stop-color="#c9b899"/></linearGradient>
+    <linearGradient id="gem" x2=".8" y2="1"><stop stop-color="#a0a8ce"/><stop offset="1" stop-color="#302c35"/></linearGradient>
+    <g id="corner"><path d="M4 30V12L12 4H30V8H15L8 15V30Z" fill="url(#metal)" stroke="#302c35"/>
+       <path d="M7 25V14L14 7H25" fill="none" stroke="#c9b899" stroke-width=".6"/>
+       <path d="M14 10L19 15L14 20L9 15Z" fill="#302c35" stroke="#827154"/>
+       <path d="M14 12L17 15L14 18L11 15Z" fill="url(#gem)"/>
+       <path d="M25 11H37M11 25V37" stroke="#827154" stroke-width=".7"/></g>
+  </defs>
+  <path d="M18 4H174L188 18V174L174 188H18L4 174V18Z" fill="none" stroke="#06080f" stroke-width="7"/>
+  <path d="M18 4H174L188 18V174L174 188H18L4 174V18Z" fill="none" stroke="#827154" stroke-width="3"/>
+  <path d="M18 3H174L189 18V174L174 189H18L3 174V18Z" fill="none" stroke="#c9b899" stroke-width=".65" opacity=".8"/>
+  <path d="M20 8H172L184 20V172L172 184H20L8 172V20Z" fill="none" stroke="#302c35" stroke-width="2"/>
+  <path d="M22 11H170L181 22V170L170 181H22L11 170V22Z" fill="none" stroke="#827154" stroke-width=".7" opacity=".65"/>
+  <use href="#corner"/><use href="#corner" transform="translate(192 0) scale(-1 1)"/>
+  <use href="#corner" transform="translate(0 192) scale(1 -1)"/><use href="#corner" transform="translate(192 192) scale(-1 -1)"/></svg>

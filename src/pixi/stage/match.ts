@@ -139,6 +139,9 @@ export function createMatch(wiring: MatchWiring): Match {
     lastSeq = 0;
     primed = false;
     lastSeating = '';
+    // A new match must not inherit the previous one's charge: until the first
+    // keystroke lands, the local caster shows an empty orbit.
+    selfProgress = 0;
     choreography.reset();
     combat.reset();
     clearEffects();
@@ -224,6 +227,13 @@ export function createMatch(wiring: MatchWiring): Match {
         combat.defer(slot, fighter.eliminationPending, clock());
         if (player.id === selfId) {
           fighter.setCharge(selfSpellLength > 0 ? selfProgress / selfSpellLength : 0);
+        } else {
+          // Opponents charge from the authoritative snapshot. Their runes use
+          // the fighter's own element: the protocol carries no remote spell
+          // element, and none is needed for a charge read.
+          fighter.setCharge(
+            player.spellLength > 0 ? Math.min(1, player.progress / player.spellLength) : 0,
+          );
         }
       }
 

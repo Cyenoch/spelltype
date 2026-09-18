@@ -33,13 +33,11 @@ export interface MatchQueue {
   hint(): string;
   error(): string | null;
   retry(): boolean;
-  paused(): boolean;
   /** Real elapsed waiting time, and it stops the moment the search does. */
   elapsed(): number;
   cancelPending(): boolean;
   cancel(): void;
   requeue(): void;
-  toggleMotion(): void;
 }
 
 /**
@@ -65,7 +63,6 @@ export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
   const [status, setStatus] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [retry, setRetry] = createSignal(false);
-  const [paused, setPaused] = createSignal(false);
   const [polling, setPolling] = createSignal(true);
   const [startedAt, setStartedAt] = createSignal(Date.now());
   const [elapsed, setElapsed] = createSignal(0);
@@ -215,11 +212,9 @@ export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
     hint: () => STATE_HINTS[state()],
     error,
     retry,
-    paused,
     elapsed,
     cancelPending: () => cancelMatch.isPending,
     cancel: () => void cancel(),
     requeue,
-    toggleMotion: () => setPaused(!paused()),
   };
 }

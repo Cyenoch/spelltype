@@ -26,12 +26,42 @@ export type Element = z.infer<typeof elementSchema>;
 /** How a room came to exist: a host's private table, or a matchmaker pairing. */
 export type RoomMode = z.infer<typeof roomModeSchema>;
 export type Phase = 'lobby' | 'generating' | 'countdown' | 'playing' | 'finished';
-/** Why a finished match ended: the last opponent fell, or the match deadline passed. */
+/** Why combat ended: at most one survivor remains, or the match deadline passed. */
 export type EndReason = 'elimination' | 'timeout';
 /** Persistence of the finished-match result into D1, as seen by the room. */
 export type Persistence = 'idle' | 'saving' | 'saved' | 'error';
 /** Reservation lifecycle of a room seat, used to reconcile matchmaking tickets. */
 export type ReservationState = 'none' | 'reserved' | 'cancelled' | 'expired' | 'locked';
+
+export const WS_PROTOCOL = 'spelltype.v2';
+
+export type SelfInputGate = null | {
+  policyVersion: string;
+  mode: 'observe' | 'enforce';
+  draftEpoch: number;
+  notBefore: number;
+  resetReason: null | 'completion_too_early';
+};
+
+export type SelfInputStats = null | {
+  attemptTotal: number;
+  errorTotal: number;
+};
+export interface ThemePreset {
+  id: string;
+  label: string;
+  theme: string;
+}
+
+/** Private-room choices and the quick-match pool; each preset has its own shared spell book. */
+export const THEME_PRESETS: readonly ThemePreset[] = [
+  { id: 'academy', label: '正统魔法学院', theme: '正统魔法学院的期末考试' },
+  { id: 'courtyard', label: '深夜炼金工坊', theme: '深夜炼金工坊的失控事故' },
+  { id: 'immortal', label: '修真斗法', theme: '仙门斗法大会的紫霄剑诀' },
+  { id: 'comedy', label: '整活魔法', theme: '用魔法点外卖的离谱日常' },
+  { id: 'deepsea', label: '深海咒术', theme: '深海遗迹里的古老封印' },
+  { id: 'bakery', label: '魔法面包房', theme: '魔法面包房的清晨配方' },
+];
 
 /** Limits. Shared so the browser, the Worker and the rooms agree on the boundary values. */
 export const MAX_THEME_CHARS = 80;
@@ -58,12 +88,15 @@ export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const OPENING_COUNTDOWN_MS = 3_000;
 /** Total active combat time. The match deadline is set once and never extends. */
 export const MATCH_DURATION_MS = 240_000;
+/** Fixed server-time windows; every accepted cast in a window lands simultaneously. */
+export const COMBAT_BATCH_MS = 100;
 /** Every player starts, and is capped, at full health. */
 export const INITIAL_HEALTH = 2400;
-/** Damage per Unicode code point of a completed spell: `4 * [...text].length`, bounded by remaining HP. */
+/** Total spell power per Unicode code point, shared evenly by all living opponents. */
 export const DAMAGE_PER_CHARACTER = 4;
 /**
- * One shared generated, ordered spell book per match. Every player receives only their own current
+ * One immutable ordered spell book per match, shared across matches for preset themes.
+ * Every player receives only their own current
  * spell, walked with a private zero-based index; index `mod SPELL_BOOK_SIZE` wraps to the same
  * distinct spell, so a match longer than the book repeats practice spells instead of deadlocking.
  */
@@ -85,7 +118,7 @@ export interface Spell {
 }
 
 export interface Player extends User {
-  /** Stable seat slot, 0-based; automatic targeting walks slots clockwise from the attacker. */
+  /** Stable presentation seat, 0-based; seats never influence damage allocation. */
   slot: number;
   connected: boolean;
   ready: boolean;
@@ -99,14 +132,14 @@ export interface Player extends User {
   spellsCast: number;
   hp: number;
   maxHp: number;
-  /** Total damage this player has applied to opponents: `DAMAGE_PER_CHARACTER * code points`. */
+  /** Actual HP removed, proportionally credited when a batch overkills; may be fractional. */
   damageDealt: number;
   /**
    * Confirmed correct characters from spells this player completed, monotone across the match. The
    * current accepted prefix is NOT part of this count (it is added for CPM while the spell is open).
    */
   correctChars: number;
-  /** Server time of elimination, or `null` while alive. */
+  /** Batch end of a combat KO, or immediate forfeit time; null while alive. */
   eliminatedAt: number | null;
   /**
    * (`correctChars` + the current accepted prefix) per active minute; active time starts when combat
@@ -120,22 +153,23 @@ export interface Player extends User {
 }
 
 /**
- * One completed spell's damage, published to every seat so all clients can render the same hit
- * without recomputing rules. The completed spell's text is never part of an event.
+ * One cast's contribution to one opponent in a simultaneous volley. Events sharing
+ * `at` land together; each has a unique seq. Spell text is never exposed here.
  */
 export interface CombatEvent {
   /** Monotonic per match, starting at 1; `(matchId, seq)` is what clients dedupe on. */
   seq: number;
+  /** Authoritative batch end, shared by all hits in the volley. */
   at: number;
   attackerId: string;
   targetId: string;
   element: Element;
   damage: number;
-  /** Target's remaining HP after this hit. */
+  /** Target's final HP after the whole batch, not an intermediate per-hit state. */
   targetHp: number;
   /** The attacker's spell index that produced this hit. */
   spellIndex: number;
-  /** True when this hit brought the target to 0 HP. */
+  /** One event per newly eliminated target marks the batch's KO for presentation. */
   eliminated: boolean;
 }
 
@@ -144,6 +178,7 @@ export interface CombatEvent {
  * sends a player's own current spell and their own accepted draft, never the book or a rival's draft.
  */
 export interface RoomSnapshot {
+  protocolVersion: string;
   id: string;
   matchId: string | null;
   hostId: string;
@@ -161,6 +196,8 @@ export interface RoomSnapshot {
   endReason: EndReason | null;
   spell: Spell | null;
   selfInput: string;
+  selfInputGate: SelfInputGate;
+  selfInputStats: SelfInputStats;
   /** Bounded recent damage ring, oldest first; empty before the first hit. */
   events: CombatEvent[];
   persistence: Persistence;
@@ -213,6 +250,14 @@ export interface MatchResult {
   /** `null` when the account produced no counted keystroke; that state is unknown, not 0% or 100%. */
   accuracy: number | null;
   created_at: number;
+  input_policy_version: string;
+  input_policy_mode: 'observe' | 'enforce' | null;
+  input_gate_hits: number | null;
+  input_recoveries: number | null;
+  input_min_completion_ratio: number | null;
+  input_overloads: number | null;
+  input_recovered_completions: number | null;
+  input_recovery_departures: number | null;
 }
 
 export interface Profile {
@@ -249,6 +294,10 @@ export const WS_CLOSE = {
   closed: 4001,
   /** The session expired or was revoked: re-authenticate before retrying. */
   sessionExpired: 4002,
+  /** Update the client before reconnecting. */
+  protocolMismatch: 4003,
+  /** Input resource limit: reconnect after at least one second. */
+  inputOverload: 4004,
 } as const;
 
 export type WsCloseCode = (typeof WS_CLOSE)[keyof typeof WS_CLOSE];

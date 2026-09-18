@@ -6,7 +6,7 @@ import { createMiddleware } from 'hono/factory';
 import { HTTPException } from 'hono/http-exception';
 import { methodNotAllowed } from 'hono/method-not-allowed';
 import { z } from 'zod';
-import { MAX_API_BODY_BYTES } from '../../shared/protocol';
+import { MAX_API_BODY_BYTES, WS_PROTOCOL } from '../../shared/protocol';
 import type { ActivitySummary, MatchResult, Profile, SessionInfo } from '../../shared/protocol';
 import {
   createRoomSchema,
@@ -257,7 +257,11 @@ const routes = app
       .bind(user.id)
       .first<{ games: number; wins: number; bestCpm: number }>();
     const history = await c.env.DB.prepare(
-      'SELECT match_id, theme, damage_dealt, hp_remaining, spells_cast, correct_chars, duration_ms, rank, cpm, accuracy, created_at FROM results WHERE user_id = ? ORDER BY created_at DESC, match_id DESC LIMIT 10',
+      `SELECT match_id, theme, damage_dealt, hp_remaining, spells_cast, correct_chars, duration_ms,
+        rank, cpm, accuracy, created_at, input_policy_version, input_policy_mode,
+        input_gate_hits, input_recoveries, input_min_completion_ratio, input_overloads,
+        input_recovered_completions, input_recovery_departures
+        FROM results WHERE user_id = ? ORDER BY created_at DESC, match_id DESC LIMIT 10`,
     )
       .bind(user.id)
       .all<MatchResult>();
@@ -279,6 +283,9 @@ const routes = app
         });
     }),
     async (c) => {
+      if (c.env.MATCH_ADMISSION !== 'open') {
+        return c.json({ error: '服务器维护中，暂不开始新对局。' }, 503);
+      }
       const { theme } = c.req.valid('json');
       const roomId = newRoomId();
       try {
@@ -295,6 +302,12 @@ const routes = app
     },
   )
   .get('/api/rooms/:roomId', authenticated, async (c) => {
+    if (c.req.header('X-Spelltype-Protocol') !== WS_PROTOCOL) {
+      return c.json(
+        { error: '客户端版本已更新，请刷新页面后继续。', protocolVersion: WS_PROTOCOL },
+        409,
+      );
+    }
     const roomId = c.req.param('roomId');
     try {
       return c.json(
@@ -320,6 +333,17 @@ const routes = app
     if (request.headers.get('upgrade')?.toLowerCase() !== 'websocket')
       throw new HTTPException(426, { message: '需要 WebSocket 升级请求' });
     const session = await authenticate(c.env, getCookie(c, SESSION_COOKIE));
+    if (
+      !request.headers
+        .get('Sec-WebSocket-Protocol')
+        ?.split(',')
+        .some((token) => token.trim() === WS_PROTOCOL)
+    ) {
+      return c.json(
+        { error: '客户端版本已更新，请刷新页面后继续。', protocolVersion: WS_PROTOCOL },
+        426,
+      );
+    }
     const roomId = c.req.param('roomId');
     const headers = new Headers({
       upgrade: 'websocket',
@@ -343,6 +367,9 @@ const routes = app
     }
   })
   .post('/api/match', sameOrigin, authenticated, async (c) => {
+    if (c.env.MATCH_ADMISSION !== 'open') {
+      return c.json({ error: '服务器维护中，暂不开始新对局。' }, 503);
+    }
     const user = c.var.session.user;
     const shard = c.env.MATCHMAKER.get(c.env.MATCHMAKER.idFromName(userShardName(user.id)));
     try {

@@ -6,8 +6,10 @@ import * as stylex from '@stylexjs/stylex';
  */
 export const noticeStyles = stylex.create({
   warn: {
-    border: '1px solid rgba(255, 196, 108, 0.4)',
-    background: 'rgba(48, 34, 12, 0.62)',
+    borderImageSource: 'var(--frame-control)',
+    backgroundImage: 'linear-gradient(#7c501b22,#7c501b22),var(--surface-stone)',
+    backgroundSize: 'auto,256px 256px',
+    backgroundRepeat: 'no-repeat,repeat',
     color: '#ffe4b8',
   },
   /** A notice that carries its own buttons keeps them off its copy. */

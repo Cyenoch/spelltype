@@ -1,8 +1,14 @@
 import { parseResponse, DetailedError } from 'hono/client';
-import { WS_CLOSE_RESTART } from '../../../shared/protocol';
+import { WS_CLOSE_RESTART, WS_PROTOCOL } from '../../../shared/protocol';
 import type { ClientMessage, RoomSnapshot } from '../../../shared/protocol';
 import { client } from '../../app/client';
-import { closeInfo, parseServerMessage, type CloseInfo } from './room-wire';
+import {
+  closeInfo,
+  isProtocolRejection,
+  parseServerMessage,
+  type CloseInfo,
+  type Diagnosis,
+} from './room-wire';
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed';
 
@@ -21,12 +27,25 @@ const CLOSE_STALE = 4009;
 const PING_INTERVAL_MS = 20_000;
 const STALE_AFTER_MS = 70_000;
 const MAX_BACKOFF_MS = 8_000;
+/**
+ * Floor for reconnecting after an input-overload reset (close 4004): every
+ * reconnect trigger — timer, retryNow, online, visibility — waits out the same
+ * deadline before a new socket may even be attempted, so a focus event cannot
+ * outrun the backoff and hammer the room again.
+ */
+const OVERLOAD_RECONNECT_FLOOR_MS = 1_000;
 
 /**
  * One authenticated socket per room. It reconnects on its own (the server
  * replaces the old connection with the new one and replays authoritative
  * state), keeps the server clock calibrated from pongs, and never treats a
  * rejected session or a vanished room as a transient failure.
+ *
+ * The socket is created with the wire protocol subprotocol: a server that no
+ * longer speaks this page's version refuses the handshake, and the diagnosis
+ * that follows turns that into a terminal update-required state instead of a
+ * reconnect loop. A protocol-mismatch close (4003) is terminal on its own;
+ * an input-overload close (4004) reconnects, but never sooner than the floor.
  */
 export class RoomConnection {
   private socket: WebSocket | null = null;
@@ -38,6 +57,15 @@ export class RoomConnection {
   private reconnectTimer: number | null = null;
   private pingTimer: number | null = null;
   private lastMessageAt = 0;
+  /** Earliest instant a new socket may be opened; nonzero only after an overload reset. */
+  private reconnectNotBefore = 0;
+  /**
+   * Connection generation: bumped by every new socket and by termination. An
+   * async diagnosis captured the token when it started; a result that comes
+   * back under a different token belongs to a connection that no longer exists
+   * and is dropped instead of clobbering the newer socket's state.
+   */
+  private generation = 0;
 
   constructor(
     private readonly roomId: string,
@@ -53,7 +81,7 @@ export class RoomConnection {
   }
 
   open(): void {
-    if (this.socket || this.stopped) return;
+    if (this.stopped || this.socket) return;
     this.connect();
   }
 
@@ -70,6 +98,7 @@ export class RoomConnection {
 
   close(): void {
     this.stopped = true;
+    this.generation += 1;
     this.teardownTimers();
     const socket = this.socket;
     this.socket = null;
@@ -85,13 +114,20 @@ export class RoomConnection {
   }
 
   private readonly retryNow = (): void => {
-    if (this.stopped || this.state === 'open') return;
+    if (this.stopped || this.state === 'open' || this.socket) return;
     this.clearReconnect();
     this.connect();
   };
 
   private readonly handleOffline = (): void => {
     if (this.stopped) return;
+    // Offline does not reliably close an existing WebSocket. Retaining it would
+    // block every online/visibility retry and prevent authoritative draft recovery.
+    const socket = this.socket;
+    this.socket = null;
+    this.generation += 1;
+    this.teardownTimers();
+    if (socket && socket.readyState <= WebSocket.OPEN) socket.close(CLOSE_STALE, 'offline');
     this.setState('reconnecting');
   };
 
@@ -102,7 +138,13 @@ export class RoomConnection {
   };
 
   private connect(): void {
-    if (this.stopped) return;
+    if (this.stopped || this.socket) return;
+    // The overload floor is enforced here, not just in the retry scheduler, so
+    // no trigger (online, visibility, manual open) can open a socket early.
+    if (Date.now() < this.reconnectNotBefore) {
+      this.scheduleReconnect();
+      return;
+    }
     this.setState(this.everOpened ? 'reconnecting' : 'connecting');
 
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -110,12 +152,13 @@ export class RoomConnection {
 
     let socket: WebSocket;
     try {
-      socket = new WebSocket(url);
+      socket = new WebSocket(url, WS_PROTOCOL);
     } catch {
       this.scheduleReconnect();
       return;
     }
     this.socket = socket;
+    this.generation += 1;
 
     socket.addEventListener('open', () => {
       if (this.socket !== socket) return;
@@ -158,9 +201,26 @@ export class RoomConnection {
       }
       const info = closeInfo(event.code, event.reason || '');
       this.openIsReconnect = false;
-      if (info.authExpired || info.replaced || info.roomClosed) {
+      if (info.protocolMismatch) {
+        // Terminal: this page's wire version is gone. No trigger may reopen.
+        this.stopped = true;
+        this.generation += 1;
+        this.teardownTimers();
         this.handlers.onClosed(info);
         this.setState('closed');
+        return;
+      }
+      if (info.inputOverload) {
+        // Reconnect, but never inside the same quota window: the floor holds
+        // against the scheduler below and against every direct trigger.
+        this.reconnectNotBefore = Date.now() + OVERLOAD_RECONNECT_FLOOR_MS;
+        this.handlers.onClosed(info);
+        this.scheduleReconnect();
+        return;
+      }
+      if (info.authExpired || info.replaced || info.roomClosed) {
+        this.close();
+        this.handlers.onClosed(info);
         return;
       }
       if (event.code === WS_CLOSE_RESTART) {
@@ -169,21 +229,33 @@ export class RoomConnection {
         return;
       }
       // Unknown failure (a rejected handshake surfaces as 1006 with no reason):
-      // ask the API whether the session or the room is still usable first.
+      // ask the API whether the session, the room, or the protocol is still
+      // usable on this side before retrying.
       void this.retryAfterDiagnosis(info);
     });
   }
 
   private async retryAfterDiagnosis(info: CloseInfo): Promise<void> {
+    const token = this.generation;
     const diagnosis = await this.diagnose();
-    if (this.stopped) return;
+    if (this.stopped || token !== this.generation) return;
     if (diagnosis === 'auth') {
+      this.close();
       this.handlers.onClosed({ ...info, authExpired: true });
-      this.setState('closed');
       return;
     }
     if (diagnosis === 'room') {
+      this.close();
       this.handlers.onClosed({ ...info, roomClosed: true });
+      return;
+    }
+    if (diagnosis === 'protocol') {
+      // The server answered the room read with its update-required verdict:
+      // same terminal state as a 4003 close, never a reconnect.
+      this.stopped = true;
+      this.generation += 1;
+      this.teardownTimers();
+      this.handlers.onClosed({ ...info, protocolMismatch: true });
       this.setState('closed');
       return;
     }
@@ -191,7 +263,7 @@ export class RoomConnection {
   }
 
   /** After an unexplained close, is the session still valid and the room still open? */
-  private async diagnose(): Promise<'ok' | 'auth' | 'room'> {
+  private async diagnose(): Promise<Diagnosis> {
     try {
       const session = await parseResponse(client.api.session.$get());
       if (!session.user) return 'auth';
@@ -199,12 +271,18 @@ export class RoomConnection {
       return error instanceof DetailedError && error.statusCode === 401 ? 'auth' : 'ok';
     }
     try {
-      await parseResponse(client.api.rooms[':roomId'].$get({ param: { roomId: this.roomId } }));
-      return 'ok';
+      const room = await parseResponse(
+        client.api.rooms[':roomId'].$get(
+          { param: { roomId: this.roomId } },
+          { headers: { 'X-Spelltype-Protocol': WS_PROTOCOL } },
+        ),
+      );
+      return room.protocolVersion === WS_PROTOCOL ? 'ok' : 'protocol';
     } catch (error) {
       if (!(error instanceof DetailedError)) return 'ok';
       if (error.statusCode === 401) return 'auth';
-      if (error.statusCode === 404 || error.statusCode === 403 || error.statusCode === 409)
+      if (isProtocolRejection(error)) return 'protocol';
+      if (error.statusCode === 409 || error.statusCode === 404 || error.statusCode === 403)
         return 'room';
       return 'ok';
     }
@@ -214,7 +292,9 @@ export class RoomConnection {
     if (this.stopped) return;
     this.setState('reconnecting');
     const base = Math.min(MAX_BACKOFF_MS, 500 * 2 ** this.attempt);
-    const delay = Math.round(base * (0.75 + Math.random() * 0.5));
+    const jittered = Math.round(base * (0.75 + Math.random() * 0.5));
+    const floorRemaining = Math.max(0, this.reconnectNotBefore - Date.now());
+    const delay = Math.max(jittered, floorRemaining);
     this.attempt += 1;
     this.handlers.onReconnectAttempt(this.attempt, delay);
     this.clearReconnect();

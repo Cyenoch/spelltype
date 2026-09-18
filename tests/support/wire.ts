@@ -7,7 +7,7 @@
  * the literal wire and a leak or a silent reconnect cannot hide behind the rendering layer.
  */
 import type { Page } from '@playwright/test';
-import type { ClientMessage, ServerMessage } from '../../shared/protocol';
+import { WS_PROTOCOL, type ClientMessage, type ServerMessage } from '../../shared/protocol';
 import { clientMessageSchema } from '../../shared/validation';
 
 declare global {
@@ -118,16 +118,26 @@ export function sentMessages(capture: SocketCapture): ClientMessage[] {
   });
 }
 
-/** Sends raw room frames over a fresh socket (used for replay/cut-off input checks). */
+/** Sends raw room frames over a fresh socket (used for replay/cut-off input checks).
+ *
+ * The socket opens with the current `WS_PROTOCOL` subprotocol unless the caller explicitly asks
+ * for another handshake: `protocols: []` (no subprotocol) or a wrong token exercise the server's
+ * protocol refusal. Frames are delivered verbatim — a stale `draftEpoch` or `spellIndex` the
+ * caller passes is sent as-is, never upgraded to the room's current identity.
+ */
 export async function sendRawMessages(
   page: Page,
   roomId: string,
   messages: ClientMessage[],
+  options: { protocols?: string[] } = {},
 ): Promise<void> {
   await page.evaluate(
-    ({ roomId: id, messages: payload }) =>
+    ({ roomId: id, messages: payload, protocols }) =>
       new Promise<void>((resolve) => {
-        const socket = new WebSocket(`ws://${location.host}/api/rooms/${id}/ws`);
+        const socket =
+          protocols.length > 0
+            ? new WebSocket(`ws://${location.host}/api/rooms/${id}/ws`, protocols)
+            : new WebSocket(`ws://${location.host}/api/rooms/${id}/ws`);
         socket.onopen = () => {
           for (const message of payload) socket.send(JSON.stringify(message));
           setTimeout(() => {
@@ -139,6 +149,71 @@ export async function sendRawMessages(
         socket.onclose = () => resolve();
         setTimeout(() => resolve(), 8000);
       }),
-    { roomId, messages },
+    { roomId, messages, protocols: options.protocols ?? [WS_PROTOCOL] },
+  );
+}
+
+export interface RawSocketProbe {
+  /** Whether the server ever accepted the upgrade. */
+  opened: boolean;
+  /** The close code the page observed, if any (a refused handshake surfaces as `1006`-style no-code). */
+  closeCode: number | null;
+  /** Verbatim server payloads received on this socket, in arrival order. */
+  received: string[];
+}
+
+/**
+ * Opens one raw room socket and reports the handshake/close outcome. Used by the protocol tests:
+ * a wrong or missing subprotocol must never reach `opened`, while a v2 socket the room revokes
+ * reports the room's own close code (4003/4004).
+ *
+ * `send` payloads are delivered VERBATIM once the socket opens — they are stringified by the
+ * caller, so a deliberately malformed frame (a v2 input without its mandatory `draftEpoch`) is
+ * sent exactly as written, never repaired into a valid message.
+ */
+export async function openRawSocket(
+  page: Page,
+  roomId: string,
+  options: { protocols?: string[]; holdMs?: number; send?: unknown[] } = {},
+): Promise<RawSocketProbe> {
+  return page.evaluate(
+    ({ roomId: id, protocols, holdMs, send }) =>
+      new Promise<RawSocketProbe>((resolve) => {
+        const probe: RawSocketProbe = { opened: false, closeCode: null, received: [] };
+        const socket =
+          protocols.length > 0
+            ? new WebSocket(`ws://${location.host}/api/rooms/${id}/ws`, protocols)
+            : new WebSocket(`ws://${location.host}/api/rooms/${id}/ws`);
+        const finish = () => {
+          try {
+            socket.close();
+          } catch {
+            /* already closed */
+          }
+          resolve(probe);
+        };
+        socket.onopen = () => {
+          probe.opened = true;
+          for (const payload of send ?? []) socket.send(JSON.stringify(payload));
+          setTimeout(finish, holdMs ?? 400);
+        };
+        socket.onmessage = (event) => {
+          if (typeof event.data === 'string') probe.received.push(event.data);
+        };
+        socket.onclose = (event) => {
+          probe.closeCode = event.code;
+          resolve(probe);
+        };
+        socket.onerror = () => {
+          if (!probe.opened) resolve(probe);
+        };
+        setTimeout(() => resolve(probe), 8000);
+      }),
+    {
+      roomId,
+      protocols: options.protocols ?? [WS_PROTOCOL],
+      holdMs: options.holdMs,
+      send: options.send,
+    },
   );
 }

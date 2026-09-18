@@ -1,4 +1,4 @@
-import { WS_CLOSE } from '../../shared/protocol';
+import { WS_CLOSE, WS_PROTOCOL } from '../../shared/protocol';
 import type { ServerMessage } from '../../shared/protocol';
 import { unregisterSessionRoom } from '../auth/sessions';
 import { RoomRejection } from './rejection';
@@ -15,6 +15,12 @@ export type SocketAuth = {
   connId: string;
   sessionHash: string;
   sessionExpires: number;
+  /**
+   * Wire protocol this attachment was accepted under. New handshakes always carry
+   * `WS_PROTOCOL`; the field may be absent only on an attachment persisted by an older build.
+   * Such an attachment is recognized and cut off — it is never a working legacy dialect.
+   */
+  protocolVersion?: string;
 };
 
 /** Reads the trusted handshake headers; a missing, malformed or expired session is a refusal, never a socket. */
@@ -43,7 +49,43 @@ export function readSocketAuth(request: Request): SocketAuth {
     connId: crypto.randomUUID(),
     sessionHash,
     sessionExpires,
+    protocolVersion: WS_PROTOCOL,
   };
+}
+
+/** The refresh message every non-v2 handshake and stale attachment is told exactly once. */
+export const PROTOCOL_REFRESH_MESSAGE = '客户端版本已更新，请刷新页面后继续。';
+
+/** True when an attachment speaks exactly the wire protocol this build serves. */
+export function currentProtocolSocket(meta: SocketAuth): boolean {
+  return meta.protocolVersion === WS_PROTOCOL;
+}
+
+/**
+ * Strips one stale-protocol attachment of its authority, tells it to refresh and closes it with
+ * the protocol-mismatch code. The caller finishes with the usual reconcile/snapshot/alarm trio —
+ * once per sweep, not per socket — because the early unbind makes the close callback skip them.
+ */
+export function rejectStaleSocket(scope: RoomScope, ws: WebSocket, meta: SocketAuth): void {
+  unbindSocket(scope, meta);
+  sendTo(ws, { type: 'error', message: PROTOCOL_REFRESH_MESSAGE });
+  closeSocket(ws, WS_CLOSE.protocolMismatch, 'protocol mismatch');
+}
+
+/**
+ * Cuts off every attachment persisted by an older build. Old pages cannot be upgraded in place:
+ * a queued frame from them must never act on a v2 match, so the sweep runs once when the
+ * instance wakes, before any frame is parsed. Returns how many attachments were closed.
+ */
+export function sweepStaleProtocolSockets(scope: RoomScope): number {
+  let swept = 0;
+  for (const ws of scope.sockets()) {
+    const meta = readSocketMeta(ws);
+    if (!meta || currentProtocolSocket(meta)) continue;
+    rejectStaleSocket(scope, ws, meta);
+    swept += 1;
+  }
+  return swept;
 }
 
 /** The identity a socket was accepted with, or `null` for anything that is not one of ours. */
@@ -84,7 +126,10 @@ export function currentConns(scope: RoomScope): Set<string> {
   for (const ws of scope.sockets()) {
     if (ws.readyState !== WebSocket.OPEN) continue;
     const meta = readSocketMeta(ws);
-    if (meta && recorded.has(meta.connId)) conns.add(meta.connId);
+    // A stale-protocol attachment is not a receiver: it is not online, gets no
+    // snapshots and never hands over the host. Cleanup is the sweep's job, not
+    // this read path's.
+    if (meta && currentProtocolSocket(meta) && recorded.has(meta.connId)) conns.add(meta.connId);
   }
   return conns;
 }

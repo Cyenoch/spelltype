@@ -1,5 +1,7 @@
 import { MATCH_DURATION_MS, WS_CLOSE } from '../../shared/protocol';
 import { registerDuel } from '../activity';
+import { charCount, inputNotBefore, spellAt } from '../scoring';
+import { roomPolicyValid, reportGateStateInvalid } from './input-gate';
 import { saveResults } from './persistence';
 import { endReservation } from './reservation';
 import { TIMED_PHASES } from './rules';
@@ -8,9 +10,11 @@ import { pushSnapshots } from './snapshots';
 import { closeSocket, expiredSockets, reconcileHost, sendTo, unbindSocket } from './sockets';
 import { abortMatch, runGeneration } from './spellbook';
 import { finishMatch } from './match';
-import { expireSeats, listPlayers } from './storage/players';
+import { expireSeats, listPlayers, updatePlayer } from './storage/players';
 import { countUnsavedResults } from './storage/results';
 import { getRoom, updateRoom } from './storage/room';
+import { advanceCombat } from './volleys';
+import { readSpellBook } from './storage/spell-book';
 
 /**
  * Performs at most one due transition (or one pending generation / save
@@ -48,6 +52,8 @@ export async function advanceOnce(scope: RoomScope): Promise<boolean> {
     return true;
   }
 
+  if (room.phase === 'playing' && (await advanceCombat(scope, now))) return true;
+
   if (TIMED_PHASES[room.phase] && room.deadline > 0 && now >= room.deadline) {
     if (room.phase === 'countdown') {
       await registerDuel(scope.env, room.id, room.deadline + MATCH_DURATION_MS);
@@ -60,26 +66,58 @@ export async function advanceOnce(scope: RoomScope): Promise<boolean> {
         current.deadline !== room.deadline
       )
         return false;
-      // The combat clock is derived from the countdown deadline, so a late
-      // alarm shifts the whole match rather than handing out extra time.
-      updateRoom(scope.sql, {
-        phase: 'playing',
-        started_at: room.deadline,
-        deadline: room.deadline + MATCH_DURATION_MS,
+      if (!roomPolicyValid(current)) {
+        reportGateStateInvalid(current);
+        throw new Error('input_gate_state_invalid');
+      }
+      const openedAt = Date.now();
+      const book = readSpellBook(current);
+      const eligibility = listPlayers(scope.sql)
+        .filter((player) => player.eliminated_at === null)
+        .map((player) => {
+          const spell = spellAt(book, player.spell_index);
+          if (!spell) throw new Error('room:missing_spell');
+          return {
+            userId: player.user_id,
+            notBefore: inputNotBefore(
+              charCount(spell.text),
+              openedAt,
+              current.input_min_ms_per_code_point!,
+            ),
+          };
+        });
+      scope.transactionSync(() => {
+        for (const player of eligibility) {
+          updatePlayer(scope.sql, player.userId, {
+            input_opened_at: openedAt,
+            input_not_before: player.notBefore,
+          });
+        }
+        // The combat clock is derived from the countdown deadline, so a late
+        // alarm shifts the whole match rather than handing out extra time.
+        updateRoom(scope.sql, {
+          phase: 'playing',
+          started_at: room.deadline,
+          deadline: room.deadline + MATCH_DURATION_MS,
+        });
       });
       // Combat begins: a seat forfeited during generation or countdown is
       // already out, so the survivor rule is checked at this instant too —
       // a duel whose opponent left never waits out the clock.
+      // A transition so late that even the match window has passed never
+      // publishes an actionable playing snapshot: the playing state commits,
+      // then the match ends by its own original deadline — no attack window,
+      // no eligibility anyone could act on.
+      if (Date.now() >= room.deadline + MATCH_DURATION_MS) {
+        await finishMatch(scope, 'timeout', room.deadline + MATCH_DURATION_MS);
+        return true;
+      }
       const alive = listPlayers(scope.sql).filter((row) => row.eliminated_at === null).length;
       if (alive <= 1) {
         await finishMatch(scope, 'elimination', room.deadline);
         return true;
       }
       pushSnapshots(scope);
-      return true;
-    }
-    if (room.phase === 'playing') {
-      await finishMatch(scope, 'timeout', room.deadline);
       return true;
     }
   }

@@ -92,12 +92,14 @@ export class FxLayer {
 
   /**
    * One hit's visible aftermath: shockwave on the ground, element ring, flash,
-   * element shapes, shards and a floating damage number.
+   * element shapes, shards and a floating damage number. `floatCeil` bounds the
+   * number's ascent (canvas-local y from the seating's reserved top band).
    */
   impact(
     x: number,
     y: number,
     floatY: number,
+    floatCeil: number,
     element: Element,
     strength: number,
     damage: number,
@@ -106,7 +108,7 @@ export class FxLayer {
   ): void {
     this.impacts.burst(x, y, element, strength, artTexture, artBaseScale);
     this.transients.wave(x, y + 4, ELEMENT_COLORS[element], strength);
-    this.transients.damageFloat(x, floatY, element, damage, strength);
+    this.transients.damageFloat(x, floatY, floatCeil, element, damage, strength);
   }
 
   /** Expanding ground ring, used by hits and eliminations. */

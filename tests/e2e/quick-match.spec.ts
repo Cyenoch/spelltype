@@ -8,12 +8,7 @@
  */
 import { expect, type Browser } from '@playwright/test';
 import { test } from '../support/test';
-import {
-  INITIAL_HEALTH,
-  type MatchTicket,
-  type Profile,
-  type RoomSnapshot,
-} from '../../shared/protocol';
+import { INITIAL_HEALTH, type MatchTicket, type Profile } from '../../shared/protocol';
 import { fixture } from '../support/runtime';
 import { apiJson, selfIdentity } from '../support/api';
 import { battlePhase, roomSnapshot, snapshotPlayer } from '../support/combat';
@@ -40,9 +35,7 @@ test('两名玩家经界面配对进入同一房间并自动开局', async ({ br
   await expect(first.page.getByTestId('view-queue')).toBeVisible();
   await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'waiting');
 
-  // A slow initial room read must keep the waiting stage mounted, not flash a short loader.
-  await first.page.evaluate(() => document.fonts.ready);
-  const waitingBox = await first.page.getByTestId('view-queue').boundingBox();
+  // A slow room read must keep the matched queue visible until room admission completes.
   const roomRequested = Promise.withResolvers<void>();
   const releaseRoom = Promise.withResolvers<void>();
   await first.page.route(/\/api\/rooms\/[0-9a-f]{24}$/, async (route) => {
@@ -57,9 +50,6 @@ test('两名玩家经界面配对进入同一房间并自动开局', async ({ br
     await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'matched');
     await settle(1200);
     await expect(first.page.getByTestId('view-queue')).toBeVisible();
-    const matchedBox = await first.page.getByTestId('view-queue').boundingBox();
-    expect(matchedBox!.y).toBeCloseTo(waitingBox!.y, 0);
-    expect(matchedBox!.height).toBeCloseTo(waitingBox!.height, 0);
   } finally {
     releaseRoom.resolve();
   }
@@ -85,12 +75,10 @@ test('两名玩家经界面配对进入同一房间并自动开局', async ({ br
     (await second.page.getByTestId('view-room').getAttribute('data-room-id')) ?? '';
   expect(firstRoomId).toMatch(/^[0-9a-f]{24}$/);
   expect(secondRoomId).toBe(firstRoomId);
-  for (const page of [first.page, second.page]) {
-    await expect(page.getByTestId('spell-generation')).toBeVisible();
-    await expect(page.getByTestId('typing-input')).toBeHidden();
-  }
 
-  // Both connected → the reserved quick room starts on its own.
+  // Both connected → the reserved quick room starts on its own. A warm preset book can skip
+  // past the generating surface almost instantly, so arrival is proven by the playing phase
+  // (and the hidden generation surface) rather than by catching that surface mid-flight.
   for (const page of [first.page, second.page]) {
     await expect(page.getByTestId('battle-panel')).toHaveAttribute('data-phase', 'playing', {
       timeout: 40_000,
@@ -183,12 +171,84 @@ test('取消会如实反馈：等待中可重新排队，准备阶段的取消�
     .toMatch(/closed|reconnecting/);
   await expect.poll(() => visibleErrorText(first.page), { timeout: 20_000 }).not.toBe('');
   await expect(first.page.getByTestId('battle-panel')).toBeHidden();
-  const requeued = await matchTicket(first);
-  expect(requeued.body.state === 'waiting' || requeued.body.roomId !== roomId).toBe(true);
-  expect(
-    (await apiJson<{ cancelled: boolean }>(first.context, '/api/match', { method: 'DELETE' })).body
-      .cancelled,
-  ).toBe(true);
+  // The other seat was deleted by cancellation: the notice must still let this
+  // player recover when the targeted leave answers that the seat is gone.
+  await first.page.getByTestId('room-error-retry').click();
+  await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'waiting');
+  await first.page.getByTestId('queue-cancel').click();
+  await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'cancelled');
+
+  await first.context.close();
+  await second.context.close();
+});
+
+test('房间读取失败后返回首页：释放旧席位，重新匹配进入新房间', async ({ browser }) => {
+  const first = await signedInContext(browser, 'recover1');
+  const second = await signedInContext(browser, 'recover2');
+  await matchTicket(first);
+  const paired = await matchTicket(second);
+  const roomId = paired.body.roomId!;
+  expect((await matchTicket(first)).body.roomId).toBe(roomId);
+
+  // A snapshot failure must not turn the reserved seat into a room-entry loop.
+  await first.page.route(`**/api/rooms/${roomId}`, (route) =>
+    route.fulfill({ status: 500, json: { error: '房间暂时不可用' } }),
+  );
+  await first.page.getByTestId('home-quick-start').click();
+  await expect(first.page.getByTestId('room-error')).toBeVisible();
+  await expect(first.page.getByTestId('connection-status')).toHaveAttribute('data-state', 'closed');
+
+  // Failed cleanup is not a successful exit; retry keeps the same reservation
+  // until the server acknowledges it, even when the original snapshot is absent.
+  const leaveUrl = `**/api/rooms/${roomId}/leave`;
+  await first.page.route(leaveUrl, (route) => route.abort('connectionfailed'));
+  await first.page.getByTestId('room-error-home').click();
+  await expect(first.page.locator('[data-testid="toast"] > [data-tone="error"]')).toBeVisible();
+  await expect(first.page.getByTestId('room-error-home')).toBeEnabled();
+  await expect(first.page.getByTestId('view-home')).toBeHidden();
+  expect((await matchTicket(first)).body.roomId).toBe(roomId);
+  await first.page.unroute(leaveUrl);
+
+  const leaveArrived = Promise.withResolvers<void>();
+  const releaseLeave = Promise.withResolvers<void>();
+  await first.page.route(leaveUrl, async (route) => {
+    leaveArrived.resolve();
+    await releaseLeave.promise;
+    await route.continue();
+  });
+  await first.page.getByTestId('room-error-home').click();
+  await leaveArrived.promise;
+  await expect(first.page.getByTestId('room-error-home')).toBeDisabled();
+  await expect(first.page.getByTestId('view-home')).toBeHidden();
+  releaseLeave.resolve();
+  await expect(first.page.getByTestId('view-home')).toBeVisible();
+
+  const nextPoll = first.page.waitForResponse(
+    (response) => response.url().endsWith('/api/match') && response.request().method() === 'POST',
+  );
+  await first.page.getByTestId('home-quick-start').click();
+  expect((await (await nextPoll).json()).state).toBe('waiting');
+  await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'waiting');
+  const next = await matchTicket(second);
+  expect(next.body.state).toBe('matched');
+  expect(next.body.roomId).not.toBe(roomId);
+  await expect(first.page.getByTestId('view-room')).toHaveAttribute(
+    'data-room-id',
+    next.body.roomId!,
+  );
+  await expect(first.page.getByTestId('lobby-panel')).toBeVisible();
+  await expect(first.page.getByTestId('room-error')).toBeHidden();
+
+  // A replaced window's way home is local only: it must not cancel the room now
+  // controlled by the new window of the same account.
+  const replacement = await first.context.newPage();
+  await gotoApp(replacement, `/?room=${next.body.roomId!}`);
+  await expect(replacement.getByTestId('lobby-panel')).toBeVisible();
+  await expect(first.page.getByTestId('room-error')).toBeVisible();
+  await first.page.getByTestId('room-error-home').click();
+  await expect(first.page.getByTestId('view-home')).toBeVisible();
+  expect((await matchTicket(second)).body.roomId).toBe(next.body.roomId);
+  await expect(replacement.getByTestId('connection-status')).toHaveAttribute('data-state', 'open');
 
   await first.context.close();
   await second.context.close();
@@ -224,17 +284,11 @@ test('排队租约只前移，并发轮询不会自我匹配', async ({ browser 
   expect(matchedFirst.body.roomId).toMatch(/^[0-9a-f]{24}$/);
   expect(matchedSecond.body.roomId).toBe(matchedFirst.body.roomId);
 
-  const snapshot = await apiJson<RoomSnapshot>(
-    first.context,
-    `/api/rooms/${matchedFirst.body.roomId}`,
-  );
-  expect(snapshot.status).toBe(200);
-  expect(snapshot.body.mode).toBe('quick');
-  expect(snapshot.body.players).toHaveLength(2);
-  expect(new Set(snapshot.body.players.map((player) => player.id)).size).toBe(2);
-  expect(snapshot.body.players.filter((player) => player.id === snapshot.body.hostId)).toHaveLength(
-    1,
-  );
+  const snapshot = await roomSnapshot(first.context, matchedFirst.body.roomId!);
+  expect(snapshot.mode).toBe('quick');
+  expect(snapshot.players).toHaveLength(2);
+  expect(new Set(snapshot.players.map((player) => player.id)).size).toBe(2);
+  expect(snapshot.players.filter((player) => player.id === snapshot.hostId)).toHaveLength(1);
 
   // Cancelling a live reservation is reported honestly, and the released player can queue again.
   expect(

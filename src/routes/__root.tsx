@@ -13,7 +13,6 @@ import {
 import * as stylex from '@stylexjs/stylex';
 import { parseResponse, DetailedError } from 'hono/client';
 import { client } from '../app/client';
-import { ASSETS } from '../pixi/assets';
 import { createBackgroundScene, type BackgroundScene } from '../pixi/background';
 import { messageOf, toast } from '../ui/toast';
 import type { AppContext, AppRouterContext, AuthMode, RoomLinkState } from '../app/context';
@@ -167,7 +166,7 @@ function Shell(props: {
             aria-label="咒文对决首页"
             onClick={() => props.ctx.setPendingInvite(null)}
           >
-            <img src={ASSETS.sigil} alt="" width="32" height="32" />
+            <img src="/assets/ui/seal.svg" alt="" width="36" height="37" />
             咒文对决
           </Link>
           <span
@@ -277,6 +276,11 @@ const styles = stylex.create({
     gap: 14,
     flexWrap: 'wrap',
     padding: '6px 0 20px',
+    marginBottom: 14,
+    backgroundImage: 'var(--ornament-divider)',
+    backgroundSize: '320px 18px',
+    backgroundRepeat: 'no-repeat',
+    backgroundPosition: 'center bottom',
   },
   brand: {
     display: 'flex',
@@ -294,9 +298,16 @@ const styles = stylex.create({
     gap: 7,
     fontSize: '.8rem',
     padding: '4px 10px',
-    borderRadius: 999,
-    border: '1px solid var(--line)',
-    background: 'rgba(16,13,34,.7)',
+    borderRadius: 0,
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'transparent',
+    borderImageSource: 'var(--frame-inset)',
+    borderImageSlice: 48,
+    borderImageWidth: '8px',
+    borderImageRepeat: 'stretch',
+    backgroundImage: 'var(--surface-stone)',
+    backgroundSize: '256px 256px',
     color: 'var(--ink-dim)',
   },
   spacer: { flex: '1 1 auto' },

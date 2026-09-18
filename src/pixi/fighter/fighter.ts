@@ -45,16 +45,18 @@ export interface FighterTextures {
    * filter pass — is needed to clip a flat fill to the character.
    */
   silhouette: Texture;
+  /** This fighter's element rune, pre-rendered; the charge orbit reuses it. */
+  rune: Texture;
 }
 
 /**
  * One full-body combatant: generated character art, an element aura, a ground
  * pool of its own element and an interpolated health bar, assembled from three
- * pieces — the posed body, the health bar and the casting dial.
+ * pieces — the posed body, the health bar and the torso charge orbit.
  *
  * Two groups matter. The body group (aura, art, ground) takes the poses — flinch,
- * tip-over, victory — while the bar and the dial never rotate: a read that tips
- * with its owner is unreadable exactly when it matters most.
+ * tip-over, victory — while the bar and the charge runes never rotate: a read
+ * that tips with its owner is unreadable exactly when it matters most.
  */
 export class Fighter {
   readonly view = new Container();
@@ -65,7 +67,6 @@ export class Fighter {
   private readonly bar: FighterBar;
   private readonly charge: FighterCharge;
 
-  private self = false;
   private active = true;
   private eliminated = false;
   private koPending = false;
@@ -80,7 +81,7 @@ export class Fighter {
     this.element = ELEMENT_ORDER[slot % ELEMENT_ORDER.length];
     this.body = new FighterBody(textures, this.element, slot);
     this.bar = new FighterBar(this.element, flashTint);
-    this.charge = new FighterCharge(this.element);
+    this.charge = new FighterCharge(this.element, textures.rune, textures.glow);
     this.view.addChild(this.body.view, this.bar.view, this.charge.view);
   }
 
@@ -104,7 +105,7 @@ export class Fighter {
     this.view.position.set(x, feetY);
     const box = this.body.layout(bodyHeight, maxWidth, baselineSpace);
     this.bar.layout(maxWidth, barOffsetY);
-    this.charge.layout(box.height);
+    this.charge.layout(box);
     this.paint();
     return box;
   }
@@ -113,9 +114,10 @@ export class Fighter {
   applyState(state: FighterState, instant: boolean, deferElimination = false): void {
     const hp = Math.min(1, Math.max(0, state.hpRatio));
     const hit = this.bar.applyHealth(hp, instant);
-    this.self = state.self;
     this.body.applyRoomState(state.connected, 1 - hp, hit);
-    this.charge.view.visible = state.self && !state.eliminated;
+    // Every standing caster shows their charge now, not just the local viewer:
+    // the runes are each fighter's own element, so no spell element is needed.
+    this.charge.view.visible = !state.eliminated;
     this.view.visible = this.active;
 
     if (state.eliminated) {
@@ -145,9 +147,13 @@ export class Fighter {
     if (eliminated === this.eliminated) return;
     this.eliminated = eliminated;
     if (!eliminated) {
+      // Back on their feet (revive, next match): the orbit must not show the
+      // previous life's charge until fresh progress arrives.
+      this.charge.reset();
       this.body.stand();
       return;
     }
+    this.charge.reset();
     this.charge.view.visible = false;
     this.body.collapse(instant);
   }
@@ -170,15 +176,21 @@ export class Fighter {
     this.charge.accept(ratio);
   }
 
+  /** Live `prefers-reduced-motion` change: orbits freeze, accumulation stays. */
+  setMotion(reduced: boolean): void {
+    this.charge.setMotion(reduced);
+  }
+
   update(deltaMS: number, pulse: number): void {
     this.bar.catchUp(deltaMS);
     this.body.update(deltaMS, pulse, this.eliminated);
+    this.charge.update(deltaMS);
     this.paint();
   }
 
   private paint(): void {
     this.bar.paint();
-    if (this.self && !this.eliminated) this.charge.paint();
+    if (!this.eliminated) this.charge.paint();
   }
 
   destroy(): void {

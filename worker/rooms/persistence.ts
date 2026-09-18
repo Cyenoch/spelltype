@@ -41,8 +41,10 @@ export async function saveResults(scope: RoomScope): Promise<void> {
         scope.env.DB.prepare(
           `INSERT INTO results (
             match_id, user_id, theme, damage_dealt, hp_remaining, spells_cast, correct_chars, duration_ms,
-            rank, cpm, accuracy, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            rank, cpm, accuracy, created_at, input_policy_version, input_policy_mode,
+            input_gate_hits, input_recoveries, input_min_completion_ratio, input_overloads,
+            input_recovered_completions, input_recovery_departures
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
           ON CONFLICT(match_id, user_id) DO NOTHING`,
         ).bind(
           row.match_id,
@@ -57,6 +59,14 @@ export async function saveResults(scope: RoomScope): Promise<void> {
           row.cpm,
           row.accuracy,
           row.created_at,
+          row.input_policy_version,
+          row.input_policy_mode,
+          row.input_gate_hits,
+          row.input_recoveries,
+          row.input_min_completion_ratio,
+          row.input_overloads,
+          row.input_recovered_completions,
+          row.input_recovery_departures,
         ),
       ),
     );
