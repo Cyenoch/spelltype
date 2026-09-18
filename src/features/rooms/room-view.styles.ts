@@ -12,7 +12,6 @@ export const styles = stylex.create({
     paddingBottom: 8,
     paddingLeft: 4,
   },
-  roomHeadTitle: { display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' },
   phase: {
     fontFamily: 'var(--font-display)',
     fontSize: '1.1rem',

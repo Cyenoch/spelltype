@@ -57,7 +57,6 @@ export function RoomView(props: { roomId: string; ctx: AppContext }) {
     onStart: () => session.send({ type: 'start' }, '开始指令未能送达，正在重连…'),
     onLeave: () => session.leaveRoom(),
     onCopyInvite: () => session.copyInvite(),
-    onRetryGenerate: () => session.send({ type: 'start' }, '重试指令未能送达，正在重连…'),
   };
 
   /**
@@ -133,17 +132,12 @@ export function RoomView(props: { roomId: string; ctx: AppContext }) {
       </Show>
 
       <div class={stylex.props(styles.roomHead).className} data-connection={session.connection()}>
-        <div class={stylex.props(styles.roomHeadTitle).className}>
-          <span
-            class={stylex.props(styles.phase, statusDimmed() && styles.phaseDim).className}
-            data-testid="room-status"
-          >
-            {statusText()}
-          </span>
-          <span class={stylex.props(ui.mono, ui.faint).className} data-testid="room-id-label">
-            {session.snapshot()?.id ?? props.roomId}
-          </span>
-        </div>
+        <span
+          class={stylex.props(styles.phase, statusDimmed() && styles.phaseDim).className}
+          data-testid="room-status"
+        >
+          {statusText()}
+        </span>
       </div>
 
       <Show when={session.loading()}>

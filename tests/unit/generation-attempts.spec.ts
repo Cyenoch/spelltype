@@ -100,6 +100,17 @@ describe('生成尝试策略', () => {
     expect(generateText).toHaveBeenCalledTimes(1);
   });
 
+  it('真实模型典型短咒文整本直接通过，不触发重试或失败提示', async () => {
+    // The user-reported bug: on the real endpoint the model writes whole books of ~14-24 char
+    // sentences, the old per-difficulty minimum rejected them on normal/hard, and players saw
+    // 「AI 返回的咒文不符合要求」 almost every match. Those lengths are now guidance-only, so
+    // the same book must start the match on the first call.
+    generateText.mockResolvedValueOnce({ output: { spells: book(16) } });
+    const outcome = await generateSpellSet(env, { ...input, difficulty: 'hard' });
+    expect(outcome).toMatchObject({ ok: true, attempts: 1 });
+    expect(generateText).toHaveBeenCalledTimes(1);
+  });
+
   it('供应商故障与超时不重试，只花一次调用', async () => {
     generateText.mockRejectedValueOnce(new Error('upstream exploded'));
     expect(await generateSpellSet(env, input)).toMatchObject({ ok: false, reason: 'upstream' });

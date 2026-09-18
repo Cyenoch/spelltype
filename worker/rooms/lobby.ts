@@ -36,7 +36,7 @@ export async function handleLobbyFrame(
   const sql = scope.sql;
   switch (message.type) {
     case 'ready': {
-      if (room.phase !== 'lobby') {
+      if (room.phase !== 'lobby' && room.phase !== 'generating') {
         sendTo(ws, { type: 'error', message: '比赛已开始，无法变更准备状态。' });
         return;
       }

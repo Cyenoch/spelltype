@@ -12,9 +12,9 @@ export const DIFFICULTY_LABELS: Record<Difficulty, string> = {
 };
 
 export const DIFFICULTY_HINTS: Record<Difficulty, string> = {
-  easy: '每条咒文 18–26 字，适合热身与连续输出。',
-  normal: '每条咒文 27–38 字，标准长度。',
-  hard: '每条咒文 39–50 字，含更多标点。',
+  easy: '目标约 18–26 字，适合热身；实际长度由 AI 生成决定。',
+  normal: '目标约 27–38 字，标准长度；实际长度由 AI 生成决定。',
+  hard: '目标约 39–50 字，含更多标点；实际长度由 AI 生成决定。',
 };
 
 export const ELEMENT_LABELS: Record<Element, string> = {

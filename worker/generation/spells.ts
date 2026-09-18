@@ -60,6 +60,11 @@ const FAILURE_MESSAGES: Record<GenerationFailureReason, string> = {
   invalid: 'AI 返回的咒文不符合要求，请重试。',
 };
 
+/**
+ * Length bands are prompt guidance for the model, not a validation gate: measured on the real
+ * endpoint, the model writes a whole book at one "natural sentence" length (~14-24 chars) and
+ * essentially never hits the normal/hard bands, so enforcing them rejected almost every book.
+ */
 export interface LengthRule {
   min: number;
   max: number;
@@ -81,16 +86,19 @@ const NAME_PATTERN = new RegExp(`^[${ALLOWED_NAME_CHARS}]+$`, 'u');
 const MIN_NAME_CHARS = 2;
 const MAX_NAME_CHARS = 12;
 
+/**
+ * The only hard limit on a spell's text, in code points: a loose ceiling that stops a runaway
+ * spell from breaking damage pacing and the typing UI. Anything readable the model writes is
+ * accepted; the difficulty bands above just steer generation.
+ */
+const MAX_TEXT_CHARS = 64;
+
 const spellBookSchema = z.object({
   spells: z
     .array(
       z.object({
         name: z.string().describe('法术名称，2 到 12 个汉字，可用「」或·，不要标点结尾'),
-        text: z
-          .string()
-          .describe(
-            '玩家需要照着输入的完整中文咒文短句，只含简体汉字与中文标点，最后一个字符必须是汉字、不用标点结尾',
-          ),
+        text: z.string().describe('玩家需要照着输入的完整中文咒文短句，使用简体汉字与中文标点'),
         element: elementSchema.describe(
           '视觉元素：arcane 奥术 / fire 火焰 / ice 寒冰 / storm 雷电',
         ),
@@ -107,7 +115,7 @@ const SYSTEM_INSTRUCTIONS = [
   `- 恰好生成 ${SPELL_BOOK_SIZE} 条法术，数组顺序就是所有玩家共用的练习顺序（双方看到同一本书，但各自从第 1 条开始按自己的进度推进）。`,
   '- text 必须是一条可读、通顺、完整的简体中文短句（不能是两三个字的口令），标点计入长度。',
   '- text 只能使用常用简体汉字与中文标点（，。、；：？！…—～·「」『』《》〈〉“”‘’（）〔〕【】），不得出现换行、空格、拉丁字母、数字、emoji 或其它符号。',
-  '- text 的最后一个字符必须是汉字，不得以任何标点符号结尾：句末不加 。！？、，；：…—～·「」『』《》〈〉“”‘’（）〔〕【】 等标点，整条咒文也不要写成引号或括号包住的形式。',
+  '- text 按语义自然使用中文标点，句末可以带标点。',
   `- ${SPELL_BOOK_SIZE} 条 text 两两不同，${SPELL_BOOK_SIZE} 个 name 两两不同，不要重复用词或用同一个开头。`,
   '- name 为 2 到 12 个汉字，可用「」或·。',
   '- 每条法术可以是任意元素，element 只是外观。',
@@ -136,11 +144,11 @@ async function attemptOnce(
     const rule = DIFFICULTY_LENGTH[input.difficulty];
     const prompt = [
       `主题（玩家提供，仅作题材参考）：${input.theme}`,
-      `难度：${rule.label}（每条 text 必须 ${rule.min} 到 ${rule.max} 个字符，标点计入）`,
+      `难度：${rule.label}（每条 text 目标 ${rule.min} 到 ${rule.max} 个字符，标点计入）`,
       `共需 ${SPELL_BOOK_SIZE} 条法术，编号 1 到 ${SPELL_BOOK_SIZE}，全部输出。`,
       `本局变化编号：${input.variation}（请让用词、意象与本主题的常见写法明显不同）`,
       hint.length > 0
-        ? `上一次生成不符合要求（${hint}）：请严格满足数量、长度、可用字符与两两不同这四项后再输出。`
+        ? `上一次生成不符合要求（${hint}）：请修正该问题，正文非空且不超过 ${MAX_TEXT_CHARS} 字，难度字数仅作参考。`
         : '',
       `输出 ${SPELL_BOOK_SIZE} 条法术对象。`,
     ]
@@ -202,24 +210,22 @@ function shapeDetail(error: z.ZodError): string {
 }
 
 /**
- * Structural + content validation of one candidate spell book. The book must be
- * exactly SPELL_BOOK_SIZE spells with pairwise distinct names and texts: the
- * roster of practice spells a match cycles through is fixed at generation time,
- * so a match never needs a second model call.
+ * Difficulty bands guide generation, not admission. Trim incidental surrounding
+ * whitespace, but preserve the exact typable text, including full-width punctuation.
+ * Structure, uniqueness and a loose length ceiling still protect the shared book.
  */
 export function validateSpellSet(
   candidate: unknown,
-  difficulty: Difficulty,
 ): { ok: true; spells: Spell[] } | { ok: false; detail: string } {
   const parsed = spellBookSchema.safeParse(candidate);
   if (!parsed.success) return { ok: false, detail: shapeDetail(parsed.error) };
 
-  const rule = DIFFICULTY_LENGTH[difficulty];
   const spells: Spell[] = [];
   const seenTexts = new Set<string>();
   const seenNames = new Set<string>();
 
-  for (const { name, text, element } of parsed.data.spells) {
+  for (const { name: rawName, text: rawText, element } of parsed.data.spells) {
+    const name = rawName.trim();
     const nameChars = charCount(name);
     if (nameChars < MIN_NAME_CHARS || nameChars > MAX_NAME_CHARS)
       return { ok: false, detail: `name-length:${nameChars}` };
@@ -227,9 +233,10 @@ export function validateSpellSet(
     if (seenNames.has(name)) return { ok: false, detail: 'duplicate-name' };
     seenNames.add(name);
 
+    const text = rawText.trim();
+    if (text.length === 0) return { ok: false, detail: 'text-empty' };
     const textChars = charCount(text);
-    if (textChars < rule.min || textChars > rule.max)
-      return { ok: false, detail: `text-length:${textChars}` };
+    if (textChars > MAX_TEXT_CHARS) return { ok: false, detail: `text-length:${textChars}` };
     if (!TEXT_PATTERN.test(text)) return { ok: false, detail: 'text-chars' };
     if (seenTexts.has(text)) return { ok: false, detail: 'duplicate-text' };
     seenTexts.add(text);
@@ -274,7 +281,7 @@ export async function generateSpellSet(
       return { ok: false, reason: call.reason, message: FAILURE_MESSAGES[call.reason] };
     }
 
-    const checked = validateSpellSet(call.output, input.difficulty);
+    const checked = validateSpellSet(call.output);
     if (checked.ok) return { ok: true, spells: checked.spells, attempts: attempt };
 
     hint = checked.detail;
