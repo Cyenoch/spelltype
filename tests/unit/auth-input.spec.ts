@@ -6,7 +6,7 @@
  * session cookie are pinned against the real app and the real Hono cookie helpers: a mistake in
  * either is an account takeover or a session that dies on the next request.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PASSWORD_MAX_CHARS,
   PASSWORD_MIN_CHARS,
@@ -110,6 +110,11 @@ describe('口令 KDF 记录', () => {
 });
 
 describe('会话 Cookie', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+  });
+  afterEach(() => vi.useRealTimers());
+
   it('注册下发的 Cookie 携带会话令牌，属性齐全，HTTP 下不带 Secure', async () => {
     const response = await register('http');
     expect(response.status).toBe(200);

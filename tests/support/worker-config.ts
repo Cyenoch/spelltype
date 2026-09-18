@@ -4,7 +4,7 @@
  * The root `wrangler.jsonc` stays the single source of truth: this module reads it,
  * rewrites only what must differ for an isolated test instance (absolute entry and
  * migrations paths, a per-instance D1 database name, test vars) and writes the result
- * into `tests/.state/configs/`. Placing the generated config in that directory also
+ * into `tests/.state/<run-id>/configs/`. Placing the generated config there also
  * means `.dev.vars` is looked up there, so a developer's real secrets are never used
  * by the test app.
  */
