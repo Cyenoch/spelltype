@@ -1,0 +1,13 @@
+# Building an image is only meaningful from a protected release snapshot
+# (see scripts/release.mjs stage), which whitelists exactly the runtime
+# payload below. Building from the repository checkout is refused by
+# exclusion: no source tree, no git history and no secret files can ever
+# enter an image context, even by accident.
+**
+!Dockerfile
+!app
+!app/**
+!drizzle
+!drizzle/**
+!package.json
+!bun.lock

@@ -3,13 +3,14 @@
  * draft back, and the live match — identity, absolute deadline, per-player progress — survives a
  * process restart. (A session dying mid-match is covered by the auth spec.)
  *
- * The restart is done by the harness (stop and boot the same port and persist directory) — there is
- * no product test hook, so what survives is exactly what the Durable Object really stored.
+ * The harness restarts the native runtime on the same port and database, without a product test
+ * hook, so only committed state survives.
  */
 import { expect } from '@playwright/test';
 import { test } from '../support/test';
 import { INITIAL_HEALTH } from '../../shared/protocol';
-import { acceptedGeneration, fixture, restartInstance } from '../support/runtime';
+import { acceptedGeneration, fixture } from '../support/runtime';
+import { harness } from '../support/harness';
 import {
   battleMatchId,
   battlePhase,
@@ -113,8 +114,8 @@ test('对手断线不冻结比赛，重连与进程重启后恢复席位、血�
   expect(await completeSpell(firstPage)).toBe(firstSpell);
   expect(await battlePhase(host.page)).toBe('playing');
 
-  // Durable Object reactivation: both clients disconnect, the application process is restarted
-  // (same port, same persist directory), and the running match must survive with its identity, its
+  // Native runtime recovery: both clients disconnect and the runtime restarts against the same
+  // database and port. The running match must survive with its identity, its
   // absolute deadline and every player's accepted state.
   const matchIdBefore = await battleMatchId(firstPage);
   const deadlineBefore = await deadline(firstPage);
@@ -126,7 +127,7 @@ test('对手断线不冻结比赛，重连与进程重启后恢复席位、血�
 
   await host.context.close();
   await firstReconnect.close();
-  await restartInstance();
+  await harness().restartServer();
 
   const hostAfter = await newContext(browser);
   const hostPageAfter = await hostAfter.newPage();

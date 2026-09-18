@@ -21,7 +21,7 @@ export interface LobbyActions {
  * reservation starts itself and refuses a manual start.
  */
 function canStart(snapshot: RoomSnapshot): boolean {
-  if (snapshot.phase !== 'lobby') return false;
+  if (snapshot.phase !== 'lobby' || snapshot.draining) return false;
   if (snapshot.mode === 'quick' && snapshot.reservationExpiresAt !== null) return false;
   const connected = snapshot.players.filter((player) => player.connected);
   if (connected.length < 2) return false;
@@ -47,6 +47,9 @@ function startHint(snapshot: RoomSnapshot, isHost: boolean): string {
     return snapshot.players.filter((player) => player.connected).length >= 2
       ? '双方已到齐，即将自动开战。'
       : '对手正在进入房间，双方到齐后自动开战。';
+  }
+  if (snapshot.draining) {
+    return '此版本已停止接受新对局，请离开房间后更新。';
   }
   const offline = snapshot.players.filter((player) => !player.connected);
   if (offline.length > 0) return `等待 ${joinedNames(offline)} 重新连接。`;
@@ -337,6 +340,7 @@ export function LobbyPanel(props: {
             data-testid="lobby-ready"
             aria-pressed={ready()}
             hidden={!self()}
+            disabled={props.snapshot.draining && props.snapshot.reservationExpiresAt === null}
             onClick={() => props.actions.onReady(!ready())}
           >
             {ready() ? '取消准备' : '我准备好了'}

@@ -17,6 +17,7 @@ import { createBackgroundScene, type BackgroundScene } from '../pixi/background'
 import { messageOf, toast } from '../ui/toast';
 import type { AppContext, AppRouterContext, AuthMode, RoomLinkState } from '../app/context';
 import { ui } from '../ui/primitives';
+import { ASSETS } from '../pixi/assets';
 
 interface Search {
   room?: string;
@@ -50,26 +51,64 @@ export const Route = createRootRouteWithContext<AppRouterContext>()({
 
 function RootLayout() {
   const context = Route.useRouteContext();
+  const search = Route.useSearch();
+  const location = useLocation();
+  // Where the player is decides how the release banner may act: a running
+  // match or a live queue is never reloaded out from under them.
+  const zone = (): ReleaseZone => {
+    if (location().pathname === '/' && search().room) return 'room';
+    if (location().pathname === '/match') return 'queue';
+    return 'free';
+  };
   return (
     <Shell
       ctx={context().app}
       connection={context().connection()}
       graphicsFailed={context().graphicsFailed()}
+      zone={zone()}
     >
       <Outlet />
     </Shell>
   );
 }
 
+/** Where the player is, as far as update safety is concerned. */
+type ReleaseZone = 'room' | 'queue' | 'free';
+
 function RouteError(props: ErrorComponentProps) {
   const router = useRouter();
+  const location = useLocation();
+  // Same rule as the banner: the explicit update happens outside rooms and queues.
+  const inRoom = () => location().pathname === '/' && Boolean(location().search.room);
+  const inQueue = () => location().pathname === '/match';
+  const blocked = () => inRoom() || inQueue();
   return (
     <section class={stylex.props(ui.panel).className} role="alert">
       <h1>页面加载失败</h1>
       <p>{messageOf(props.error)}</p>
-      <button class={stylex.props(ui.button).className} onClick={() => void router.invalidate()}>
-        重试
-      </button>
+      <div class={stylex.props(ui.buttonRow).className}>
+        <button class={stylex.props(ui.button).className} onClick={() => void router.invalidate()}>
+          重试
+        </button>
+        <Show
+          when={!blocked()}
+          fallback={
+            <p class={stylex.props(ui.muted).className}>
+              {inRoom()
+                ? '离开房间后再更新页面，避免打断对局。'
+                : '取消排队并返回首页后再更新页面。'}
+            </p>
+          }
+        >
+          <button
+            class={stylex.props(ui.button, ui.primary).className}
+            data-testid="release-error-update"
+            onClick={() => window.location.reload()}
+          >
+            更新页面
+          </button>
+        </Show>
+      </div>
     </section>
   );
 }
@@ -84,6 +123,7 @@ function Shell(props: {
   ctx: AppContext;
   connection: RoomLinkState;
   graphicsFailed: boolean;
+  zone: ReleaseZone;
   children: JSX.Element;
 }) {
   let fxLayer!: HTMLDivElement;
@@ -140,6 +180,31 @@ function Shell(props: {
         class={stylex.props(styles.fx).className}
       />
       <div id="banner-slot" class={stylex.props(styles.banners).className}>
+        <Show when={props.ctx.release.updateRequired()}>
+          <div
+            data-testid="release-banner"
+            role="status"
+            class={stylex.props(styles.banner, styles.releaseBanner).className}
+          >
+            <span>
+              {props.zone === 'room'
+                ? '新版本已上线，离开房间后更新。'
+                : props.zone === 'queue'
+                  ? '新版本已上线，可取消排队后更新。'
+                  : '新版本已上线，请更新后开始下一局。'}
+            </span>
+            <Show when={props.zone === 'free'}>
+              <button
+                type="button"
+                data-testid="release-update"
+                class={stylex.props(ui.button, ui.small).className}
+                onClick={() => window.location.reload()}
+              >
+                更新页面
+              </button>
+            </Show>
+          </div>
+        </Show>
         <div
           data-testid="small-screen-warning"
           class={stylex.props(styles.banner, styles.narrowBanner).className}
@@ -166,7 +231,7 @@ function Shell(props: {
             aria-label="咒文对决首页"
             onClick={() => props.ctx.setPendingInvite(null)}
           >
-            <img src="/assets/ui/seal.svg" alt="" width="36" height="37" />
+            <img src={ASSETS.brandSeal} alt="" width="36" height="37" />
             咒文对决
           </Link>
           <span
@@ -263,6 +328,16 @@ const styles = stylex.create({
     borderBottom: '1px solid rgba(255,107,125,.4)',
   },
   narrowBanner: { display: { default: 'none', '@media (max-width: 880px)': 'block' } },
+  releaseBanner: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 12,
+    background: 'rgba(35,28,74,.94)',
+    color: '#d9dcff',
+    borderBottomColor: 'rgba(139,122,255,.45)',
+  },
   app: {
     position: 'relative',
     zIndex: 1,

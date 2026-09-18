@@ -1,0 +1,116 @@
+# Base stack: edge (Caddy), stable API and PostgreSQL — exactly one per host.
+# Per-release game runtimes live in their own compose projects created from
+# compose.release.yaml by scripts/release.mjs; they join the shared
+# spelltype_runtime network with the deterministic alias game-<releaseId>.
+#
+# Public surface: edge 80/443 only. The stable API admin listener is
+# published on loopback (127.0.0.1:3001) for the host-side release CLI.
+# Credentials are supplied at runtime through file secrets; nothing is baked
+# into images and no variable here has a default password.
+#
+# Operator setup: copy deploy/compose.env.example to deploy/compose.env,
+# create the state directories, run `bun run deploy secrets`, then
+#   docker compose --env-file deploy/compose.env -p ${SPELLTYPE_BASE_PROJECT:-spelltype} up -d
+# The release CLI passes the same names programmatically; SPELLTYPE_BASE_PROJECT,
+# SPELLTYPE_RUNTIME_NETWORK and the host ports exist so an isolated acceptance
+# stack can run beside a live deployment.
+name: ${SPELLTYPE_BASE_PROJECT:-spelltype}
+
+networks:
+  runtime:
+    name: ${SPELLTYPE_RUNTIME_NETWORK:-spelltype_runtime}
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
+
+secrets:
+  database_url:
+    file: ${SPELLTYPE_STATE_DIR}/secrets/database_url
+  release_admin_token:
+    file: ${SPELLTYPE_STATE_DIR}/secrets/release_admin_token
+  postgres_password:
+    file: ${SPELLTYPE_STATE_DIR}/secrets/postgres_password
+
+services:
+  edge:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - '${SPELLTYPE_HTTP_PORT:-80}:80'
+      - '${SPELLTYPE_HTTPS_PORT:-443}:443'
+    environment:
+      SPELLTYPE_DOMAIN: ${SPELLTYPE_DOMAIN:-}
+    volumes:
+      # TLS variant (deploy/Caddyfile) needs SPELLTYPE_DOMAIN; plain-HTTP
+      # hosts (local smoke) set SPELLTYPE_CADDYFILE=Caddyfile.http. The
+      # config is static for the life of the host — deploys never reload it.
+      - ./deploy/${SPELLTYPE_CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - runtime
+
+  api:
+    # Promoted from a staged release snapshot by `scripts/release.mjs api`.
+    # The image carries its own dist/release.json, which pins the API
+    # release identity; SPELLTYPE_RELEASE_ID must not override it.
+    image: ${SPELLTYPE_API_IMAGE:-spelltype/api:stable}
+    restart: unless-stopped
+    init: true
+    # File secrets preserve host uid/mode; running as the same uid the CLI
+    # used to create them keeps 0600 secrets readable without loosening
+    # permissions. Match SPELLTYPE_UID/GID in deploy/compose.env to the
+    # deploy user (Linux default 1000; e.g. 501:20 for a macOS host).
+    user: '${SPELLTYPE_UID:-1000}:${SPELLTYPE_GID:-1000}'
+    environment:
+      HOME: /tmp
+      SERVER_ROLE: api
+      DATABASE_URL_FILE: /run/secrets/database_url
+      HOST: 0.0.0.0
+      PORT: '3000'
+      ADMIN_PORT: '3001'
+      PUBLIC_ORIGIN: ${SPELLTYPE_PUBLIC_ORIGIN:?set SPELLTYPE_PUBLIC_ORIGIN in deploy/compose.env}
+      RELEASE_ADMIN_TOKEN_FILE: /run/secrets/release_admin_token
+      ASSETS_ROOT: /srv/releases
+      # The api is only ever reached through our private edge; trust the
+      # edge-set X-Forwarded-For for rate limiting. Game runtimes are not
+      # edge-fronted and keep spoofable XFF ignored.
+      TRUST_FORWARDED_FOR: 'true'
+    depends_on:
+      database:
+        condition: service_healthy
+    secrets:
+      - database_url
+      - release_admin_token
+    volumes:
+      # Shared immutable assets collection: /srv/releases/<releaseId>/...
+      # corresponds to /_releases/<releaseId>/... on the public origin.
+      - ${SPELLTYPE_STATE_DIR}/assets:/srv/releases:ro
+    ports:
+      - '127.0.0.1:${SPELLTYPE_ADMIN_HOST_PORT:-3001}:3001'
+    networks:
+      - runtime
+
+  database:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-spelltype}
+      POSTGRES_DB: ${POSTGRES_DB:-spelltype}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+    networks:
+      - runtime

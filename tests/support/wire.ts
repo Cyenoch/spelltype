@@ -8,7 +8,9 @@
  */
 import type { Page } from '@playwright/test';
 import { WS_PROTOCOL, type ClientMessage, type ServerMessage } from '../../shared/protocol';
+import { gameApiBase } from '../../shared/release';
 import { clientMessageSchema } from '../../shared/validation';
+import { testReleaseId } from './api';
 
 declare global {
   interface Window {
@@ -120,24 +122,27 @@ export function sentMessages(capture: SocketCapture): ClientMessage[] {
 
 /** Sends raw room frames over a fresh socket (used for replay/cut-off input checks).
  *
- * The socket opens with the current `WS_PROTOCOL` subprotocol unless the caller explicitly asks
- * for another handshake: `protocols: []` (no subprotocol) or a wrong token exercise the server's
- * protocol refusal. Frames are delivered verbatim — a stale `draftEpoch` or `spellIndex` the
- * caller passes is sent as-is, never upgraded to the room's current identity.
+ * The socket rides the same release-scoped WS path the client uses — URL prefix plus `?release=`
+ * query — so the server's own admission checks judge it like any other client. It opens with the
+ * current `WS_PROTOCOL` subprotocol unless the caller explicitly asks for another handshake:
+ * `protocols: []` (no subprotocol) or a wrong token exercise the server's protocol refusal.
+ * Frames are delivered verbatim — a stale `draftEpoch` or `spellIndex` the caller passes is sent
+ * as-is, never upgraded to the room's current identity.
  */
 export async function sendRawMessages(
   page: Page,
   roomId: string,
   messages: ClientMessage[],
-  options: { protocols?: string[] } = {},
+  options: { protocols?: string[]; releaseId?: string } = {},
 ): Promise<void> {
+  const releaseId = options.releaseId ?? testReleaseId();
   await page.evaluate(
-    ({ roomId: id, messages: payload, protocols }) =>
+    ({ path, messages: payload, protocols }) =>
       new Promise<void>((resolve) => {
         const socket =
           protocols.length > 0
-            ? new WebSocket(`ws://${location.host}/api/rooms/${id}/ws`, protocols)
-            : new WebSocket(`ws://${location.host}/api/rooms/${id}/ws`);
+            ? new WebSocket(`ws://${location.host}${path}`, protocols)
+            : new WebSocket(`ws://${location.host}${path}`);
         socket.onopen = () => {
           for (const message of payload) socket.send(JSON.stringify(message));
           setTimeout(() => {
@@ -149,7 +154,11 @@ export async function sendRawMessages(
         socket.onclose = () => resolve();
         setTimeout(() => resolve(), 8000);
       }),
-    { roomId, messages, protocols: options.protocols ?? [WS_PROTOCOL] },
+    {
+      path: `${gameApiBase(releaseId)}/rooms/${roomId}/ws?release=${encodeURIComponent(releaseId)}`,
+      messages,
+      protocols: options.protocols ?? [WS_PROTOCOL],
+    },
   );
 }
 
@@ -167,23 +176,26 @@ export interface RawSocketProbe {
  * a wrong or missing subprotocol must never reach `opened`, while a v2 socket the room revokes
  * reports the room's own close code (4003/4004).
  *
- * `send` payloads are delivered VERBATIM once the socket opens — they are stringified by the
- * caller, so a deliberately malformed frame (a v2 input without its mandatory `draftEpoch`) is
- * sent exactly as written, never repaired into a valid message.
+ * The socket rides the same release-scoped WS path the client uses — URL prefix plus `?release=`
+ * query — so the server's own release admission checks judge it like any other client. `send`
+ * payloads are delivered VERBATIM once the socket opens — they are stringified by the caller, so
+ * a deliberately malformed frame (a v2 input without its mandatory `draftEpoch`) is sent exactly
+ * as written, never repaired into a valid message.
  */
 export async function openRawSocket(
   page: Page,
   roomId: string,
-  options: { protocols?: string[]; holdMs?: number; send?: unknown[] } = {},
+  options: { protocols?: string[]; holdMs?: number; send?: unknown[]; releaseId?: string } = {},
 ): Promise<RawSocketProbe> {
+  const releaseId = options.releaseId ?? testReleaseId();
   return page.evaluate(
-    ({ roomId: id, protocols, holdMs, send }) =>
+    ({ path, protocols, holdMs, send }) =>
       new Promise<RawSocketProbe>((resolve) => {
         const probe: RawSocketProbe = { opened: false, closeCode: null, received: [] };
         const socket =
           protocols.length > 0
-            ? new WebSocket(`ws://${location.host}/api/rooms/${id}/ws`, protocols)
-            : new WebSocket(`ws://${location.host}/api/rooms/${id}/ws`);
+            ? new WebSocket(`ws://${location.host}${path}`, protocols)
+            : new WebSocket(`ws://${location.host}${path}`);
         const finish = () => {
           try {
             socket.close();
@@ -210,7 +222,7 @@ export async function openRawSocket(
         setTimeout(() => resolve(probe), 8000);
       }),
     {
-      roomId,
+      path: `${gameApiBase(releaseId)}/rooms/${roomId}/ws?release=${encodeURIComponent(releaseId)}`,
       protocols: options.protocols ?? [WS_PROTOCOL],
       holdMs: options.holdMs,
       send: options.send,

@@ -2,7 +2,7 @@ import { For, Show } from 'solid-js';
 import { useQuery } from '@tanstack/solid-query';
 import { Link, useNavigate } from '@tanstack/solid-router';
 import * as stylex from '@stylexjs/stylex';
-import { activityOptions } from '../../app/queries';
+import { activityOptions, gameHealthOptions } from '../../app/queries';
 import { ELEMENTS } from '../../ui/format';
 import { ASSETS } from '../../pixi/assets';
 import { ui } from '../../ui/primitives';
@@ -105,7 +105,8 @@ export function ActivityPanel() {
 export function HomeView(props: { ctx: AppContext }) {
   const navigate = useNavigate();
 
-  const configured = () => props.ctx.session.aiConfigured;
+  const health = useQuery(() => gameHealthOptions);
+  const unavailable = () => health.isError || health.data?.aiConfigured === false;
   const user = () => props.ctx.session.user;
 
   const requireAuth = (action: () => void) => {
@@ -163,10 +164,18 @@ export function HomeView(props: { ctx: AppContext }) {
               class={stylex.props(ui.notice, noticeStyles.warn, styles.heroNotice).className}
               data-testid="home-ai-notice"
               data-tone="warn"
-              data-state={configured() ? 'configured' : 'missing'}
-              hidden={configured()}
+              data-state={
+                health.isPending
+                  ? 'checking'
+                  : health.isError
+                    ? 'unavailable'
+                    : health.data?.aiConfigured
+                      ? 'configured'
+                      : 'missing'
+              }
+              hidden={!unavailable()}
             >
-              <Show when={!configured()}>
+              <Show when={unavailable()}>
                 咒文生成暂不可用。预设主题的共享咒文书在有效期内仍可正常开战；自定义主题需等生成恢复。
               </Show>
             </div>

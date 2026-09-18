@@ -1,0 +1,16 @@
+{
+  "id": "/",
+  "name": "咒文对决 · SPELLTYPE",
+  "short_name": "咒文对决",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#07060f",
+  "theme_color": "#07060f",
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "/icons/app-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/app-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

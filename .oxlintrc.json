@@ -18,7 +18,6 @@
   },
   "ignorePatterns": [
     "src/routeTree.gen.ts",
-    "worker-configuration.d.ts",
     ".agents/**",
     ".scratch/**",
     "tests/.state/**",

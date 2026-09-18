@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { releaseIdSchema } from './release';
 import {
   MAX_PRIVATE_PLAYERS,
   MAX_QUICK_PLAYERS,
@@ -88,6 +89,7 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 export const roomInitSchema = z
   .object({
     id: roomIdSchema,
+    releaseId: releaseIdSchema,
     host: userSchema,
     // A stored theme is replayed to every seat and into the generation prompt, so the room refuses
     // control characters on top of the shared theme rule.

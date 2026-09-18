@@ -9,6 +9,7 @@ const SELF_NOTES: Record<QueueState, string> = {
   matched: '已配对',
   cancelled: '已退出排队',
   blocked: '未加入排队',
+  outdated: '需要更新',
 };
 
 const RIVAL_NOTES: Record<QueueState, string> = {
@@ -16,15 +17,19 @@ const RIVAL_NOTES: Record<QueueState, string> = {
   matched: '已配对',
   cancelled: '本次匹配已结束',
   blocked: '本次匹配未开始',
+  outdated: '本次匹配未开始',
 };
 
 /** Decorative search stage; system reduced-motion preferences disable animation. */
 export function QueueStage(props: { state: QueueState; username: string; retry: boolean }) {
   const searching = createMemo(() => props.state === 'waiting');
-  const settled = createMemo(() => props.state === 'cancelled' || props.state === 'blocked');
+  const settled = createMemo(
+    () => props.state === 'cancelled' || props.state === 'blocked' || props.state === 'outdated',
+  );
 
   return (
     <div
+      data-testid="queue-stage"
       class={
         stylex.props(styles.stage, styles.stageRing, searching() && styles.stageSheen).className
       }

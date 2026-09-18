@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1789744422965,
+      "tag": "0000_init_release_schema",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789765098788,
+      "tag": "0001_policy_volleys_cache",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789769397034,
+      "tag": "0002_gate_epoch_width",
+      "breakpoints": true
+    }
+  ]
+}

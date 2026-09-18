@@ -5,12 +5,14 @@ import * as stylex from '@stylexjs/stylex';
 import { MAX_THEME_CHARS, THEME_PRESETS, type ThemePreset } from '../../../../shared/protocol';
 import { createRoomSchema, themeSchema } from '../../../../shared/validation';
 import { parseResponse, DetailedError } from 'hono/client';
-import { client } from '../../../app/client';
+import { gameClient } from '../../../app/client';
 import { messageOf, toast } from '../../../ui/toast';
 import type { AppContext } from '../../../app/context';
 import { ui } from '../../../ui/primitives';
 import { noticeStyles } from '../../../ui/notice.styles';
 import { styles } from './create-view.styles';
+import { useQuery } from '@tanstack/solid-query';
+import { gameHealthOptions } from '../../../app/queries';
 
 interface CreateRoomForm {
   theme: string;
@@ -45,7 +47,7 @@ export function CreateRoomView(props: { ctx: AppContext }) {
     onSubmit: async ({ value }) => {
       try {
         const { roomId } = await parseResponse(
-          client.api.rooms.$post({
+          gameClient.rooms.$post({
             json: { theme: value.theme.trim() },
           }),
         );
@@ -69,7 +71,8 @@ export function CreateRoomView(props: { ctx: AppContext }) {
 
   const submitting = form.useSelector((state) => state.isSubmitting);
   const issues = form.useSelector((state) => [...(state.fieldMeta.theme?.errors ?? [])]);
-  const configured = () => props.ctx.session.aiConfigured;
+  const health = useQuery(() => gameHealthOptions);
+  const unavailable = () => health.isError || health.data?.aiConfigured === false;
 
   const errorText = () => {
     const invalid = [...new Set(issues().map(textOfIssue))]
@@ -107,11 +110,11 @@ export function CreateRoomView(props: { ctx: AppContext }) {
             class={stylex.props(ui.notice, noticeStyles.warn).className}
             data-testid="create-ai-notice"
             data-tone="warn"
-            hidden={configured()}
+            hidden={!unavailable()}
           >
-            {configured()
-              ? ''
-              : '咒文生成暂不可用：预设主题可能仍有共享咒文书，可照常开战；自定义主题需等生成恢复。'}
+            {unavailable()
+              ? '咒文生成暂不可用：预设主题可能仍有共享咒文书，可照常开战；自定义主题需等生成恢复。'
+              : ''}
           </div>
 
           <hr class={stylex.props(ui.rule).className} />

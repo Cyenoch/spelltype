@@ -10,8 +10,8 @@
  * this validation decides both whether a match can start and whether a bad payload can reach
  * players. Nothing here needs a provider: `validateSpellSet` is pure.
  */
-import { describe, expect, it } from 'vitest';
-import { validateSpellSet } from '../../worker/generation/spells';
+import { describe, expect, it } from 'bun:test';
+import { validateSpellSet } from '../../server/generation/spells';
 import { SPELL_BOOK_SIZE, type Spell } from '../../shared/protocol';
 
 const LETTERS = 'abcdefghijklmnopqrstuvwxyz';

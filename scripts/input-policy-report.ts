@@ -1,9 +1,11 @@
-import process from 'node:process';
+import { and, count, countDistinct, gte, lt, min, sum } from 'drizzle-orm';
+import { readDatabaseUrl } from '../server/config';
+import { openDatabase, results } from '../server/db';
 
 const usage = 'Usage: bun run scripts/input-policy-report.ts --from-ms <integer> --to-ms <integer>';
 
 try {
-  const args = process.argv.slice(2);
+  const args = Bun.argv.slice(2);
   if (args.length !== 4) throw new Error(usage);
   let from: number | undefined;
   let to: number | undefined;
@@ -18,23 +20,30 @@ try {
   }
   if (from === undefined || to === undefined || from >= to) throw new Error(usage);
 
-  // Validated decimal bounds are the only substitutions; no credentials or database access.
-  console.log(`SELECT
-  input_policy_version,
-  input_policy_mode,
-  COUNT(DISTINCT match_id) AS matches,
-  COUNT(*) AS player_matches,
-  SUM(spells_cast) AS accepted_completions,
-  SUM(input_gate_hits) AS gate_hits,
-  SUM(input_recoveries) AS recoveries,
-  MIN(input_min_completion_ratio) AS min_completion_ratio,
-  SUM(input_overloads) AS overloads,
-  SUM(input_recovered_completions) AS recovered_completions,
-  SUM(input_recovery_departures) AS recovery_departures
-FROM results
-WHERE created_at >= ${from} AND created_at < ${to}
-GROUP BY input_policy_version, input_policy_mode
-ORDER BY input_policy_version, input_policy_mode;`);
+  const database = await openDatabase(await readDatabaseUrl());
+  try {
+    const report = await database.db
+      .select({
+        input_policy_version: results.input_policy_version,
+        input_policy_mode: results.input_policy_mode,
+        matches: countDistinct(results.match_id),
+        player_matches: count(),
+        accepted_completions: sum(results.spells_cast),
+        gate_hits: sum(results.input_gate_hits),
+        recoveries: sum(results.input_recoveries),
+        min_completion_ratio: min(results.input_min_completion_ratio),
+        overloads: sum(results.input_overloads),
+        recovered_completions: sum(results.input_recovered_completions),
+        recovery_departures: sum(results.input_recovery_departures),
+      })
+      .from(results)
+      .where(and(gte(results.created_at, from), lt(results.created_at, to)))
+      .groupBy(results.input_policy_version, results.input_policy_mode)
+      .orderBy(results.input_policy_version, results.input_policy_mode);
+    console.log(JSON.stringify(report, null, 2));
+  } finally {
+    await database.close();
+  }
 } catch (error) {
   console.error(error instanceof Error ? error.message : usage);
   process.exitCode = 1;

@@ -2,59 +2,64 @@
  * 输入门槛 — 服务端施法时间门槛的验收回归。
  *
  * 每个用例驱动房间的公共入口（`handleClientFrame` → `handleInput`、`advanceOnce`、
- * `manualLeave`、`startMatch`、`snapshotFor`）打到真实 SQLite 上，时钟只经
- * `Date.now` 间谍控制。可观察契约（对应规格 AC-01–09、12–18 中可单测的部分）：
- * enforce 拒绝只推进代际并记录原因/采样，绝不入批次；acceptance 与资格、采样、
- * 游标在同一提交里，伤害与事件等窗口末的 advanceCombat 才落地；恢复计数只认
- * 当前咒文；资源窗口第 61 个合法 input 恰好一次废除所有权并 4004；策略在开局
- * 锁定、重开不重算、新局清零；损坏状态被同一句话拒绝且快照给 null gate；
- * 结算 await 期间的替换连接读不到任何东西；开局/倒计时转换/接受/结算四条路径
- * 的中途 SQL 异常各自整体回滚。
+ * `manualLeave`、`startMatchTx`、`snapshotFor`）打到真实 PGlite 上，时钟只经
+ * Bun 原生 `setSystemTime` 一致控制。可观察契约：enforce 拒绝只推进代际并记录原因/采样，绝不入
+ * 批次；acceptance 与资格、采样、游标在同一提交里，伤害与事件等窗口末的
+ * advanceCombat 才落地；恢复计数只认当前咒文；资源窗口第 61 个合法 input 恰好一次
+ * 废除所有权并 4004；策略在开局锁定、重开不重算、新局清零；损坏状态被同一句话拒绝
+ * 且快照给 null gate；开局/倒计时转换/接受/结算四条路径的中途 SQL 异常各自整体回滚。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, setSystemTime, spyOn } from 'bun:test';
+import type { Mock } from 'bun:test';
+import { eq, getTableName } from 'drizzle-orm';
 import {
   COMBAT_BATCH_MS,
   INITIAL_HEALTH,
   MATCH_DURATION_MS,
   WS_CLOSE,
   WS_PROTOCOL,
+  type InputPolicyMode,
   type RoomSnapshot,
   type ServerMessage,
   type Spell,
 } from '../../shared/protocol';
-import type { Env } from '../../worker/env';
-import type { InputFrame } from '../../worker/rooms/combat';
-import { handleClientFrame } from '../../worker/rooms/frames';
-import { INPUT_GATE_ERROR_MESSAGE } from '../../worker/rooms/input-gate';
-import { manualLeave } from '../../worker/rooms/leave';
-import { startMatch } from '../../worker/rooms/match';
-import { INPUT_MIN_MS_PER_CODE_POINT, INPUT_POLICY_VERSION } from '../../worker/rooms/rules';
-import { InputBudget } from '../../worker/rooms/scope';
-import type { RoomScope } from '../../worker/rooms/scope';
-import { snapshotFor } from '../../worker/rooms/snapshots';
-import type { SocketAuth } from '../../worker/rooms/sockets';
-import { abandonedMatch } from '../../worker/rooms/storage/departures';
-import { readEvents } from '../../worker/rooms/storage/events';
-import type { PlayerRow, RoomRow } from '../../worker/rooms/storage/schema';
-import { getPlayer, insertPlayer, updatePlayer } from '../../worker/rooms/storage/players';
-import { getRoom, insertRoom, updateRoom } from '../../worker/rooms/storage/room';
-import { createSchema } from '../../worker/rooms/storage/schema';
-import { readSpellBook } from '../../worker/rooms/storage/spell-book';
-import { readVolley } from '../../worker/rooms/storage/volley';
-import { advanceOnce } from '../../worker/rooms/transitions';
-import type { SqlStore } from '../../worker/sql';
-import { charCount, damageOf, spellAt } from '../../worker/scoring';
-import { openFileTestStorage, openTestStorage, type TestStorage } from '../support/sql-storage';
+import type { RoomSocket } from '../../server/contracts';
+import type { Database, OpenedDatabase, Transaction } from '../../server/db';
+import { openDatabase, releaseVersions } from '../../server/db';
+import { players as playersTable, results } from '../../server/db/schema';
+import { ensureDevelopmentRelease } from '../../server/releases/control';
+import { handleClientFrame } from '../../server/rooms/frames';
+import { INPUT_GATE_ERROR_MESSAGE } from '../../server/rooms/input-gate';
+import { manualLeave } from '../../server/rooms/leave';
+import { startMatchTx } from '../../server/rooms/match';
+import { INPUT_MIN_MS_PER_CODE_POINT, INPUT_POLICY_VERSION } from '../../server/rooms/rules';
+import { createRoomScope, InputBudget, SocketRegistry } from '../../server/rooms/scope';
+import type { RoomScope, SocketAuth } from '../../server/rooms/scope';
+import { pushSnapshots, snapshotFor } from '../../server/rooms/snapshots';
+import { abandonedMatch } from '../../server/rooms/storage/departures';
+import { readEvents } from '../../server/rooms/storage/events';
+import type { PlayerRow, RoomRow } from '../../server/db/schema';
+import { getPlayer, insertPlayer, updatePlayer } from '../../server/rooms/storage/players';
+import { createRoom, getRoom, updateRoom } from '../../server/rooms/storage/room';
+import { readSpellBook } from '../../server/rooms/storage/spell-book';
+import { readVolley } from '../../server/rooms/storage/volley';
+import { advanceOnce } from '../../server/rooms/transitions';
+import { charCount, damageOf, spellAt } from '../../server/scoring';
+import type { InputFrame } from '../../server/rooms/combat';
+import { RuntimeOwnershipLostError, acquireRuntime } from '../../server/releases/ownership';
 
-const T0 = 1_700_000_000_000;
+// Freeze relative offsets without moving PGlite's process-wide timers back by years.
+const T0 = Date.now();
+const RELEASE_ID = 'a'.repeat(32);
 const ROOM_ID = 'b'.repeat(24);
 const MATCH_ID = 'match-gate';
 const COMBAT_END = T0 + MATCH_DURATION_MS;
 /** 座位不可能产出的锁定模式：锁定列只允许 observe/enforce，其余按损坏拒绝。 */
-const INVALID_POLICY_MODE = 'normal' as unknown as 'observe';
+const INVALID_POLICY_MODE = 'normal' as InputPolicyMode;
+const INVALID_ADMISSION = 'paused' as 'open' | 'draining';
 /**
  * 四条咒文：长度各不相同，让「新资格按各自法术的码点成本计算」可被精确断言；
  * 第二条含代理对，把「长度按码点、不按 UTF-16 单元」钉进端到端裁决。
@@ -68,17 +73,17 @@ const BOOK: Spell[] = [
 /** 每条咒文的门槛时长：码点数 × 每码点成本（非显而易见的公式，测试反复引用）。 */
 const floorOf = (text: string): number => charCount(text) * INPUT_MIN_MS_PER_CODE_POINT;
 
-interface StubSocket extends WebSocket {
-  /** 测试里可写：模拟关闭落地前仍在投递排队帧的传输层。 */
-  readyState: 0 | 1 | 2 | 3;
+interface StubSocket {
+  socket: RoomSocket;
+  /** 模拟一个关闭尚未落地、仍在投递排队帧的传输层。 */
+  reopen(): void;
   sent: ServerMessage[];
   closes: { code: number; reason: string }[];
 }
 
 let now = T0;
-let clock!: MockInstance;
-let consoleErrors!: MockInstance;
-const open: TestStorage[] = [];
+let consoleErrors: Mock<typeof console.error> | null = null;
+const databases: OpenedDatabase[] = [];
 
 function metaOf(userId: string, connId = `${userId}-conn`): SocketAuth {
   return {
@@ -91,113 +96,156 @@ function metaOf(userId: string, connId = `${userId}-conn`): SocketAuth {
   };
 }
 
-function stubSocket(userId: string, connId = `${userId}-conn`): StubSocket {
-  const sent: ServerMessage[] = [];
-  const closes: { code: number; reason: string }[] = [];
-  const ws = {
-    // 传输层状态可写：模拟一个关闭尚未落地、仍在投递排队帧的传输层。
-    readyState: WebSocket.OPEN as 0 | 1 | 2 | 3,
-    sent,
-    closes,
-    deserializeAttachment: () => metaOf(userId, connId),
+function stubSocket(_userId: string): StubSocket {
+  const state: StubSocket = {
+    socket: null as unknown as RoomSocket,
+    reopen() {
+      readyState = 1;
+    },
+    sent: [],
+    closes: [],
+  };
+  let readyState = 1;
+  state.socket = {
+    get readyState() {
+      return readyState;
+    },
+    data: { roomId: ROOM_ID, protocolVersion: WS_PROTOCOL, session: null },
     send: (raw: string) => {
-      sent.push(JSON.parse(raw) as ServerMessage);
+      state.sent.push(JSON.parse(raw) as ServerMessage);
     },
     close: (code: number, reason: string) => {
-      closes.push({ code, reason });
-      ws.readyState = WebSocket.CLOSED;
+      state.closes.push({ code, reason });
+      readyState = 3;
     },
-  };
-  // 只声明传输层用到的面；运行时对象即上述字面量。
-  return ws as unknown as StubSocket;
-}
-
-function makeEnv(policyMode: string, batch?: (statements: unknown[]) => Promise<unknown>): Env {
-  return {
-    MATCH_ADMISSION: 'open',
-    INPUT_POLICY_MODE: policyMode,
-    DB: {
-      prepare: () => ({ bind: () => ({}) }),
-      batch: batch ?? (async () => ({})),
-    },
-  } as unknown as Env;
+  } as unknown as RoomSocket;
+  return state;
 }
 
 /**
- * 测试专用缝隙：scope 面向读者的 `readonly sql` 在故障注入时被整体换出再换回。
- * 回滚由 storage 自己的 transactionSync 完成，测试只提供会在真实 SQLite 上失败的语句。
+ * 事务级故障注入：截住对指定表的第一个写操作并抛错，由真实数据库事务整体回滚。
+ * `table` 是 Drizzle 表名（rooms / players / results）。
  */
-interface ScopeWithSwappableSql extends RoomScope {
-  sql: SqlStore;
+interface SqlInjection {
+  op: 'update' | 'insert';
+  table: string;
 }
 
-function failSqlOn(scope: ScopeWithSwappableSql, pattern: RegExp): () => void {
-  const real = scope.sql;
-  const exec = real.exec.bind(real);
-  scope.sql = {
-    exec: (query, ...bindings) => {
-      if (pattern.test(query)) throw new Error(`injected sql failure: ${pattern.source}`);
-      return exec(query, ...bindings);
+let injection: SqlInjection | null = null;
+
+function interceptTx(tx: Transaction): Transaction {
+  if (injection === null) return tx;
+  const rule = injection;
+  return new Proxy(tx, {
+    get(target, prop) {
+      if (prop === rule.op) {
+        return (table: Parameters<typeof getTableName>[0]) => {
+          if (getTableName(table) === rule.table) throw new Error('injected sql failure');
+          const inner = Reflect.get(target, prop) as (
+            t: Parameters<typeof getTableName>[0],
+          ) => unknown;
+          return inner.call(target, table);
+        };
+      }
+      return Reflect.get(target, prop);
     },
-  };
-  return () => {
-    scope.sql = real;
-  };
+  });
 }
+
+/** 让下一次 scope.transact 在运行事务体之前把时钟推进 `advanceMs`（恢复时刻的接缝）。 */
+let transactDelay: number | null = null;
+/** 让下一次 scope.push 等到放行再投递（结算后投递前的替换竞态接缝）。 */
+let pushGate: {
+  entered: PromiseWithResolvers<void>;
+  release: PromiseWithResolvers<void>;
+} | null = null;
 
 interface Harness {
-  storage: TestStorage;
-  scope: ScopeWithSwappableSql;
-  sql: SqlStore;
+  db: Database;
+  scope: RoomScope;
+  registry: SocketRegistry;
   sockets: Record<string, StubSocket>;
   /** 挂一个新连接并把座位指给它（第二连接接管）。 */
-  takeover(userId: string, connId: string): StubSocket;
+  takeover(userId: string, connId: string): Promise<StubSocket>;
   /** 按座位当前持久状态构造合法 input 帧；`overrides` 显式制造旧值。 */
   frame(
     userId: string,
     text?: string,
     overrides?: { matchId?: string; spellIndex?: number; draftEpoch?: number },
-  ): InputFrame;
+  ): Promise<InputFrame>;
   /** 以座位的当前连接发送（正常路径）。 */
   send(userId: string, frame: InputFrame): Promise<void>;
   /** 以指定连接发送（接管后的新连接）。 */
   sendAs(userId: string, connId: string, frame: InputFrame): Promise<void>;
   /** 把时钟移到 T0 + offsetMs。 */
   at(offsetMs: number): void;
-  snapshot(userId: string): RoomSnapshot;
-  player(userId: string): PlayerRow;
-  room(): RoomRow | null;
+  snapshot(userId: string): Promise<RoomSnapshot>;
+  player(userId: string): Promise<PlayerRow>;
+  room(): Promise<RoomRow | null>;
 }
 
-function buildHarness(storage: TestStorage, userIds: readonly string[], env: Env): Harness {
+async function buildHarness(
+  db: Database,
+  userIds: readonly string[],
+  mode: InputPolicyMode,
+): Promise<Harness> {
   const sockets: Record<string, StubSocket> = {};
-  for (const userId of userIds) sockets[userId] = stubSocket(userId);
-  const scope = {
-    sql: storage.sql,
-    env,
+  const registry = new SocketRegistry();
+  for (const userId of userIds) {
+    sockets[userId] = stubSocket(userId);
+    registry.attach(sockets[userId].socket, metaOf(userId));
+  }
+  const scope = createRoomScope({
+    roomId: ROOM_ID,
+    releaseId: RELEASE_ID,
+    db,
+    generate: async () => {
+      throw new Error('generation not expected in gate tests');
+    },
+    registry,
+    matchAdmission: 'open',
+    inputPolicyMode: mode,
     input: new InputBudget(),
-    alarm: { set: async () => {}, clear: async () => {} },
-    sockets: () => Object.values(sockets),
-    transactionSync: storage.transactionSync,
-  } as ScopeWithSwappableSql;
-  const socketFor = (userId: string, connId: string): StubSocket => {
+    transact: (fn) =>
+      db.transaction(async (tx) => {
+        if (transactDelay !== null) {
+          const delay = transactDelay;
+          transactDelay = null;
+          now += delay;
+          setSystemTime(now);
+        }
+        return fn(interceptTx(tx));
+      }),
+    push: async (s) => {
+      if (pushGate !== null) {
+        const gate = pushGate;
+        pushGate = null;
+        gate.entered.resolve();
+        await gate.release.promise;
+      }
+      await pushSnapshots(s);
+    },
+    arm: async () => {},
+  });
+  const socketFor = (userId: string, connId: string): RoomSocket => {
     const key = connId === `${userId}-conn` ? userId : `${userId}:${connId}`;
-    return sockets[key];
+    return sockets[key].socket;
   };
   return {
-    storage,
+    db,
     scope,
-    sql: storage.sql,
+    registry,
     sockets,
-    takeover(userId, connId) {
-      const ws = stubSocket(userId, connId);
-      sockets[`${userId}:${connId}`] = ws;
-      updatePlayer(storage.sql, userId, { conn_id: connId });
-      return ws;
+    async takeover(userId, connId) {
+      const stub = stubSocket(userId);
+      sockets[`${userId}:${connId}`] = stub;
+      registry.attach(stub.socket, metaOf(userId, connId));
+      await updatePlayer(db, ROOM_ID, userId, { conn_id: connId });
+      return stub;
     },
-    frame(userId, text, overrides) {
-      const room = getRoom(storage.sql)!;
-      const self = getPlayer(storage.sql, userId)!;
+    async frame(userId, text, overrides) {
+      const room = (await getRoom(db, ROOM_ID))!;
+      const self = (await getPlayer(db, ROOM_ID, userId))!;
       const spell = spellAt(readSpellBook(room), self.spell_index)!;
       return {
         type: 'input',
@@ -216,41 +264,45 @@ function buildHarness(storage: TestStorage, userIds: readonly string[], env: Env
     },
     at(offsetMs) {
       now = T0 + offsetMs;
+      setSystemTime(now);
     },
-    snapshot(userId) {
-      return snapshotFor(scope, { id: userId, username: userId });
+    async snapshot(userId) {
+      return snapshotFor(db, ROOM_ID, registry, { id: userId, username: userId });
     },
-    player(userId) {
-      return getPlayer(storage.sql, userId)!;
+    async player(userId) {
+      return (await getPlayer(db, ROOM_ID, userId))!;
     },
     room() {
-      return getRoom(storage.sql)!;
+      return getRoom(db, ROOM_ID);
     },
   };
 }
 
-function seedMatchRoom(
-  storage: TestStorage,
+async function openTestDb(): Promise<Database> {
+  const opened = await openDatabase('pglite://:memory:');
+  databases.push(opened);
+  await ensureDevelopmentRelease(opened.db, RELEASE_ID);
+  return opened.db;
+}
+
+async function seedMatchRoom(
+  db: Database,
   userIds: readonly string[],
   options: {
-    mode: 'observe' | 'enforce';
+    mode: InputPolicyMode;
     phase: 'countdown' | 'playing';
     openedAt: number | null;
     deadline: number;
   },
-): void {
-  createSchema(storage.sql);
-  insertRoom(storage.sql, {
+): Promise<void> {
+  await createRoom(db, {
     id: ROOM_ID,
-    hostId: userIds[0],
-    mode: 'private',
+    releaseId: RELEASE_ID,
+    host: { id: userIds[0], username: userIds[0] },
     theme: '门槛契约',
-    difficulty: 'hard',
-    reservationState: 'none',
-    reservationExpiresAt: null,
-    now: T0,
+    mode: 'private',
   });
-  updateRoom(storage.sql, {
+  await updateRoom(db, ROOM_ID, {
     phase: options.phase,
     locked: 1,
     match_id: MATCH_ID,
@@ -261,76 +313,76 @@ function seedMatchRoom(
     input_policy_mode: options.mode,
     input_min_ms_per_code_point: INPUT_MIN_MS_PER_CODE_POINT,
   });
-  for (const userId of userIds) {
-    insertPlayer(storage.sql, { userId, username: userId, slotExpiresAt: null, now: T0 });
-    updatePlayer(storage.sql, userId, { seated: 1, conn_id: `${userId}-conn` });
+  for (const [slot, userId] of userIds.entries()) {
+    await insertPlayer(db, ROOM_ID, { userId, username: userId, slotExpiresAt: null, now: T0 });
+    await updatePlayer(db, ROOM_ID, userId, { seated: 1, conn_id: `${userId}-conn` });
     if (options.openedAt !== null) {
       // 首条咒语（下标 0）的资格；倒计时中的座位没有任何资格可预览。
-      updatePlayer(storage.sql, userId, {
+      await updatePlayer(db, ROOM_ID, userId, {
         input_opened_at: options.openedAt,
         input_not_before: options.openedAt + floorOf(BOOK[0].text),
       });
     }
+    void slot;
   }
 }
 
-function playingHarness(
+async function playingHarness(
   userIds: readonly string[],
-  options: { mode: 'observe' | 'enforce'; openedAt?: number },
-): Harness {
-  const storage = openTestStorage();
-  open.push(storage);
-  seedMatchRoom(storage, userIds, {
+  options: { mode: InputPolicyMode; openedAt?: number },
+): Promise<Harness> {
+  const db = await openTestDb();
+  await seedMatchRoom(db, userIds, {
     mode: options.mode,
     phase: 'playing',
     openedAt: options.openedAt ?? T0,
     deadline: COMBAT_END,
   });
-  return buildHarness(storage, userIds, makeEnv(options.mode));
+  return buildHarness(db, userIds, options.mode);
 }
 
-function countdownHarness(userIds: readonly string[], env: Env): Harness {
-  const storage = openTestStorage();
-  open.push(storage);
-  seedMatchRoom(storage, userIds, {
+async function countdownHarness(
+  userIds: readonly string[],
+  mode: InputPolicyMode,
+): Promise<Harness> {
+  const db = await openTestDb();
+  await seedMatchRoom(db, userIds, {
     mode: 'enforce',
     phase: 'countdown',
     openedAt: null,
     deadline: T0 + 3_000,
   });
-  return buildHarness(storage, userIds, env);
+  return buildHarness(db, userIds, mode);
 }
 
-function lobbyHarness(
+async function lobbyHarness(
   userIds: readonly string[],
-  env: Env,
-): { storage: TestStorage; scope: ScopeWithSwappableSql; sql: SqlStore } {
-  const storage = openTestStorage();
-  open.push(storage);
-  createSchema(storage.sql);
-  insertRoom(storage.sql, {
+): Promise<{ db: Database; scope: RoomScope }> {
+  const db = await openTestDb();
+  await createRoom(db, {
     id: ROOM_ID,
-    hostId: userIds[0],
-    mode: 'private',
+    releaseId: RELEASE_ID,
+    host: { id: userIds[0], username: userIds[0] },
     theme: '门槛契约',
-    difficulty: 'hard',
-    reservationState: 'none',
-    reservationExpiresAt: null,
-    now: T0,
+    mode: 'private',
   });
   for (const userId of userIds) {
-    insertPlayer(storage.sql, { userId, username: userId, slotExpiresAt: null, now: T0 });
-    updatePlayer(storage.sql, userId, { seated: 1, conn_id: `${userId}-conn`, ready: 1 });
+    await insertPlayer(db, ROOM_ID, { userId, username: userId, slotExpiresAt: null, now: T0 });
+    await updatePlayer(db, ROOM_ID, userId, { seated: 1, conn_id: `${userId}-conn`, ready: 1 });
   }
-  const scope = {
-    sql: storage.sql,
-    env,
+  const scope = createRoomScope({
+    roomId: ROOM_ID,
+    releaseId: RELEASE_ID,
+    db,
+    generate: async () => {
+      throw new Error('generation not expected in gate tests');
+    },
+    registry: new SocketRegistry(),
+    matchAdmission: 'open',
+    inputPolicyMode: 'enforce',
     input: new InputBudget(),
-    alarm: { set: async () => {}, clear: async () => {} },
-    sockets: () => [],
-    transactionSync: storage.transactionSync,
-  } as ScopeWithSwappableSql;
-  return { storage, scope, sql: storage.sql };
+  });
+  return { db, scope };
 }
 
 /** 结算批次里在 `atMs` 提交的施法所属窗口的末时刻。 */
@@ -338,32 +390,39 @@ function windowEnd(atMs: number): number {
   return T0 + Math.floor(atMs / COMBAT_BATCH_MS) * COMBAT_BATCH_MS + COMBAT_BATCH_MS;
 }
 
-function resultRows(sql: SqlStore, columns: string): Array<Record<string, number | string | null>> {
-  return sql
-    .exec<Record<string, number | string | null>>(
-      `SELECT user_id, ${columns} FROM match_results ORDER BY user_id`,
-    )
-    .toArray();
+/** Opens one fenced transaction for a direct start call, exactly like the production callers. */
+function runStart(
+  db: Database,
+  room: RoomRow,
+  policy: { matchAdmission: 'open' | 'draining'; inputPolicyMode: InputPolicyMode },
+): Promise<boolean> {
+  return db.transaction((tx) => startMatchTx(interceptTx(tx), ROOM_ID, room, policy));
 }
 
 beforeEach(() => {
   now = T0;
-  clock = vi.spyOn(Date, 'now').mockImplementation(() => now);
-  consoleErrors = vi.spyOn(console, 'error').mockImplementation(() => {});
+  injection = null;
+  transactDelay = null;
+  pushGate = null;
+  setSystemTime(now);
+  consoleErrors = spyOn(console, 'error').mockImplementation(() => {});
 });
 
-afterEach(() => {
-  clock.mockRestore();
-  consoleErrors.mockRestore();
-  for (const storage of open.splice(0)) storage.close();
+afterEach(async () => {
+  try {
+    await Promise.all(databases.splice(0).map((database) => database.close()));
+  } finally {
+    setSystemTime();
+    consoleErrors?.mockRestore();
+  }
 });
 
 describe('enforce 门槛与恢复', () => {
   it('开局瞬发整段完成被拒：血量/事件/游标/完成数不动，代际 +1 并记录原因与首次采样', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
-    await h.send('a', h.frame('a'));
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    await h.send('a', await h.frame('a'));
 
-    expect(h.player('a')).toMatchObject({
+    expect(await h.player('a')).toMatchObject({
       spell_index: 0,
       spells_cast: 0,
       hp: INITIAL_HEALTH,
@@ -377,11 +436,11 @@ describe('enforce 门槛与恢复', () => {
       input_opened_at: T0,
       input_not_before: T0 + floorOf(BOOK[0].text),
     });
-    expect(h.player('b').hp).toBe(INITIAL_HEALTH);
-    expect(readEvents(h.room()!)).toEqual([]);
-    expect(readVolley(h.sql)).toBeNull();
+    expect(await h.player('b')).toMatchObject({ hp: INITIAL_HEALTH });
+    expect(readEvents((await h.room())!)).toEqual([]);
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
 
-    const snapshot = h.snapshot('a');
+    const snapshot = await h.snapshot('a');
     expect(snapshot.selfInputGate).toEqual({
       policyVersion: INPUT_POLICY_VERSION,
       mode: 'enforce',
@@ -393,10 +452,10 @@ describe('enforce 门槛与恢复', () => {
   });
 
   it('带历史错误的已接受草稿被过早完成：草稿与统计原样保留，恢复本身不计数；就绪后补全恰好命中一次', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
     h.at(30);
-    await h.send('a', h.frame('a', 'AX')); // 含一个错误字符的草稿被正常接受
-    expect(h.player('a')).toMatchObject({
+    await h.send('a', await h.frame('a', 'AX')); // 含一个错误字符的草稿被正常接受
+    expect(await h.player('a')).toMatchObject({
       last_input: 'AX',
       progress: 1,
       attempt_total: 2,
@@ -404,8 +463,8 @@ describe('enforce 门槛与恢复', () => {
     });
 
     h.at(69);
-    await h.send('a', h.frame('a')); // 门槛前完成：被拒，草稿与统计精确回原样
-    expect(h.player('a')).toMatchObject({
+    await h.send('a', await h.frame('a')); // 门槛前完成：被拒，草稿与统计精确回原样
+    expect(await h.player('a')).toMatchObject({
       draft_epoch: 1,
       last_input: 'AX',
       progress: 1,
@@ -414,13 +473,13 @@ describe('enforce 门槛与恢复', () => {
       input_recoveries: 1,
       input_recovered_completions: 0,
     });
-    const snapshot = h.snapshot('a');
+    const snapshot = await h.snapshot('a');
     expect(snapshot.selfInput).toBe('AX');
     expect(snapshot.selfInputStats).toEqual({ attemptTotal: 2, errorTotal: 1 });
 
     h.at(70);
-    await h.send('a', h.frame('a')); // 新代际、门槛恰满足：一次命中
-    expect(h.player('a')).toMatchObject({
+    await h.send('a', await h.frame('a')); // 新代际、门槛恰满足：一次命中
+    expect(await h.player('a')).toMatchObject({
       spell_index: 1,
       spells_cast: 1,
       correct_chars: 2,
@@ -434,80 +493,135 @@ describe('enforce 门槛与恢复', () => {
     });
     h.at(100);
     await advanceOnce(h.scope);
-    expect(h.player('b').hp).toBe(INITIAL_HEALTH - damageOf(BOOK[0].text));
-    expect(readEvents(h.room()!)).toHaveLength(1);
+    expect(await h.player('b')).toMatchObject({
+      hp: INITIAL_HEALTH - damageOf(BOOK[0].text),
+    });
+    expect(readEvents((await h.room())!)).toHaveLength(1);
   });
 
   it('门槛边界：T+69 拒、新代际在 T+70 恰好命中一次', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
     h.at(69);
-    await h.send('a', h.frame('a'));
-    expect(h.player('a')).toMatchObject({ draft_epoch: 1, spells_cast: 0 });
-    expect(readVolley(h.sql)).toBeNull();
+    await h.send('a', await h.frame('a'));
+    expect(await h.player('a')).toMatchObject({ draft_epoch: 1, spells_cast: 0 });
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
 
     h.at(70);
-    await h.send('a', h.frame('a'));
-    const volley = readVolley(h.sql)!;
+    await h.send('a', await h.frame('a'));
+    const volley = (await readVolley(h.db, ROOM_ID))!;
     expect(volley.casts).toEqual([
       { attackerId: 'a', spellIndex: 0, element: 'fire', power: damageOf(BOOK[0].text) },
     ]);
     expect(volley.endsAt).toBe(windowEnd(70));
   });
 
-  it('恢复后只接受草稿不产生施法，跨过门槛也没有自动攻击，真正补全才命中一次', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
-    h.at(69);
-    await h.send('a', h.frame('a'));
+  it('等待接受事务跨过窗口末：先兑现致死承诺，迟到对手不能反击成平局', async () => {
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    const power = damageOf(BOOK[0].text);
+    await updatePlayer(h.db, ROOM_ID, 'a', { hp: power });
+    await updatePlayer(h.db, ROOM_ID, 'b', { hp: power });
     h.at(70);
-    await h.send('a', h.frame('a', 'A')); // 新代际的部分草稿：只更新快照
-    expect(h.player('a')).toMatchObject({
+    await h.send('a', await h.frame('a'));
+    h.at(99);
+    transactDelay = 2;
+    await h.send('b', await h.frame('b'));
+    await advanceOnce(h.scope);
+
+    expect(await h.player('a')).toMatchObject({ hp: power, spells_cast: 1 });
+    expect(await h.player('b')).toMatchObject({ hp: 0, spells_cast: 0 });
+    expect(await h.room()).toMatchObject({ phase: 'finished', ended_at: windowEnd(70) });
+    expect(readEvents((await h.room())!).map((event) => event.attackerId)).toEqual(['a']);
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
+    expect(
+      await h.db
+        .select({ userId: results.user_id, rank: results.rank })
+        .from(results)
+        .where(eq(results.match_id, MATCH_ID))
+        .orderBy(results.user_id),
+    ).toEqual([
+      { userId: 'a', rank: 1 },
+      { userId: 'b', rank: 2 },
+    ]);
+  });
+
+  it.each(['A', 'AB'])('等待接受事务跨过比赛截止：拒绝草稿或完成 %s 的所有变化', async (text) => {
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    h.at(MATCH_DURATION_MS - 1);
+    transactDelay = 2;
+    await h.send('a', await h.frame('a', text));
+    await advanceOnce(h.scope);
+
+    expect(await h.room()).toMatchObject({
+      phase: 'finished',
+      end_reason: 'timeout',
+      ended_at: COMBAT_END,
+    });
+    expect(await h.player('a')).toMatchObject({
+      spells_cast: 0,
+      attempt_total: 0,
+      correct_chars: 0,
+    });
+    expect(await h.player('b')).toMatchObject({ hp: INITIAL_HEALTH });
+    expect(readEvents((await h.room())!)).toEqual([]);
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
+  });
+
+  it('恢复后只接受草稿不产生施法，跨过门槛也没有自动攻击，真正补全才命中一次', async () => {
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    h.at(69);
+    await h.send('a', await h.frame('a'));
+    h.at(70);
+    await h.send('a', await h.frame('a', 'A')); // 新代际的部分草稿：只更新快照
+    expect(await h.player('a')).toMatchObject({
       last_input: 'A',
       progress: 1,
       attempt_total: 1,
       spell_index: 0,
       spells_cast: 0,
     });
-    expect(readVolley(h.sql)).toBeNull();
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
 
     h.at(500); // 时间自己跨过门槛：没有任何自动提交或攻击
     await advanceOnce(h.scope);
-    expect(readVolley(h.sql)).toBeNull();
-    expect(readEvents(h.room()!)).toEqual([]);
-    expect(h.player('a').spells_cast).toBe(0);
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
+    expect(readEvents((await h.room())!)).toEqual([]);
+    expect(await h.player('a')).toMatchObject({ spells_cast: 0 });
 
-    await h.send('a', h.frame('a')); // 用户真正补全：一次入队
-    expect(h.player('a')).toMatchObject({ spell_index: 1, spells_cast: 1 });
+    await h.send('a', await h.frame('a')); // 用户真正补全：一次入队
+    expect(await h.player('a')).toMatchObject({ spell_index: 1, spells_cast: 1 });
     h.at(600);
     await advanceOnce(h.scope);
-    expect(readEvents(h.room()!).map((event) => [event.attackerId, event.spellIndex])).toEqual([
-      ['a', 0],
-    ]);
-    expect(h.player('b').hp).toBe(INITIAL_HEALTH - damageOf(BOOK[0].text));
+    expect(
+      readEvents((await h.room())!).map((event) => [event.attackerId, event.spellIndex]),
+    ).toEqual([['a', 0]]);
+    expect(await h.player('b')).toMatchObject({
+      hp: INITIAL_HEALTH - damageOf(BOOK[0].text),
+    });
   });
 
   it('拒绝后旧代际的重复补全/编辑不再改变任何状态；伪造 observe 模式也无法绕过 enforce', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
     h.at(69);
-    await h.send('a', h.frame('a'));
-    const rejected = h.player('a');
+    await h.send('a', await h.frame('a'));
+    const rejected = await h.player('a');
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      await h.send('a', h.frame('a', 'AB', { draftEpoch: 0 }));
-      await h.send('a', h.frame('a', 'AXQ', { draftEpoch: 0 }));
+      await h.send('a', await h.frame('a', 'AB', { draftEpoch: 0 }));
+      await h.send('a', await h.frame('a', 'AXQ', { draftEpoch: 0 }));
     }
-    expect(h.player('a')).toEqual(rejected);
-    expect(readVolley(h.sql)).toBeNull();
-    expect(readEvents(h.room()!)).toEqual([]);
+    expect(await h.player('a')).toEqual(rejected);
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
+    expect(readEvents((await h.room())!)).toEqual([]);
 
     // 帧内伪造 observe 模式与零成本：裁决只认房内锁定策略，仍被拒并推进代际。
     const forged = {
-      ...h.frame('a', 'AB', { draftEpoch: 1 }),
+      ...(await h.frame('a', 'AB', { draftEpoch: 1 })),
       mode: 'observe',
       input_min_ms_per_code_point: 0,
     } as unknown as InputFrame; // 协议之外的字段由 schema 剥离，这里直接证明裁决不读它们
     h.at(69);
     await h.send('a', forged);
-    expect(h.player('a')).toMatchObject({
+    expect(await h.player('a')).toMatchObject({
       draft_epoch: 2,
       input_recoveries: 2,
       spells_cast: 0,
@@ -516,40 +630,40 @@ describe('enforce 门槛与恢复', () => {
   });
 
   it('持久化的 epoch 已达安全整数上限：座位按损坏拒绝（null gate 与明确错误），绝不自增、回绕或伪装就绪', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
-    updatePlayer(h.sql, 'a', { draft_epoch: Number.MAX_SAFE_INTEGER });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    await updatePlayer(h.db, ROOM_ID, 'a', { draft_epoch: Number.MAX_SAFE_INTEGER });
 
     // 上限代际是损坏的持久状态：快照不再发布看似健康的 gate，客户端停止提交。
-    const snapshot = h.snapshot('a');
+    const snapshot = await h.snapshot('a');
     expect(snapshot.selfInputGate).toBeNull();
     expect(snapshot.selfInputStats).toBeNull();
     expect(snapshot.error).toBe(INPUT_GATE_ERROR_MESSAGE);
 
     h.at(69);
-    await h.send('a', h.frame('a'));
-    expect(h.player('a')).toMatchObject({
+    await h.send('a', await h.frame('a'));
+    expect(await h.player('a')).toMatchObject({
       draft_epoch: Number.MAX_SAFE_INTEGER, // 不自增、不回绕
       input_recoveries: 0,
       input_gate_hits: 0,
       input_reset_reason: null,
     });
     h.at(70); // 即便时刻门槛已满足，损坏的座位也不接受
-    await h.send('a', h.frame('a'));
-    expect(h.player('a')).toMatchObject({
+    await h.send('a', await h.frame('a'));
+    expect(await h.player('a')).toMatchObject({
       draft_epoch: Number.MAX_SAFE_INTEGER,
       spell_index: 0,
       spells_cast: 0,
     });
-    expect(readVolley(h.sql)).toBeNull();
-    expect(readEvents(h.room()!)).toEqual([]);
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
+    expect(readEvents((await h.room())!)).toEqual([]);
   });
 });
 
 describe('observe 观察模式', () => {
   it('同样的过早整段完成照常命中并记录 gate hit、0 恢复；伪造 enforce 字段不改变观察行为', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'observe', openedAt: T0 });
-    await h.send('a', h.frame('a'));
-    expect(h.player('a')).toMatchObject({
+    const h = await playingHarness(['a', 'b'], { mode: 'observe', openedAt: T0 });
+    await h.send('a', await h.frame('a'));
+    expect(await h.player('a')).toMatchObject({
       spell_index: 1,
       spells_cast: 1,
       input_gate_hits: 1,
@@ -562,12 +676,12 @@ describe('observe 观察模式', () => {
 
     // 第二条同样瞬发，帧里伪造 enforce 与零成本：房间仍按观察模式放行并继续记录。
     const forged = {
-      ...h.frame('a'),
+      ...(await h.frame('a')),
       mode: 'enforce',
       input_min_ms_per_code_point: 0,
     } as unknown as InputFrame; // 同上：裁决只读房内锁定策略
     await h.send('a', forged);
-    expect(h.player('a')).toMatchObject({
+    expect(await h.player('a')).toMatchObject({
       spell_index: 2,
       spells_cast: 2,
       input_gate_hits: 2,
@@ -577,21 +691,23 @@ describe('observe 观察模式', () => {
     h.at(100);
     await advanceOnce(h.scope);
     const expectedDamage = damageOf(BOOK[0].text) + damageOf(BOOK[1].text);
-    expect(h.player('b').hp).toBe(INITIAL_HEALTH - expectedDamage);
-    expect(h.snapshot('a').selfInputGate?.mode).toBe('observe');
+    expect(await h.player('b')).toMatchObject({ hp: INITIAL_HEALTH - expectedDamage });
+    expect((await h.snapshot('a')).selfInputGate?.mode).toBe('observe');
   });
 });
 
 describe('资格来源与开局', () => {
   it('资格在进入对局时已发布：首帧到达前快照可见，首帧迟到不重建开启时刻', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
     h.at(69);
     // 首帧尚未到达，门槛已在开启时刻被计算：差 1ms 就绪。
-    expect(h.snapshot('a').selfInputGate).toMatchObject({ notBefore: T0 + floorOf(BOOK[0].text) });
+    expect((await h.snapshot('a')).selfInputGate).toMatchObject({
+      notBefore: T0 + floorOf(BOOK[0].text),
+    });
 
     h.at(70);
-    await h.send('a', h.frame('a')); // 若按首帧时刻重建，此刻不可能就绪
-    expect(h.player('a')).toMatchObject({
+    await h.send('a', await h.frame('a')); // 若按首帧时刻重建，此刻不可能就绪
+    expect(await h.player('a')).toMatchObject({
       spell_index: 1,
       spells_cast: 1,
       input_opened_at: T0 + 70,
@@ -599,7 +715,7 @@ describe('资格来源与开局', () => {
   });
 
   it('倒计时中的预览输入无效：不写资格、不入队、不推进', async () => {
-    const h = countdownHarness(['a', 'b'], makeEnv('enforce'));
+    const h = await countdownHarness(['a', 'b'], 'enforce');
     h.at(1_000);
     await h.send('a', {
       type: 'input',
@@ -609,8 +725,8 @@ describe('资格来源与开局', () => {
       text: BOOK[0].text,
     });
 
-    expect(h.room()!.phase).toBe('countdown');
-    expect(h.player('a')).toMatchObject({
+    expect(await h.room()).toMatchObject({ phase: 'countdown' });
+    expect(await h.player('a')).toMatchObject({
       input_opened_at: null,
       input_not_before: null,
       draft_epoch: 0,
@@ -618,36 +734,27 @@ describe('资格来源与开局', () => {
       spells_cast: 0,
       hp: INITIAL_HEALTH,
     });
-    expect(readVolley(h.sql)).toBeNull();
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
   });
 
-  it('registerDuel 拖延：资格按恢复后的真实时间计算，比赛时钟仍按原截止', async () => {
-    const gate = Promise.withResolvers<void>();
-    const h = countdownHarness(
-      ['a', 'b'],
-      makeEnv('enforce', async () => {
-        await gate.promise;
-        return {};
-      }),
-    );
+  it('转换期间钟表前进：资格按恢复后的真实时间计算，比赛时钟仍按原截止', async () => {
+    const h = await countdownHarness(['a', 'b'], 'enforce');
     h.at(3_000); // 倒计时截止已到，轮到转换运行
-    const run = advanceOnce(h.scope);
-    h.at(3_500); // 索引写入悬在途中的真实延迟
-    gate.resolve();
-    expect(await run).toBe(true);
+    transactDelay = 500; // 事务体开跑前的真实延迟（恢复中的索引写等）
+    expect(await advanceOnce(h.scope)).toMatchObject({ progressed: true });
 
-    expect(h.room()).toMatchObject({
+    expect(await h.room()).toMatchObject({
       phase: 'playing',
       started_at: T0 + 3_000, // 开局时刻是原倒计时截止，不因拖延后移
       deadline: T0 + 3_000 + MATCH_DURATION_MS,
     });
     for (const userId of ['a', 'b']) {
-      expect(h.player(userId)).toMatchObject({
+      expect(await h.player(userId)).toMatchObject({
         input_opened_at: T0 + 3_500, // 资格按恢复后的时间起算
         input_not_before: T0 + 3_500 + floorOf(BOOK[0].text),
       });
     }
-    const snapshot = h.snapshot('a');
+    const snapshot = await h.snapshot('a');
     expect(snapshot.phase).toBe('playing');
     expect(snapshot.selfInputGate).toMatchObject({
       mode: 'enforce',
@@ -657,19 +764,24 @@ describe('资格来源与开局', () => {
   });
 
   it('已错过整场比赛的倒计时：转入即按原截止超时终局，不产生可操作的对局', async () => {
-    const h = countdownHarness(['a', 'b'], makeEnv('enforce'));
-    h.at(3_000 + MATCH_DURATION_MS + 1_000); // alarm 迟到：整场比赛时间都已耗尽
-    expect(await advanceOnce(h.scope)).toBe(true);
+    const h = await countdownHarness(['a', 'b'], 'enforce');
+    h.at(3_000 + MATCH_DURATION_MS + 1_000); // catch-up 迟到：整场比赛时间都已耗尽
+    expect(await advanceOnce(h.scope)).toMatchObject({ progressed: true });
 
-    const room = h.room()!;
+    const room = (await h.room())!;
     expect(room.phase).toBe('finished');
     expect(room.end_reason).toBe('timeout');
     expect(room.started_at).toBe(T0 + 3_000); // 比赛时钟固定在原截止推导，不因晚 alarm 延长
     expect(room.ended_at).toBe(T0 + 3_000 + MATCH_DURATION_MS);
-    expect(readVolley(h.sql)).toBeNull();
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
     expect(readEvents(room)).toEqual([]);
     // 双方都满血活到终局：生存并列共享第一。
-    expect(resultRows(h.sql, 'rank')).toEqual([
+    expect(
+      await h.db
+        .select({ user_id: results.user_id, rank: results.rank })
+        .from(results)
+        .orderBy(results.user_id),
+    ).toEqual([
       { user_id: 'a', rank: 1 },
       { user_id: 'b', rank: 1 },
     ]);
@@ -678,35 +790,37 @@ describe('资格来源与开局', () => {
 
 describe('重放、游标与循环', () => {
   it('重复完成、旧下标与旧比赛帧只生效一次', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'observe', openedAt: T0 });
-    await h.send('a', h.frame('a'));
-    const accepted = h.player('a');
+    const h = await playingHarness(['a', 'b'], { mode: 'observe', openedAt: T0 });
+    await h.send('a', await h.frame('a'));
+    const accepted = await h.player('a');
     expect(accepted).toMatchObject({ spell_index: 1, spells_cast: 1 });
 
-    await h.send('a', h.frame('a', 'AB', { spellIndex: 0 })); // 完全相同的旧帧重放
-    await h.send('a', h.frame('a', 'XX', { spellIndex: 0 })); // 旧下标携带不同文本
-    await h.send('a', h.frame('a', 'AB', { matchId: 'match-0' })); // 旧比赛
-    expect(h.player('a')).toEqual(accepted);
-    expect(readVolley(h.sql)!.casts).toHaveLength(1);
+    await h.send('a', await h.frame('a', 'AB', { spellIndex: 0 })); // 完全相同的旧帧重放
+    await h.send('a', await h.frame('a', 'XX', { spellIndex: 0 })); // 旧下标携带不同文本
+    await h.send('a', await h.frame('a', 'AB', { matchId: 'match-0' })); // 旧比赛
+    expect(await h.player('a')).toEqual(accepted);
+    expect((await readVolley(h.db, ROOM_ID))!.casts).toHaveLength(1);
 
     h.at(100);
     await advanceOnce(h.scope);
-    expect(readEvents(h.room()!)).toHaveLength(1);
-    expect(h.player('b').hp).toBe(INITIAL_HEALTH - damageOf(BOOK[0].text));
+    expect(readEvents((await h.room())!)).toHaveLength(1);
+    expect(await h.player('b')).toMatchObject({
+      hp: INITIAL_HEALTH - damageOf(BOOK[0].text),
+    });
   });
 
   it('同刻完成下一条被拒：新法术的新资格不继承旧时刻', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
     h.at(70);
-    await h.send('a', h.frame('a'));
-    expect(h.player('a')).toMatchObject({
+    await h.send('a', await h.frame('a'));
+    expect(await h.player('a')).toMatchObject({
       spell_index: 1,
       input_opened_at: T0 + 70,
       input_not_before: T0 + 70 + floorOf(BOOK[1].text), // T0+175
     });
 
-    await h.send('a', h.frame('a')); // 同一刻完成第二条：被拒
-    expect(h.player('a')).toMatchObject({
+    await h.send('a', await h.frame('a')); // 同一刻完成第二条：被拒
+    expect(await h.player('a')).toMatchObject({
       spell_index: 1,
       spells_cast: 1,
       draft_epoch: 1,
@@ -714,19 +828,19 @@ describe('重放、游标与循环', () => {
       input_opened_at: T0 + 70, // 资格不被拒绝改写
       input_not_before: T0 + 175,
     });
-    expect(readVolley(h.sql)!.casts).toHaveLength(1);
+    expect((await readVolley(h.db, ROOM_ID))!.casts).toHaveLength(1);
   });
 
   it('跨过整本书循环：下标单调递增，新资格按各法术长度隔离，全程零恢复', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
-    updatePlayer(h.sql, 'a', { hp: 1_000_000 });
-    updatePlayer(h.sql, 'b', { hp: 1_000_000 });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    await updatePlayer(h.db, ROOM_ID, 'a', { hp: 1_000_000 });
+    await updatePlayer(h.db, ROOM_ID, 'b', { hp: 1_000_000 });
 
     let acceptAt = floorOf(BOOK[0].text); // 首条恰在门槛时刻完成
     for (let index = 0; index < 26; index += 1) {
       h.at(acceptAt);
-      await h.send('a', h.frame('a'));
-      const a = h.player('a');
+      await h.send('a', await h.frame('a'));
+      const a = await h.player('a');
       expect(a.spell_index).toBe(index + 1); // 身份单调，从不对 24 取模
       expect(a.input_opened_at).toBe(T0 + acceptAt);
       const next = spellAt(BOOK, index + 1)!;
@@ -734,7 +848,7 @@ describe('重放、游标与循环', () => {
       expect(a).toMatchObject({ input_gate_hits: 0, input_recoveries: 0, spells_cast: index + 1 });
 
       // 本轮施法还在窗口里等待：已落地的只有之前各轮的批次。
-      const events = readEvents(h.room()!);
+      const events = readEvents((await h.room())!);
       expect(events.map((event) => event.spellIndex)).toEqual(
         Array.from({ length: index }, (_, i) => i),
       );
@@ -744,7 +858,7 @@ describe('重放、游标与循环', () => {
     // 最后一窗到点：26 条批次各自按自己的窗口末恰好落地一次。
     h.at(acceptAt);
     await advanceOnce(h.scope);
-    const events = readEvents(h.room()!);
+    const events = readEvents((await h.room())!);
     expect(events.map((event) => event.spellIndex)).toEqual(
       Array.from({ length: 26 }, (_, i) => i),
     );
@@ -755,26 +869,28 @@ describe('重放、游标与循环', () => {
         damage: damageOf(spellAt(BOOK, index)!.text),
       });
     }
-    expect(h.player('a')).toMatchObject({ spell_index: 26, spells_cast: 26 });
+    expect(await h.player('a')).toMatchObject({ spell_index: 26, spells_cast: 26 });
     const dealt = Array.from({ length: 26 }, (_, i) => damageOf(spellAt(BOOK, i)!.text));
-    expect(h.player('b').hp).toBe(1_000_000 - dealt.reduce((sum, value) => sum + value, 0));
-    expect(h.player('a').hp).toBe(1_000_000);
+    expect(await h.player('b')).toMatchObject({
+      hp: 1_000_000 - dealt.reduce((sum, value) => sum + value, 0),
+    });
+    expect(await h.player('a')).toMatchObject({ hp: 1_000_000 });
   });
 });
 
 describe('资源窗口与失权', () => {
   it('同连接第 61 个 input 恰好一次 4004：废除所有权、关闭传输、计数一次、无战斗效果；可重连且非弃赛', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
-    await h.send('a', h.frame('a')); // 第 1 个：过早完成，代际推进
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    await h.send('a', await h.frame('a')); // 第 1 个：过早完成，代际推进
     for (let attempt = 0; attempt < 59; attempt += 1) {
-      await h.send('a', h.frame('a', 'AB', { draftEpoch: 0 })); // 第 2–60 个：旧代际重放，照常占窗
+      await h.send('a', await h.frame('a', 'AB', { draftEpoch: 0 })); // 第 2–60 个：旧代际重放
     }
-    await h.send('a', h.frame('a')); // 第 61 个：超限
+    await h.send('a', await h.frame('a')); // 第 61 个：超限
 
     expect(h.sockets.a.closes).toEqual([
       { code: WS_CLOSE.inputOverload, reason: 'input overload' },
     ]);
-    expect(h.player('a')).toMatchObject({
+    expect(await h.player('a')).toMatchObject({
       input_overloads: 1, // 计一次，不随重放增长
       conn_id: null,
       draft_epoch: 1, // 草稿与资格原样保留
@@ -782,10 +898,10 @@ describe('资源窗口与失权', () => {
       input_opened_at: T0,
       input_not_before: T0 + floorOf(BOOK[0].text),
     });
-    expect(readVolley(h.sql)).toBeNull();
-    expect(readEvents(h.room()!)).toEqual([]);
-    expect(h.player('a').hp).toBe(INITIAL_HEALTH);
-    expect(h.player('b').hp).toBe(INITIAL_HEALTH);
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
+    expect(readEvents((await h.room())!)).toEqual([]);
+    expect(await h.player('a')).toMatchObject({ hp: INITIAL_HEALTH });
+    expect(await h.player('b')).toMatchObject({ hp: INITIAL_HEALTH });
     expect(h.sockets.b.closes).toEqual([]); // 没有面向全房的攻击或关闭
     expect(consoleErrors).toHaveBeenCalledTimes(1);
     expect(consoleErrors).toHaveBeenCalledWith({
@@ -798,35 +914,36 @@ describe('资源窗口与失权', () => {
     });
 
     // 资源关闭不是弃赛：新连接可接管，恢复路径完整，没有离场记录。
-    expect(abandonedMatch(h.sql, 'a', MATCH_ID)).toBe(false);
-    const reconnected = h.takeover('a', 'a-conn2');
-    expect(h.snapshot('a').selfInputGate).toMatchObject({
+    expect(await abandonedMatch(h.db, ROOM_ID, 'a', MATCH_ID)).toBe(false);
+    const reconnected = await h.takeover('a', 'a-conn2');
+    await updatePlayer(h.db, ROOM_ID, 'a', {});
+    expect((await h.snapshot('a')).selfInputGate).toMatchObject({
       draftEpoch: 1,
       resetReason: 'completion_too_early',
     });
 
     // 排队帧在关闭落地前到达：所有权已废，帧被替换路径拦下，不能二次计数或二次关闭。
-    h.sockets.a.readyState = WebSocket.OPEN;
-    await h.send('a', h.frame('a', 'A'));
-    expect(h.player('a').input_overloads).toBe(1);
+    h.sockets.a.reopen();
+    await h.sendAs('a', 'a-conn', await h.frame('a', 'A'));
+    expect(await h.player('a')).toMatchObject({ input_overloads: 1 });
     expect(h.sockets.a.closes).toEqual([
       { code: WS_CLOSE.inputOverload, reason: 'input overload' },
       { code: WS_CLOSE.replaced, reason: 'superseded' },
     ]);
-    expect(h.player('a').conn_id).toBe('a-conn2');
-    expect(reconnected.readyState).toBe(WebSocket.OPEN);
+    expect(await h.player('a')).toMatchObject({ conn_id: 'a-conn2' });
+    expect(reconnected.socket.readyState).toBe(1);
   });
 });
 
 describe('裁决时刻', () => {
   it('时钟在帧悬停的微任务间隙前进：门槛用悬停后的时刻裁决，新资格从该时刻起算', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
     // 帧在 T+69 发出（此刻过早），裁决在悬停后的 T+70 进行：新鲜时钟放行。
-    const pending = h.send('a', h.frame('a'));
+    const pending = h.send('a', await h.frame('a'));
     h.at(70);
     await pending;
 
-    expect(h.player('a')).toMatchObject({
+    expect(await h.player('a')).toMatchObject({
       spell_index: 1,
       spells_cast: 1,
       draft_epoch: 0, // 不曾经历拒绝
@@ -834,45 +951,45 @@ describe('裁决时刻', () => {
       input_opened_at: T0 + 70, // 新资格从裁决时刻起算，不从发帧时刻
       input_not_before: T0 + 70 + floorOf(BOOK[1].text),
     });
-    expect(readVolley(h.sql)!.casts).toHaveLength(1);
+    expect((await readVolley(h.db, ROOM_ID))!.casts).toHaveLength(1);
   });
 
   it('时钟在帧悬停的微任务间隙跨过截止：悬停后的帧不得入队，比赛按原截止终局', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 - 1000 });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 - 1000 });
     h.at(MATCH_DURATION_MS - 50); // 门槛早已满足：若用悬停前的旧时刻就会入队
-    const pending = h.send('a', h.frame('a'));
+    const pending = h.send('a', await h.frame('a'));
     h.at(MATCH_DURATION_MS + 50); // 悬停间隙跨过比赛截止
     await pending;
 
-    expect(h.player('a')).toMatchObject({ spell_index: 0, spells_cast: 0 });
-    expect(readVolley(h.sql)).toBeNull();
-    expect(readEvents(h.room()!)).toEqual([]);
-    const room = h.room()!;
+    expect(await h.player('a')).toMatchObject({ spell_index: 0, spells_cast: 0 });
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
+    expect(readEvents((await h.room())!)).toEqual([]);
+    const room = (await h.room())!;
     expect(room.phase).toBe('finished');
     expect(room.end_reason).toBe('timeout');
     expect(room.ended_at).toBe(COMBAT_END); // 原截止，不是悬停后的时刻
   });
 
   it('时钟在帧悬停的微任务间隙跨过批次末：过期批次先独自落地，悬停的完成进入独立的新批次', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'observe', openedAt: T0 });
+    const h = await playingHarness(['a', 'b'], { mode: 'observe', openedAt: T0 });
     h.at(70);
-    await h.send('a', h.frame('a')); // 第一批：窗口 [T0, T0+100]
-    const expired = readVolley(h.sql)!;
+    await h.send('a', await h.frame('a')); // 第一批：窗口 [T0, T0+100]
+    const expired = (await readVolley(h.db, ROOM_ID))!;
     expect(expired.endsAt).toBe(windowEnd(70));
 
     // 第二发在批次过期前发出，裁决悬停在微任务里，时钟跨过批次末：
     // 过期批次必须先结清，完成加入新窗口，绝不并入已过期的一批。
-    const pending = h.send('a', h.frame('a'));
+    const pending = h.send('a', await h.frame('a'));
     h.at(150);
     await pending;
 
-    expect(h.player('a')).toMatchObject({
+    expect(await h.player('a')).toMatchObject({
       spell_index: 2,
       spells_cast: 2,
       input_opened_at: T0 + 150,
     });
     // 第一批恰好落地一次：一条事件，伤害只有第一发的份额。
-    const settled = readEvents(h.room()!);
+    const settled = readEvents((await h.room())!);
     expect(settled).toHaveLength(1);
     expect(settled[0]).toMatchObject({
       attackerId: 'a',
@@ -880,9 +997,11 @@ describe('裁决时刻', () => {
       damage: damageOf(BOOK[0].text),
       at: windowEnd(70),
     });
-    expect(h.player('b').hp).toBe(INITIAL_HEALTH - damageOf(BOOK[0].text));
+    expect(await h.player('b')).toMatchObject({
+      hp: INITIAL_HEALTH - damageOf(BOOK[0].text),
+    });
     // 悬停的完成在下一个窗口独自等待：只有它自己，末时刻是它自己的窗口。
-    const next = readVolley(h.sql)!;
+    const next = (await readVolley(h.db, ROOM_ID))!;
     expect(next.casts).toEqual([
       { attackerId: 'a', spellIndex: 1, element: 'arcane', power: damageOf(BOOK[1].text) },
     ]);
@@ -890,13 +1009,12 @@ describe('裁决时刻', () => {
 
     h.at(200);
     await advanceOnce(h.scope);
-    const all = readEvents(h.room()!);
+    const all = readEvents((await h.room())!);
     expect(all).toHaveLength(2);
-    expect(all[1]).toMatchObject({
-      damage: damageOf(BOOK[1].text),
-      at: windowEnd(150),
+    expect(all[1]).toMatchObject({ damage: damageOf(BOOK[1].text), at: windowEnd(150) });
+    expect(await h.player('b')).toMatchObject({
+      hp: INITIAL_HEALTH - damageOf(BOOK[0].text) - damageOf(BOOK[1].text),
     });
-    expect(h.player('b').hp).toBe(INITIAL_HEALTH - damageOf(BOOK[0].text) - damageOf(BOOK[1].text));
   });
 });
 
@@ -904,23 +1022,25 @@ describe('持久、接管与策略锁定', () => {
   it('草稿与资格跨实例重开与连接接管原样保留：notBefore 不缩短、不重新计时', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'spelltype-input-gate-restart-'));
     try {
-      const first = openFileTestStorage(join(dir, 'room.sqlite'));
-      open.push(first);
-      seedMatchRoom(first, ['a', 'b'], {
+      const first = await openDatabase(`pglite://${dir}`);
+      await ensureDevelopmentRelease(first.db, RELEASE_ID);
+      await seedMatchRoom(first.db, ['a', 'b'], {
         mode: 'enforce',
         phase: 'playing',
         openedAt: T0,
         deadline: COMBAT_END,
       });
-      updatePlayer(first.sql, 'a', { progress: 1, last_input: 'A', attempt_total: 1 });
-      first.close(); // 整个实例连同连接一起关闭
-      open.splice(open.indexOf(first), 1);
+      await updatePlayer(first.db, ROOM_ID, 'a', {
+        progress: 1,
+        last_input: 'A',
+        attempt_total: 1,
+      });
+      await first.close(); // 整个实例连同连接一起关闭
 
-      const reopened = openFileTestStorage(join(dir, 'room.sqlite'));
-      open.push(reopened);
-      createSchema(reopened.sql); // 幂等重建
-      const h = buildHarness(reopened, ['a', 'b'], makeEnv('enforce'));
-      const before = h.player('a');
+      const reopened = await openDatabase(`pglite://${dir}`);
+      databases.push(reopened);
+      const h = await buildHarness(reopened.db, ['a', 'b'], 'enforce');
+      const before = await h.player('a');
       expect(before).toMatchObject({
         last_input: 'A',
         progress: 1,
@@ -931,12 +1051,13 @@ describe('持久、接管与策略锁定', () => {
       });
 
       // 第二连接接管：身份换了，资格与草稿一个字节都不变。
-      h.takeover('a', 'a-conn2');
-      expect(h.player('a')).toEqual({ ...before, conn_id: 'a-conn2' });
+      await h.takeover('a', 'a-conn2');
+      await updatePlayer(h.db, ROOM_ID, 'a', {});
+      expect(await h.player('a')).toEqual({ ...before, conn_id: 'a-conn2' });
 
       h.at(70);
-      await h.sendAs('a', 'a-conn2', h.frame('a'));
-      expect(h.player('a')).toMatchObject({
+      await h.sendAs('a', 'a-conn2', await h.frame('a'));
+      expect(await h.player('a')).toMatchObject({
         spell_index: 1,
         spells_cast: 1,
         input_opened_at: T0 + 70, // 恰在原始门槛时刻被接受：接管没有重新计时
@@ -949,15 +1070,15 @@ describe('持久、接管与策略锁定', () => {
   it('重开不重算已锁策略；新局按当前环境重新锁定并清空摘要；配置异常拒绝开局', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'spelltype-input-gate-policy-'));
     try {
-      const file = openFileTestStorage(join(dir, 'room.sqlite'));
-      open.push(file);
-      seedMatchRoom(file, ['a', 'b'], {
+      const file = await openDatabase(`pglite://${dir}`);
+      await ensureDevelopmentRelease(file.db, RELEASE_ID);
+      await seedMatchRoom(file.db, ['a', 'b'], {
         mode: 'enforce',
         phase: 'playing',
         openedAt: T0,
         deadline: COMBAT_END,
       });
-      updatePlayer(file.sql, 'a', {
+      await updatePlayer(file.db, ROOM_ID, 'a', {
         draft_epoch: 3,
         input_reset_reason: 'completion_too_early',
         input_gate_hits: 2,
@@ -967,22 +1088,20 @@ describe('持久、接管与策略锁定', () => {
         input_recovered_completions: 1,
         input_recovery_departures: 1,
       });
-      file.close();
-      open.splice(open.indexOf(file), 1);
+      await file.close();
 
       // 新实例以 observe 为默认环境重启：活跃局的锁定策略与摘要一字不动。
-      const reopened = openFileTestStorage(join(dir, 'room.sqlite'));
-      open.push(reopened);
-      createSchema(reopened.sql); // 幂等重建；活跃局已带策略，不得要求排空
-      const h = buildHarness(reopened, ['a', 'b'], makeEnv('observe'));
-      expect(await advanceOnce(h.scope)).toBe(false); // 无事可做的读路径不重写任何值
-      expect(h.room()).toMatchObject({
+      const reopened = await openDatabase(`pglite://${dir}`);
+      databases.push(reopened);
+      const h = await buildHarness(reopened.db, ['a', 'b'], 'observe');
+      expect(await advanceOnce(h.scope)).toMatchObject({ progressed: false }); // 无事可做的读路径不重写任何值
+      expect(await h.room()).toMatchObject({
         phase: 'playing',
         input_policy_version: INPUT_POLICY_VERSION,
         input_policy_mode: 'enforce',
         input_min_ms_per_code_point: INPUT_MIN_MS_PER_CODE_POINT,
       });
-      expect(h.player('a')).toMatchObject({
+      expect(await h.player('a')).toMatchObject({
         draft_epoch: 3,
         input_opened_at: T0,
         input_not_before: T0 + floorOf(BOOK[0].text),
@@ -998,8 +1117,8 @@ describe('持久、接管与策略锁定', () => {
     }
 
     // 新局：开局锁定当前环境模式，并把上一局的全部摘要与资格清零。
-    const lobby = lobbyHarness(['a', 'b'], makeEnv('observe'));
-    updatePlayer(lobby.sql, 'a', {
+    const lobby = await lobbyHarness(['a', 'b']);
+    await updatePlayer(lobby.db, ROOM_ID, 'a', {
       input_gate_hits: 9,
       input_recoveries: 8,
       input_overloads: 7,
@@ -1010,14 +1129,19 @@ describe('持久、接管与策略锁定', () => {
       input_opened_at: T0,
       input_not_before: T0 + 70,
     });
-    expect(startMatch(lobby.scope, getRoom(lobby.sql)!)).toBe(true);
-    expect(getRoom(lobby.sql)!).toMatchObject({
+    expect(
+      await runStart(lobby.db, (await getRoom(lobby.db, ROOM_ID))!, {
+        matchAdmission: 'open',
+        inputPolicyMode: 'observe',
+      }),
+    ).toBe(true);
+    expect(await getRoom(lobby.db, ROOM_ID)).toMatchObject({
       phase: 'generating',
       input_policy_version: INPUT_POLICY_VERSION,
       input_policy_mode: 'observe',
       input_min_ms_per_code_point: INPUT_MIN_MS_PER_CODE_POINT,
     });
-    for (const row of lobby.sql.exec<PlayerRow>('SELECT * FROM players').toArray()) {
+    for (const row of await lobby.db.select().from(playersTable)) {
       expect(row).toMatchObject({
         hp: INITIAL_HEALTH,
         spell_index: 0,
@@ -1036,100 +1160,127 @@ describe('持久、接管与策略锁定', () => {
     }
 
     // 无法识别的策略模式拒绝开局，绝不默认，也不碰任何座位。
-    const invalid = lobbyHarness(['a', 'b'], makeEnv('fast'));
-    updatePlayer(invalid.sql, 'a', { hp: 7, input_gate_hits: 9 });
-    expect(startMatch(invalid.scope, getRoom(invalid.sql)!)).toBe(false);
-    expect(getRoom(invalid.sql)!).toMatchObject({
+    const invalid = await lobbyHarness(['a', 'b']);
+    await updatePlayer(invalid.db, ROOM_ID, 'a', { hp: 7, input_gate_hits: 9 });
+    expect(
+      await runStart(invalid.db, (await getRoom(invalid.db, ROOM_ID))!, {
+        matchAdmission: 'open',
+        inputPolicyMode: INVALID_POLICY_MODE,
+      }),
+    ).toBe(false);
+    expect(await getRoom(invalid.db, ROOM_ID)).toMatchObject({
       phase: 'lobby',
       match_id: null,
       error: '施法规则配置异常，暂不能开始新对局。',
     });
-    expect(getPlayer(invalid.sql, 'a')).toMatchObject({ hp: 7, input_gate_hits: 9 });
+    expect(await getPlayer(invalid.db, ROOM_ID, 'a')).toMatchObject({
+      hp: 7,
+      input_gate_hits: 9,
+    });
+
+    // 无法识别的准入配置拒绝开局，绝不默认为开放。
+    const invalidAdmission = await lobbyHarness(['a', 'b']);
+    expect(
+      await runStart(invalidAdmission.db, (await getRoom(invalidAdmission.db, ROOM_ID))!, {
+        matchAdmission: INVALID_ADMISSION,
+        inputPolicyMode: 'enforce',
+      }),
+    ).toBe(false);
+    expect(await getRoom(invalidAdmission.db, ROOM_ID)).toMatchObject({
+      phase: 'lobby',
+      error: '服务器维护中，暂不开始新对局。',
+    });
   });
 });
 
 describe('状态损坏与边界', () => {
   it('资格或策略损坏的座位被同一句话拒绝：快照给 null gate 与明确错误，绝不当作零时刻就绪', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
-    updatePlayer(h.sql, 'a', { input_not_before: T0 + floorOf(BOOK[0].text) + 1 }); // 与策略推导差 1ms
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    await updatePlayer(h.db, ROOM_ID, 'a', {
+      input_not_before: T0 + floorOf(BOOK[0].text) + 1,
+    }); // 与策略推导差 1ms
 
-    let snapshot = h.snapshot('a');
+    let snapshot = await h.snapshot('a');
     expect(snapshot.selfInputGate).toBeNull();
     expect(snapshot.selfInputStats).toBeNull();
     expect(snapshot.error).toBe(INPUT_GATE_ERROR_MESSAGE);
 
     h.at(200);
-    await h.send('a', h.frame('a'));
+    await h.send('a', await h.frame('a'));
     expect(h.sockets.a.sent.some((message) => message.type === 'error')).toBe(true);
-    expect(h.player('a')).toMatchObject({ spell_index: 0, spells_cast: 0, draft_epoch: 0 });
-    expect(readVolley(h.sql)).toBeNull();
+    expect(await h.player('a')).toMatchObject({
+      spell_index: 0,
+      spells_cast: 0,
+      draft_epoch: 0,
+    });
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
 
     // 非法锁定模式同样按损坏拒绝；修复后同一座位恢复可施法。
-    updateRoom(h.sql, { input_policy_mode: INVALID_POLICY_MODE });
-    expect(h.snapshot('a').selfInputGate).toBeNull();
+    await updateRoom(h.db, ROOM_ID, { input_policy_mode: INVALID_POLICY_MODE });
+    expect((await h.snapshot('a')).selfInputGate).toBeNull();
     h.at(300);
-    await h.send('a', h.frame('a'));
-    expect(h.player('a').spells_cast).toBe(0);
+    await h.send('a', await h.frame('a'));
+    expect(await h.player('a')).toMatchObject({ spells_cast: 0 });
 
-    updateRoom(h.sql, { input_policy_mode: 'enforce' });
-    updatePlayer(h.sql, 'a', { input_not_before: T0 + floorOf(BOOK[0].text) });
+    await updateRoom(h.db, ROOM_ID, { input_policy_mode: 'enforce' });
+    await updatePlayer(h.db, ROOM_ID, 'a', { input_not_before: T0 + floorOf(BOOK[0].text) });
     h.at(400);
-    await h.send('a', h.frame('a'));
-    expect(h.player('a')).toMatchObject({ spell_index: 1, spells_cast: 1 });
+    await h.send('a', await h.frame('a'));
+    expect(await h.player('a')).toMatchObject({ spell_index: 1, spells_cast: 1 });
   });
 
   it('空书是状态损坏，不是免费零字施法', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
-    updateRoom(h.sql, { spell_book: null });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    await updateRoom(h.db, ROOM_ID, { spell_book: null });
     h.at(200);
-    await h.send('a', h.frame('a', 'AB'));
+    await h.send('a', await h.frame('a', 'AB'));
 
     expect(h.sockets.a.sent.some((message) => message.type === 'error')).toBe(true);
-    expect(h.player('a')).toMatchObject({
+    expect(await h.player('a')).toMatchObject({
       spell_index: 0,
       spells_cast: 0,
       draft_epoch: 0,
       attempt_total: 0,
     });
-    expect(readVolley(h.sql)).toBeNull();
-    expect(h.snapshot('a').selfInputGate).toBeNull();
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
+    expect((await h.snapshot('a')).selfInputGate).toBeNull();
   });
 
   it('没有存活对手且无未结批次：完成立即按幸存者规则终局，不记录完成或恢复', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
-    updatePlayer(h.sql, 'b', { hp: 0, eliminated_at: T0 });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    await updatePlayer(h.db, ROOM_ID, 'b', { hp: 0, eliminated_at: T0 });
     h.at(70);
-    await h.send('a', h.frame('a'));
+    await h.send('a', await h.frame('a'));
 
-    const room = h.room()!;
+    const room = (await h.room())!;
     expect(room.phase).toBe('finished');
     expect(room.end_reason).toBe('elimination');
     expect(room.ended_at).toBe(T0 + 70);
-    expect(h.player('a')).toMatchObject({
+    expect(await h.player('a')).toMatchObject({
       spell_index: 0,
       spells_cast: 0,
       correct_chars: 0,
       input_recovered_completions: 0,
       input_gate_hits: 0,
     });
-    expect(readVolley(h.sql)).toBeNull();
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
     expect(readEvents(room)).toEqual([]);
   });
 });
 
 describe('已提交批次与幸存者终局', () => {
   it('对手在批次未结时弃赛：完成只得到快照，不记录新施法；已提交批次到点恰好结算一次', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
     h.at(70);
-    await h.send('a', h.frame('a')); // 已提交的攻击在窗口里等待
+    await h.send('a', await h.frame('a')); // 已提交的攻击在窗口里等待
     h.at(80);
     await manualLeave(h.scope, 'b'); // 对手在窗口内弃赛：批次未结，对局保持 playing
-    expect(h.room()!.phase).toBe('playing');
-    expect(readVolley(h.sql)!.casts).toHaveLength(1);
+    expect(await h.room()).toMatchObject({ phase: 'playing' });
+    expect((await readVolley(h.db, ROOM_ID))!.casts).toHaveLength(1);
 
     h.at(90);
-    await h.send('a', h.frame('a')); // 无存活对手的完成：批次还悬着，只回快照
-    expect(h.player('a')).toMatchObject({
+    await h.send('a', await h.frame('a')); // 无存活对手的完成：批次还悬着，只回快照
+    expect(await h.player('a')).toMatchObject({
       spell_index: 1,
       spells_cast: 1, // 不记录新完成
       draft_epoch: 0, // 不制造恢复
@@ -1137,17 +1288,22 @@ describe('已提交批次与幸存者终局', () => {
       input_gate_hits: 0,
       input_recovered_completions: 0,
     });
-    expect(readVolley(h.sql)!.casts).toHaveLength(1); // 原有承诺不被追加或改写
+    expect((await readVolley(h.db, ROOM_ID))!.casts).toHaveLength(1); // 原有承诺不被追加或改写
 
     h.at(100);
     await advanceOnce(h.scope); // 批次到点：恰好结算一次并终局
-    expect(readVolley(h.sql)).toBeNull();
-    const room = h.room()!;
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
+    const room = (await h.room())!;
     expect(room.phase).toBe('finished');
     expect(room.end_reason).toBe('elimination');
     expect(room.ended_at).toBe(windowEnd(70));
     expect(readEvents(room)).toEqual([]); // 对手已弃赛：份额弃置，无事件
-    expect(resultRows(h.sql, 'rank, spells_cast')).toEqual([
+    expect(
+      await h.db
+        .select({ user_id: results.user_id, rank: results.rank, spells_cast: results.spells_cast })
+        .from(results)
+        .orderBy(results.user_id),
+    ).toEqual([
       { user_id: 'a', rank: 1, spells_cast: 1 },
       { user_id: 'b', rank: 2, spells_cast: 0 },
     ]);
@@ -1156,41 +1312,38 @@ describe('已提交批次与幸存者终局', () => {
 
 describe('结算 await 期间的替换竞态', () => {
   it('输入悬在结算中时座位被替换：旧连接不落任何效果，只有已提交的批次落地一次', async () => {
-    const gate = Promise.withResolvers<void>();
-    const storage = openTestStorage();
-    open.push(storage);
-    seedMatchRoom(storage, ['a', 'b'], {
-      mode: 'observe',
-      phase: 'playing',
-      openedAt: T0,
-      deadline: COMBAT_END,
-    });
-    const h = buildHarness(
-      storage,
-      ['a', 'b'],
-      makeEnv('observe', async () => {
-        await gate.promise;
-        return {};
-      }),
-    );
-    updatePlayer(h.sql, 'b', { hp: damageOf(BOOK[0].text) });
+    const h = await playingHarness(['a', 'b'], { mode: 'observe', openedAt: T0 });
+    await updatePlayer(h.db, ROOM_ID, 'b', { hp: damageOf(BOOK[0].text) });
 
     h.at(70);
-    await h.send('a', h.frame('a')); // 致命一击入队，窗口末落地
+    await h.send('a', await h.frame('a')); // 致命一击入队，窗口末落地
     h.at(100);
-    const pending = h.send('a', h.frame('a')); // 下一发完成帧：先结清批次再裁决自己
-    // 批次结清并把比赛送进终局，终局在 D1 写入处让出事件循环：
-    // 就在这一步里，一条新连接接管了 a 的座位。
-    h.takeover('a', 'a-conn2');
-    gate.resolve();
-    await pending;
+    // 下一发完成帧先结清批次并进入终局；终局后的快照投递被闸住，
+    // 就在这个间隙里，一条新连接接管了 a 的座位。
+    const gate = {
+      entered: Promise.withResolvers<void>(),
+      release: Promise.withResolvers<void>(),
+    };
+    pushGate = gate;
+    const pending = h.send('a', await h.frame('a'));
+    try {
+      await gate.entered.promise;
+      await h.takeover('a', 'a-conn2');
+    } finally {
+      gate.release.resolve();
+      await pending;
+    }
 
-    const room = h.room()!;
+    const room = (await h.room())!;
     expect(room.phase).toBe('finished');
     expect(room.end_reason).toBe('elimination');
     expect(room.ended_at).toBe(windowEnd(70)); // 按批次自己的时刻终局，不按迟到的续跑时刻
     // 只有悬停前已提交的那一发算数：替换后的旧帧什么都没有再落。
-    expect(h.player('a')).toMatchObject({ spell_index: 1, spells_cast: 1, draft_epoch: 0 });
+    expect(await h.player('a')).toMatchObject({
+      spell_index: 1,
+      spells_cast: 1,
+      draft_epoch: 0,
+    });
     const events = readEvents(room);
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({
@@ -1200,13 +1353,18 @@ describe('结算 await 期间的替换竞态', () => {
       eliminated: true,
       at: windowEnd(70),
     });
-    expect(readVolley(h.sql)).toBeNull();
-    expect(resultRows(h.sql, 'rank')).toEqual([
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
+    expect(
+      await h.db
+        .select({ user_id: results.user_id, rank: results.rank })
+        .from(results)
+        .orderBy(results.user_id),
+    ).toEqual([
       { user_id: 'a', rank: 1 },
       { user_id: 'b', rank: 2 },
     ]);
     // 新连接读到的是终局权威状态；旧连接只会被替换路径收尾。
-    expect(h.snapshot('a').phase).toBe('finished');
+    expect((await h.snapshot('a')).phase).toBe('finished');
     expect(h.sockets.a.closes).toContainEqual({
       code: WS_CLOSE.replaced,
       reason: 'not the current connection',
@@ -1216,23 +1374,32 @@ describe('结算 await 期间的替换竞态', () => {
 
 describe('恢复指标', () => {
   it('恢复后未完成即离场计入 recovery_departures；完成后再离场不计', async () => {
-    // 场景一：恢复过的当前咒文仍未完成，主动离场 —— 计一次。
-    const left = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
-    await left.send('b', left.frame('b')); // b 过早完成：恢复代际 1
-    expect(left.player('b').draft_epoch).toBe(1);
+    // 场景一：恢复过的当前咒语仍未完成，主动离场 —— 计一次。
+    const left = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    await left.send('b', await left.frame('b')); // b 过早完成：恢复代际 1
+    expect(await hpof(left, 'b').then((row) => row.draft_epoch)).toBe(1);
     left.at(10);
     await manualLeave(left.scope, 'b');
-    expect(resultRows(left.sql, 'input_recovery_departures, input_recovered_completions')).toEqual([
+    expect(
+      await left.db
+        .select({
+          user_id: results.user_id,
+          input_recovery_departures: results.input_recovery_departures,
+          input_recovered_completions: results.input_recovered_completions,
+        })
+        .from(results)
+        .orderBy(results.user_id),
+    ).toEqual([
       { user_id: 'a', input_recovery_departures: 0, input_recovered_completions: 0 },
       { user_id: 'b', input_recovery_departures: 1, input_recovered_completions: 0 },
     ]);
 
     // 场景二：恢复后先把当前咒文补全（代际归零），再离场 —— 不计离场。
-    const done = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
-    await done.send('b', done.frame('b')); // 过早：代际 1
+    const done = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    await done.send('b', await done.frame('b')); // 过早：代际 1
     done.at(70);
-    await done.send('b', done.frame('b')); // 就绪补全：代际归零、恢复完成计一次
-    expect(done.player('b')).toMatchObject({
+    await done.send('b', await done.frame('b')); // 就绪补全：代际归零、恢复完成计一次
+    expect(await done.player('b')).toMatchObject({
       draft_epoch: 0,
       input_recovered_completions: 1,
     });
@@ -1240,39 +1407,99 @@ describe('恢复指标', () => {
     await manualLeave(done.scope, 'b');
     done.at(100);
     await advanceOnce(done.scope);
-    expect(resultRows(done.sql, 'input_recovery_departures, input_recovered_completions')).toEqual([
+    expect(
+      await done.db
+        .select({
+          user_id: results.user_id,
+          input_recovery_departures: results.input_recovery_departures,
+          input_recovered_completions: results.input_recovered_completions,
+        })
+        .from(results)
+        .orderBy(results.user_id),
+    ).toEqual([
       { user_id: 'a', input_recovery_departures: 0, input_recovered_completions: 0 },
       { user_id: 'b', input_recovery_departures: 0, input_recovered_completions: 1 },
     ]);
   });
 });
 
+async function hpof(h: Harness, userId: string): Promise<PlayerRow> {
+  return h.player(userId);
+}
+
+it('部分输入不能绕过已被接管的运行时写入围栏', async () => {
+  const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+  const owner = await acquireRuntime(h.db, RELEASE_ID);
+  const scope: RoomScope = {
+    ...h.scope,
+    transact: (fn) =>
+      h.db.transaction(async (tx) => {
+        await owner.assert(tx);
+        return fn(tx);
+      }),
+  };
+  try {
+    await handleClientFrame(scope, h.sockets.a.socket, metaOf('a'), await h.frame('a', 'A'));
+    const accepted = await h.player('a');
+    expect(accepted).toMatchObject({ progress: 1, last_input: 'A', attempt_total: 1 });
+    await h.db
+      .update(releaseVersions)
+      .set({ lease_until: 0 })
+      .where(eq(releaseVersions.id, RELEASE_ID));
+    const successor = await acquireRuntime(h.db, RELEASE_ID);
+    try {
+      expect(
+        handleClientFrame(scope, h.sockets.a.socket, metaOf('a'), await h.frame('a', 'AX')),
+      ).rejects.toThrow(RuntimeOwnershipLostError);
+      expect(await h.player('a')).toEqual(accepted);
+    } finally {
+      await successor.close();
+    }
+  } finally {
+    await owner.close();
+  }
+});
+
 describe('SQL 异常回滚', () => {
-  it('开局事务中途失败：座位复位与策略锁定整体回滚，重跑成功', () => {
-    const lobby = lobbyHarness(['a', 'b'], makeEnv('enforce'));
-    updatePlayer(lobby.sql, 'a', { hp: 7, input_gate_hits: 5, spells_cast: 3 });
+  it('开局事务中途失败：座位复位与策略锁定整体回滚，重跑成功', async () => {
+    const lobby = await lobbyHarness(['a', 'b']);
+    await updatePlayer(lobby.db, ROOM_ID, 'a', { hp: 7, input_gate_hits: 5, spells_cast: 3 });
 
-    const restore = failSqlOn(lobby.scope, /UPDATE room SET/);
-    expect(() => startMatch(lobby.scope, getRoom(lobby.sql)!)).toThrow('injected sql failure');
-    restore();
+    injection = { op: 'update', table: 'rooms' };
+    expect(
+      runStart(lobby.db, await roomSync(lobby.db), {
+        matchAdmission: 'open',
+        inputPolicyMode: 'enforce',
+      }),
+    ).rejects.toThrow('injected sql failure');
+    injection = null;
 
-    expect(getRoom(lobby.sql)!).toMatchObject({
+    expect(await getRoom(lobby.db, ROOM_ID)).toMatchObject({
       phase: 'lobby',
       match_id: null,
       generation_token: null,
       error: null,
       input_policy_version: null,
     });
-    expect(getPlayer(lobby.sql, 'a')).toMatchObject({ hp: 7, input_gate_hits: 5, spells_cast: 3 });
+    expect(await getPlayer(lobby.db, ROOM_ID, 'a')).toMatchObject({
+      hp: 7,
+      input_gate_hits: 5,
+      spells_cast: 3,
+    });
 
-    expect(startMatch(lobby.scope, getRoom(lobby.sql)!)).toBe(true);
-    expect(getRoom(lobby.sql)!).toMatchObject({
+    expect(
+      await runStart(lobby.db, (await getRoom(lobby.db, ROOM_ID))!, {
+        matchAdmission: 'open',
+        inputPolicyMode: 'enforce',
+      }),
+    ).toBe(true);
+    expect(await getRoom(lobby.db, ROOM_ID)).toMatchObject({
       phase: 'generating',
       input_policy_version: INPUT_POLICY_VERSION,
       input_policy_mode: 'enforce',
       input_min_ms_per_code_point: INPUT_MIN_MS_PER_CODE_POINT,
     });
-    expect(getPlayer(lobby.sql, 'a')).toMatchObject({
+    expect(await getPlayer(lobby.db, ROOM_ID, 'a')).toMatchObject({
       hp: INITIAL_HEALTH,
       input_gate_hits: 0,
       spells_cast: 0,
@@ -1282,46 +1509,46 @@ describe('SQL 异常回滚', () => {
   });
 
   it('倒计时转换中途失败：资格写入与 playing 转换整体回滚，重跑按同一时刻就绪', async () => {
-    const h = countdownHarness(['a', 'b'], makeEnv('enforce'));
+    const h = await countdownHarness(['a', 'b'], 'enforce');
     h.at(3_000);
-    const restore = failSqlOn(h.scope, /UPDATE room SET/);
-    await expect(advanceOnce(h.scope)).rejects.toThrow('injected sql failure');
-    restore();
+    injection = { op: 'update', table: 'rooms' };
+    expect(advanceOnce(h.scope)).rejects.toThrow('injected sql failure');
+    injection = null;
 
-    expect(h.room()).toMatchObject({
+    expect(await h.room()).toMatchObject({
       phase: 'countdown',
       started_at: null,
       deadline: T0 + 3_000,
     });
     for (const userId of ['a', 'b']) {
-      expect(h.player(userId)).toMatchObject({
+      expect(await h.player(userId)).toMatchObject({
         input_opened_at: null,
         input_not_before: null,
         draft_epoch: 0,
       });
     }
 
-    expect(await advanceOnce(h.scope)).toBe(true);
-    expect(h.room()).toMatchObject({
+    expect(await advanceOnce(h.scope)).toMatchObject({ progressed: true });
+    expect(await h.room()).toMatchObject({
       phase: 'playing',
       started_at: T0 + 3_000,
       deadline: T0 + 3_000 + MATCH_DURATION_MS,
     });
-    expect(h.player('a')).toMatchObject({
+    expect(await h.player('a')).toMatchObject({
       input_opened_at: T0 + 3_000,
       input_not_before: T0 + 3_000 + floorOf(BOOK[0].text),
     });
   });
 
   it('接受完成中途失败：施法承诺与游标推进整体回滚，重发恰好接受一次', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
     h.at(70);
-    const restore = failSqlOn(h.scope, /UPDATE players SET/);
-    await expect(h.send('a', h.frame('a'))).rejects.toThrow('injected sql failure');
-    restore();
+    injection = { op: 'update', table: 'players' };
+    expect(h.send('a', await h.frame('a'))).rejects.toThrow('injected sql failure');
+    injection = null;
 
-    expect(readVolley(h.sql)).toBeNull(); // 批次写入被回滚
-    expect(h.player('a')).toMatchObject({
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull(); // 批次写入被回滚
+    expect(await h.player('a')).toMatchObject({
       spell_index: 0,
       spells_cast: 0,
       correct_chars: 0,
@@ -1330,46 +1557,73 @@ describe('SQL 异常回滚', () => {
       input_not_before: T0 + floorOf(BOOK[0].text),
       draft_epoch: 0,
     });
-    expect(h.player('b').hp).toBe(INITIAL_HEALTH);
+    expect(await h.player('b')).toMatchObject({ hp: INITIAL_HEALTH });
 
-    await h.send('a', h.frame('a'));
-    expect(h.player('a')).toMatchObject({ spell_index: 1, spells_cast: 1 });
-    expect(readVolley(h.sql)!.casts).toHaveLength(1);
+    await h.send('a', await h.frame('a'));
+    expect(await h.player('a')).toMatchObject({ spell_index: 1, spells_cast: 1 });
+    expect((await readVolley(h.db, ROOM_ID))!.casts).toHaveLength(1);
   });
 
-  it('结算中途失败：伤害批次独立落地保持不变，名次与阶段回滚，重跑按原截止收尾', async () => {
-    const h = playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
-    updatePlayer(h.sql, 'a', { cpm: 7 }); // 哨兵：结算会重写 cpm，回滚必须还原它
-    updatePlayer(h.sql, 'b', { hp: damageOf(BOOK[0].text) });
+  it('结算中途失败：保留已接受承诺，伤害与终局整体回滚，恢复后按原窗口结算一次', async () => {
+    const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
+    await updatePlayer(h.db, ROOM_ID, 'a', { cpm: 7 }); // 哨兵：结算会重写 cpm，回滚必须还原它
+    await updatePlayer(h.db, ROOM_ID, 'b', { hp: damageOf(BOOK[0].text) });
     h.at(70);
-    await h.send('a', h.frame('a'));
+    await h.send('a', await h.frame('a'));
+    const pending = await readVolley(h.db, ROOM_ID);
+    expect(pending?.casts).toHaveLength(1);
     h.at(100);
 
-    const restore = failSqlOn(h.scope, /INSERT INTO match_results/);
-    await expect(advanceOnce(h.scope)).rejects.toThrow('injected sql failure');
-    restore();
+    injection = { op: 'insert', table: 'results' };
+    expect(advanceOnce(h.scope)).rejects.toThrow('injected sql failure');
+    injection = null;
 
-    // 伤害批次是自己的事务，早已提交：不随结算失败回退，也不重放。
-    expect(h.player('b')).toMatchObject({ hp: 0, eliminated_at: windowEnd(70) });
-    expect(readEvents(h.room()!)).toHaveLength(1);
-    expect(readVolley(h.sql)).toBeNull();
-    // 结算块整体回滚：阶段、终局时刻、名次与 cpm 重写一并还原。
-    expect(h.room()).toMatchObject({ phase: 'playing', ended_at: null, end_reason: null });
+    // 接受已提交；伤害、事件、终局与承诺清除必须一起回滚。
+    expect(await h.player('b')).toMatchObject({
+      hp: damageOf(BOOK[0].text),
+      eliminated_at: null,
+    });
+    expect(readEvents((await h.room())!)).toEqual([]);
+    expect(await readVolley(h.db, ROOM_ID)).toEqual(pending);
+    expect(await h.player('a')).toMatchObject({ spell_index: 1, spells_cast: 1, damage_dealt: 0 });
+    expect(await h.room()).toMatchObject({
+      phase: 'playing',
+      ended_at: null,
+      end_reason: null,
+    });
     expect(
-      h.sql.exec<{ total: number }>('SELECT COUNT(*) AS total FROM match_results').one(),
-    ).toEqual({ total: 0 });
-    expect(h.player('a').cpm).toBe(7);
+      await h.db
+        .select({ user_id: results.user_id, rank: results.rank })
+        .from(results)
+        .orderBy(results.user_id),
+    ).toEqual([]);
+    expect(await h.player('a')).toMatchObject({ cpm: 7 });
 
-    // 重跑在比赛截止处按幸存者规则完整收尾。
-    h.at(MATCH_DURATION_MS);
-    expect(await advanceOnce(h.scope)).toBe(true);
-    const room = h.room()!;
+    // 恢复后不重发输入，也不等比赛截止；旧承诺按原批次边界完成。
+    h.at(200);
+    expect(await advanceOnce(h.scope)).toMatchObject({ progressed: true });
+    const room = (await h.room())!;
     expect(room.phase).toBe('finished');
     expect(room.end_reason).toBe('elimination');
-    expect(room.ended_at).toBe(COMBAT_END);
-    expect(resultRows(h.sql, 'rank, cpm')).toEqual([
-      { user_id: 'a', rank: 1, cpm: 1 },
+    expect(room.ended_at).toBe(windowEnd(70));
+    expect(readEvents(room)).toHaveLength(1);
+    expect(await readVolley(h.db, ROOM_ID)).toBeNull();
+    expect(
+      await h.db
+        .select({ user_id: results.user_id, rank: results.rank, cpm: results.cpm })
+        .from(results)
+        .orderBy(results.user_id),
+    ).toEqual([
+      { user_id: 'a', rank: 1, cpm: 1200 },
       { user_id: 'b', rank: 2, cpm: 0 },
     ]);
   });
 });
+
+/** The room row as the call sites in this suite need it, re-read fresh. */
+function roomSync(db: Database): Promise<RoomRow> {
+  return getRoom(db, ROOM_ID).then((room) => {
+    if (!room) throw new Error('test room vanished');
+    return room;
+  });
+}

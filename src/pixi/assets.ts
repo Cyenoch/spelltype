@@ -1,106 +1,131 @@
 import type { Element } from '../../shared/protocol';
 
 /**
+ * Static assets are served from this build's own base (`import.meta.env.BASE_URL`:
+ * `/` in development, `/_releases/<releaseId>/` in production). Vite rewrites
+ * `url()` in real CSS and links in index.html, but TypeScript string constants
+ * bypass that pipeline — so every URL here is explicitly based. One build must
+ * never load another release's art. The literal's leading slash is stripped so
+ * the junction with the base (which always ends in `/`) never doubles.
+ */
+const BASE_URL = import.meta.env.BASE_URL;
+const asset = (path: string): string => `${BASE_URL}${path.replace(/^\/+/, '')}`;
+
+/**
  * Single registry for static assets. Generated artwork lives under
  * public/assets/ alongside the hand-authored vector fallbacks; see
  * public/assets/provenance.json for exactly how every shipped file was made
  * (generated source vs. locally derived asset).
  */
 export const ASSETS = {
-  background: '/assets/bg/academy-hall.webp',
-  backgroundFallback: '/assets/bg/academy.svg',
-  sigil: '/assets/sigil.svg',
-  spark: '/assets/effects/spark.svg',
+  background: asset('/assets/bg/academy-hall.webp'),
+  backgroundFallback: asset('/assets/bg/academy.svg'),
+  sigil: asset('/assets/sigil.svg'),
+  brandSeal: asset('/assets/ui/seal.svg'),
+  spark: asset('/assets/effects/spark.svg'),
   avatars: [
-    '/assets/avatars/seat-1.webp',
-    '/assets/avatars/seat-2.webp',
-    '/assets/avatars/seat-3.webp',
-    '/assets/avatars/seat-4.webp',
+    asset('/assets/avatars/seat-1.webp'),
+    asset('/assets/avatars/seat-2.webp'),
+    asset('/assets/avatars/seat-3.webp'),
+    asset('/assets/avatars/seat-4.webp'),
   ],
   avatarFallbacks: [
-    '/assets/avatars/seat-1.svg',
-    '/assets/avatars/seat-2.svg',
-    '/assets/avatars/seat-3.svg',
-    '/assets/avatars/seat-4.svg',
+    asset('/assets/avatars/seat-1.svg'),
+    asset('/assets/avatars/seat-2.svg'),
+    asset('/assets/avatars/seat-3.svg'),
+    asset('/assets/avatars/seat-4.svg'),
   ],
   elementGlyphs: {
-    arcane: '/assets/elements/arcane.svg',
-    fire: '/assets/elements/fire.svg',
-    ice: '/assets/elements/ice.svg',
-    storm: '/assets/elements/storm.svg',
+    arcane: asset('/assets/elements/arcane.svg'),
+    fire: asset('/assets/elements/fire.svg'),
+    ice: asset('/assets/elements/ice.svg'),
+    storm: asset('/assets/elements/storm.svg'),
   } satisfies Record<Element, string>,
   /** Arena backdrops, cycled per match. Index 0..3. */
   arenas: [
-    '/assets/arenas/arena-1.webp',
-    '/assets/arenas/arena-2.webp',
-    '/assets/arenas/arena-3.webp',
-    '/assets/arenas/arena-4.webp',
+    asset('/assets/arenas/arena-1.webp'),
+    asset('/assets/arenas/arena-2.webp'),
+    asset('/assets/arenas/arena-3.webp'),
+    asset('/assets/arenas/arena-4.webp'),
   ],
   /**
    * Full-body combatants with a real alpha channel, indexed by seat slot.
    * slot 0 = arcane, 1 = fire, 2 = ice, 3 = storm.
    */
   characters: [
-    '/assets/characters/slot-0-arcane.webp',
-    '/assets/characters/slot-1-fire.webp',
-    '/assets/characters/slot-2-ice.webp',
-    '/assets/characters/slot-3-storm.webp',
+    asset('/assets/characters/slot-0-arcane.webp'),
+    asset('/assets/characters/slot-1-fire.webp'),
+    asset('/assets/characters/slot-2-ice.webp'),
+    asset('/assets/characters/slot-3-storm.webp'),
   ],
   /** Four spell sigils per element, indexed by spellIndex % 4. */
   spellIcons: {
     arcane: [
-      '/assets/spells/arcane-1.webp',
-      '/assets/spells/arcane-2.webp',
-      '/assets/spells/arcane-3.webp',
-      '/assets/spells/arcane-4.webp',
+      asset('/assets/spells/arcane-1.webp'),
+      asset('/assets/spells/arcane-2.webp'),
+      asset('/assets/spells/arcane-3.webp'),
+      asset('/assets/spells/arcane-4.webp'),
     ],
     fire: [
-      '/assets/spells/fire-1.webp',
-      '/assets/spells/fire-2.webp',
-      '/assets/spells/fire-3.webp',
-      '/assets/spells/fire-4.webp',
+      asset('/assets/spells/fire-1.webp'),
+      asset('/assets/spells/fire-2.webp'),
+      asset('/assets/spells/fire-3.webp'),
+      asset('/assets/spells/fire-4.webp'),
     ],
     ice: [
-      '/assets/spells/ice-1.webp',
-      '/assets/spells/ice-2.webp',
-      '/assets/spells/ice-3.webp',
-      '/assets/spells/ice-4.webp',
+      asset('/assets/spells/ice-1.webp'),
+      asset('/assets/spells/ice-2.webp'),
+      asset('/assets/spells/ice-3.webp'),
+      asset('/assets/spells/ice-4.webp'),
     ],
     storm: [
-      '/assets/spells/storm-1.webp',
-      '/assets/spells/storm-2.webp',
-      '/assets/spells/storm-3.webp',
-      '/assets/spells/storm-4.webp',
+      asset('/assets/spells/storm-1.webp'),
+      asset('/assets/spells/storm-2.webp'),
+      asset('/assets/spells/storm-3.webp'),
+      asset('/assets/spells/storm-4.webp'),
     ],
   } satisfies Record<Element, readonly string[]>,
   /** Four impact effects per element, indexed by spellIndex % 4. Alpha WebPs. */
   combatFx: {
     arcane: [
-      '/assets/combat-fx/arcane-1.webp',
-      '/assets/combat-fx/arcane-2.webp',
-      '/assets/combat-fx/arcane-3.webp',
-      '/assets/combat-fx/arcane-4.webp',
+      asset('/assets/combat-fx/arcane-1.webp'),
+      asset('/assets/combat-fx/arcane-2.webp'),
+      asset('/assets/combat-fx/arcane-3.webp'),
+      asset('/assets/combat-fx/arcane-4.webp'),
     ],
     fire: [
-      '/assets/combat-fx/fire-1.webp',
-      '/assets/combat-fx/fire-2.webp',
-      '/assets/combat-fx/fire-3.webp',
-      '/assets/combat-fx/fire-4.webp',
+      asset('/assets/combat-fx/fire-1.webp'),
+      asset('/assets/combat-fx/fire-2.webp'),
+      asset('/assets/combat-fx/fire-3.webp'),
+      asset('/assets/combat-fx/fire-4.webp'),
     ],
     ice: [
-      '/assets/combat-fx/ice-1.webp',
-      '/assets/combat-fx/ice-2.webp',
-      '/assets/combat-fx/ice-3.webp',
-      '/assets/combat-fx/ice-4.webp',
+      asset('/assets/combat-fx/ice-1.webp'),
+      asset('/assets/combat-fx/ice-2.webp'),
+      asset('/assets/combat-fx/ice-3.webp'),
+      asset('/assets/combat-fx/ice-4.webp'),
     ],
     storm: [
-      '/assets/combat-fx/storm-1.webp',
-      '/assets/combat-fx/storm-2.webp',
-      '/assets/combat-fx/storm-3.webp',
-      '/assets/combat-fx/storm-4.webp',
+      asset('/assets/combat-fx/storm-1.webp'),
+      asset('/assets/combat-fx/storm-2.webp'),
+      asset('/assets/combat-fx/storm-3.webp'),
+      asset('/assets/combat-fx/storm-4.webp'),
     ],
   } satisfies Record<Element, readonly string[]>,
 } as const;
+
+/**
+ * StyleX compiles `create()` values statically, so a template built from
+ * `BASE_URL` cannot appear there. The arena backgrounds (queue and lobby) take
+ * the image layer from this custom property instead; call once at boot, before
+ * any of those surfaces render.
+ */
+export function installAssetBase(): void {
+  document.documentElement.style.setProperty(
+    '--spelltype-arena-image',
+    `url("${ASSETS.arenas[0]}")`,
+  );
+}
 
 export const SEAT_LIMIT = 4;
 

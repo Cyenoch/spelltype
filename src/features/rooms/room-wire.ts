@@ -15,6 +15,8 @@ export interface CloseInfo {
   protocolMismatch: boolean;
   /** The server reset this connection because input messages were too dense. */
   inputOverload: boolean;
+  /** The room's release was retired: the room is over for every build. */
+  roomRetired: boolean;
 }
 
 const AUTH_CLOSE_CODES: Record<number, true> = { 1008: true, 4401: true, 4403: true };
@@ -47,6 +49,7 @@ export function closeInfo(code: number, reason: string): CloseInfo {
     roomClosed: code === WS_CLOSE.closed,
     protocolMismatch: code === WS_CLOSE.protocolMismatch,
     inputOverload: code === WS_CLOSE.inputOverload,
+    roomRetired: false,
   };
 }
 

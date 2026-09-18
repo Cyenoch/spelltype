@@ -30,7 +30,6 @@ import { rowFor, selfIdentity } from '../support/api';
 import { gotoApp } from '../support/app';
 import {
   createRoom,
-  inviteUrl,
   occupiedSeat,
   occupiedSeats,
   setReady,
@@ -55,8 +54,9 @@ test('受邀玩家登录后加入，两名玩家完成整场对战后看到相�
 
   expect(await occupiedSeats(host.page).count()).toBe(1);
   expect(await host.page.getByTestId('room-theme').textContent()).toContain(theme);
-  const invite = await inviteUrl(host.page);
-  expect(invite).toContain(`?room=${roomId}`);
+  // The invite is the room code itself: the lobby publishes it and offers the copy action.
+  await expect(host.page.getByTestId('lobby-room-id')).toHaveText(roomId);
+  await expect(host.page.getByTestId('lobby-copy-room-id')).toBeVisible();
 
   // A signed-out visitor joins by code from the home dialog: the destination survives the
   // auth flow. A malformed code keeps the dialog open and flags the field; uppercase input

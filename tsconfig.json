@@ -11,8 +11,8 @@
     "noEmit": true,
     "skipLibCheck": true,
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
-    "types": ["vite/client", "node"],
+    "types": ["vite/client", "node", "bun"],
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "shared", "vite.config.ts", "worker-configuration.d.ts"]
+  "include": ["src", "shared", "server", "scripts/*.ts", "vite.config.ts", "drizzle.config.ts"]
 }

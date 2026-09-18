@@ -1,4 +1,4 @@
-import { For, createMemo, onMount } from 'solid-js';
+import { For, Show, createMemo, onMount } from 'solid-js';
 import type { Player, RoomSnapshot } from '../../../../shared/protocol';
 import {
   END_REASON_LABELS,
@@ -127,6 +127,7 @@ export function BattleResults(props: {
           type="button"
           class={stylex.props(ui.button, ui.primary).className}
           data-testid="rematch"
+          disabled={props.snapshot.draining}
           onClick={() => props.onRematch()}
         >
           再来一局
@@ -140,6 +141,11 @@ export function BattleResults(props: {
           返回首页
         </button>
       </div>
+      <Show when={props.snapshot.draining}>
+        <p class={stylex.props(styles.resultDetail).className}>
+          此版本已停止接受新对局，请返回首页后更新。
+        </p>
+      </Show>
 
       <div class={stylex.props(ui.statTiles).className}>
         <div class={stylex.props(ui.tile).className}>

@@ -4,7 +4,6 @@ import { sessionOptions } from './queries';
 
 export interface Session {
   readonly user: User | null;
-  readonly aiConfigured: boolean;
   readonly pending: boolean;
   readonly error: Error | null;
   refresh(): Promise<SessionInfo>;
@@ -23,9 +22,6 @@ export function createSession(client: QueryClient): Session {
     get user() {
       return query.data?.user ?? null;
     },
-    get aiConfigured() {
-      return Boolean(query.data?.aiConfigured);
-    },
     get pending() {
       return query.isPending;
     },
@@ -35,17 +31,11 @@ export function createSession(client: QueryClient): Session {
     refresh: () => client.fetchQuery({ ...sessionOptions, staleTime: 0 }),
     setUser(user: User) {
       discardPrivateData();
-      client.setQueryData(sessionOptions.queryKey, (previous) => ({
-        user,
-        aiConfigured: previous?.aiConfigured ?? false,
-      }));
+      client.setQueryData(sessionOptions.queryKey, { user });
     },
     clear() {
       discardPrivateData();
-      client.setQueryData(sessionOptions.queryKey, (previous) => ({
-        user: null,
-        aiConfigured: previous?.aiConfigured ?? false,
-      }));
+      client.setQueryData(sessionOptions.queryKey, { user: null });
     },
   };
 }

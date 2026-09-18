@@ -12,7 +12,8 @@
  * binding react exactly as the protocol contract demands when snapshots arrive out of order or
  * malformed, and a stale HTTP verdict that lands after a newer connection can never clobber it.
  */
-import { expect, type Browser, type BrowserContext, type Page, test } from '@playwright/test';
+import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { test } from '../support/test';
 import type { Player, RoomSnapshot } from '../../shared/protocol';
 import { apiJson } from '../support/api';
 import { gotoApp, settle } from '../support/app';
@@ -135,7 +136,11 @@ async function instrumentedRoom(browser: Browser, theme: string): Promise<Instru
     class Tracked extends Original {
       constructor(...args: ConstructorParameters<typeof WebSocket>) {
         super(...args);
-        if (!/^\/api\/rooms\/[^/]+\/ws$/.test(new URL(String(args[0]), location.href).pathname))
+        if (
+          !/^\/api\/releases\/[0-9a-f]{32}\/rooms\/[0-9a-f]{24}\/ws$/.test(
+            new URL(String(args[0]), location.href).pathname,
+          )
+        )
           return;
         sockets.push(this);
         this.addEventListener('open', () => {

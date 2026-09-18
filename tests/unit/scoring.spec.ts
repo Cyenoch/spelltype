@@ -7,7 +7,7 @@
  * power goes to every other living player, and the batched application of that rule is covered by
  * the room-level volley regression suite.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import {
   accuracyOf,
   charCount,
@@ -19,7 +19,7 @@ import {
   spellAt,
   survivalRanks,
   type MatchStanding,
-} from '../../worker/scoring';
+} from '../../server/scoring';
 
 describe('咒文长度与伤害', () => {
   it('按 Unicode 码点计数，代理对算一个字符，伤害是码点的四倍', () => {

@@ -1,9 +1,9 @@
 /**
  * Playwright configuration for the application-boundary E2E suite.
  *
- * One worker keeps the quick-match Durable Object, the shared fixture queue and the
- * D1 fault-injection steps deterministic: several specs share the one matchmaking queue
- * and one spec mutates the results table.
+ * One worker keeps the shared matchmaking queue, the one PGlite database and the fault-injection
+ * steps deterministic: several specs share the one server stack (booted in-process by the
+ * worker-scoped harness fixture) and one spec mutates the results table.
  */
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';
@@ -12,7 +12,6 @@ import { STATE_DIR } from './support/runtime';
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.spec.ts',
-  globalSetup: './global-setup.ts',
   outputDir: path.join(STATE_DIR, 'artifacts'),
   fullyParallel: false,
   workers: 1,

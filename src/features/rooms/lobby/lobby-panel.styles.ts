@@ -64,7 +64,7 @@ export const styles = stylex.create({
     borderImageRepeat: 'stretch',
     borderRadius: 0,
     backgroundImage:
-      "radial-gradient(120% 130% at 50% -30%, rgba(122, 96, 255, 0.24), transparent 62%), linear-gradient(180deg, rgba(24, 18, 52, 0.72), rgba(9, 7, 22, 0.94)), url('/assets/arenas/arena-1.webp')",
+      'radial-gradient(120% 130% at 50% -30%, rgba(122, 96, 255, 0.24), transparent 62%), linear-gradient(180deg, rgba(24, 18, 52, 0.72), rgba(9, 7, 22, 0.94)), var(--spelltype-arena-image)',
     backgroundPosition: '0% 0%, 0% 0%, center',
     backgroundSize: 'auto, auto, cover',
     boxShadow: 'var(--shadow), var(--glow)',

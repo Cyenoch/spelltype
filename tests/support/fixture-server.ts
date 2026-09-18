@@ -1,8 +1,8 @@
 /**
  * Deterministic DeepSeek-compatible HTTP fixture.
  *
- * Test-only infrastructure: never imported by product code. The Worker reaches it because
- * `tests/vite.config.ts` aliases `worker/generation/provider.ts` to `tests/support/test-provider.ts`, which
+ * Test-only infrastructure: never imported by product code. The harness composes the server's
+ * `GenerateSpells` seam with `generateSpellSet` fed by `tests/support/test-provider.ts`, which
  * builds the real `@ai-sdk/deepseek` provider with `baseURL` pointed here. Generation therefore
  * travels the real SDK network and structured-output path; only the remote peer is local and
  * deterministic. The book itself is built in `fixture-generation.ts`.
@@ -176,8 +176,8 @@ export interface FixtureServer {
 
 export interface FixtureServerOptions {
   /**
-   * Test-only control channel under `/__harness/*`, used by the E2E harness to restart the
-   * application process (the only way to prove Durable Object state survives reactivation).
+   * Fixture-only control channel under `/__harness/*`, used to restart the application runtime
+   * against the same database and verify recovery of committed room state.
    * Return `undefined` for unknown paths.
    */
   control?: (path: string, body: unknown) => Promise<unknown>;

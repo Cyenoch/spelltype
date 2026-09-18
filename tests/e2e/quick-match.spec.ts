@@ -10,7 +10,7 @@ import { expect, type Browser } from '@playwright/test';
 import { test } from '../support/test';
 import { INITIAL_HEALTH, type MatchTicket, type Profile } from '../../shared/protocol';
 import { fixture } from '../support/runtime';
-import { apiJson, selfIdentity } from '../support/api';
+import { apiJson, gameJson, selfIdentity } from '../support/api';
 import { battlePhase, roomSnapshot, snapshotPlayer } from '../support/combat';
 import { gotoApp, openHome, settle, visibleErrorText } from '../support/app';
 import { signedInContext, type Session } from '../support/session';
@@ -21,8 +21,12 @@ test.beforeEach(async () => {
 
 /** Queues or polls the single matchmaking ticket; the endpoint is idempotent per account. */
 async function matchTicket(session: Session) {
-  return apiJson<MatchTicket>(session.context, '/api/match', { method: 'POST' });
+  return gameJson<MatchTicket>(session.context, '/match', { method: 'POST' });
 }
+
+/** The exact versioned room routes the page calls; intercepts must not match retired paths. */
+const ROOM_READ = /\/api\/releases\/[0-9a-f]{32}\/rooms\/[0-9a-f]{24}$/;
+const ROOM_LEAVE = /\/api\/releases\/[0-9a-f]{32}\/rooms\/[0-9a-f]{24}\/leave$/;
 
 test('两名玩家经界面配对进入同一房间并自动开局', async ({ browser }) => {
   const first = await signedInContext(browser, 'ui1');
@@ -35,10 +39,13 @@ test('两名玩家经界面配对进入同一房间并自动开局', async ({ br
   await expect(first.page.getByTestId('view-queue')).toBeVisible();
   await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'waiting');
 
-  // A slow room read must keep the matched queue visible until room admission completes.
+  // A slow room read must keep the matched queue visible until room admission completes:
+  // the user must keep seeing the queue, not a loading replacement.
+  await expect(first.page.getByTestId('queue-stage')).toBeVisible();
+  await expect(first.page.getByTestId('queue-panel')).toBeVisible();
   const roomRequested = Promise.withResolvers<void>();
   const releaseRoom = Promise.withResolvers<void>();
-  await first.page.route(/\/api\/rooms\/[0-9a-f]{24}$/, async (route) => {
+  await first.page.route(ROOM_READ, async (route) => {
     roomRequested.resolve();
     await releaseRoom.promise;
     await route.continue();
@@ -50,6 +57,9 @@ test('两名玩家经界面配对进入同一房间并自动开局', async ({ br
     await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'matched');
     await settle(1200);
     await expect(first.page.getByTestId('view-queue')).toBeVisible();
+    // Lazy StyleX rules can settle during the request; total page height is not the contract.
+    await expect(first.page.getByTestId('queue-stage')).toBeVisible();
+    await expect(first.page.getByTestId('queue-panel')).toBeVisible();
   } finally {
     releaseRoom.resolve();
   }
@@ -88,7 +98,7 @@ test('两名玩家经界面配对进入同一房间并自动开局', async ({ br
   }
 
   // A started match can no longer honestly report a cancellation.
-  const cancelled = await apiJson<{ cancelled: boolean }>(first.context, '/api/match', {
+  const cancelled = await gameJson<{ cancelled: boolean }>(first.context, '/match', {
     method: 'DELETE',
   });
   expect(cancelled.body.cancelled).toBe(false);
@@ -127,7 +137,7 @@ test('取消会如实反馈：等待中可重新排队，准备阶段的取消�
   // Leaving during a delayed enqueue must not leave an opponent-matchable orphan ticket.
   const pending = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  await first.page.route('**/api/match', async (route) => {
+  await first.page.route('**/api/releases/*/match', async (route) => {
     if (route.request().method() === 'POST') {
       pending.resolve();
       await release.promise;
@@ -137,15 +147,15 @@ test('取消会如实反馈：等待中可重新排队，准备阶段的取消�
   await first.page.getByTestId('queue-requeue').click();
   await pending.promise;
   const cancelled = first.page.waitForResponse(
-    (response) => response.url().endsWith('/api/match') && response.request().method() === 'DELETE',
+    (response) => response.url().endsWith('/match') && response.request().method() === 'DELETE',
   );
   await first.page.getByTestId('queue-home').click();
   await Promise.race([cancelled, settle(500)]);
   release.resolve();
   await cancelled;
-  await first.page.unroute('**/api/match');
+  await first.page.unroute('**/api/releases/*/match');
   expect((await matchTicket(second)).body.state).toBe('waiting');
-  await apiJson(second.context, '/api/match', { method: 'DELETE' });
+  await gameJson(second.context, '/match', { method: 'DELETE' });
 
   // The opponent cancels while this player is already in the prepared lobby: the connected player
   // must be released instead of being left in a hidden room, and can queue again.
@@ -160,7 +170,7 @@ test('取消会如实反馈：等待中可重新排队，准备阶段的取消�
   await gotoApp(first.page, `/?room=${roomId}`);
   await expect(first.page.getByTestId('lobby-panel')).toBeVisible({ timeout: 30_000 });
   expect(
-    (await apiJson<{ cancelled: boolean }>(second.context, '/api/match', { method: 'DELETE' })).body
+    (await gameJson<{ cancelled: boolean }>(second.context, '/match', { method: 'DELETE' })).body
       .cancelled,
   ).toBe(true);
 
@@ -191,7 +201,7 @@ test('房间读取失败后返回首页：释放旧席位，重新匹配进入�
   expect((await matchTicket(first)).body.roomId).toBe(roomId);
 
   // A snapshot failure must not turn the reserved seat into a room-entry loop.
-  await first.page.route(`**/api/rooms/${roomId}`, (route) =>
+  await first.page.route(`**/api/releases/*/rooms/${roomId}`, (route) =>
     route.fulfill({ status: 500, json: { error: '房间暂时不可用' } }),
   );
   await first.page.getByTestId('home-quick-start').click();
@@ -200,13 +210,39 @@ test('房间读取失败后返回首页：释放旧席位，重新匹配进入�
 
   // Failed cleanup is not a successful exit; retry keeps the same reservation
   // until the server acknowledges it, even when the original snapshot is absent.
-  const leaveUrl = `**/api/rooms/${roomId}/leave`;
+  const leaveUrl = `**/api/releases/*/rooms/${roomId}/leave`;
   await first.page.route(leaveUrl, (route) => route.abort('connectionfailed'));
   await first.page.getByTestId('room-error-home').click();
   await expect(first.page.locator('[data-testid="toast"] > [data-tone="error"]')).toBeVisible();
   await expect(first.page.getByTestId('room-error-home')).toBeEnabled();
   await expect(first.page.getByTestId('view-home')).toBeHidden();
   expect((await matchTicket(first)).body.roomId).toBe(roomId);
+  await first.page.unroute(leaveUrl);
+
+  // A foreign-release refusal is not retirement. Neither a live locator nor a
+  // denied locator lookup proves that this reservation was released.
+  await first.page.route(leaveUrl, (route) =>
+    route.fulfill({
+      status: 409,
+      json: { code: 'release:room_retired', error: '房间属于另一个版本' },
+    }),
+  );
+  await first.page.getByTestId('room-error-home').click();
+  await expect(first.page.getByTestId('room-error-home')).toBeEnabled();
+  await expect(first.page.getByTestId('view-home')).toBeHidden();
+  expect((await matchTicket(first)).body.roomId).toBe(roomId);
+  const locationUrl = `**/api/rooms/${roomId}/location`;
+  await first.page.route(locationUrl, (route) =>
+    route.fulfill({
+      status: 403,
+      json: { error: '暂时无法读取房间位置' },
+    }),
+  );
+  await first.page.getByTestId('room-error-home').click();
+  await expect(first.page.getByTestId('room-error-home')).toBeEnabled();
+  await expect(first.page.getByTestId('view-home')).toBeHidden();
+  expect((await matchTicket(first)).body.roomId).toBe(roomId);
+  await first.page.unroute(locationUrl);
   await first.page.unroute(leaveUrl);
 
   const leaveArrived = Promise.withResolvers<void>();
@@ -224,7 +260,7 @@ test('房间读取失败后返回首页：释放旧席位，重新匹配进入�
   await expect(first.page.getByTestId('view-home')).toBeVisible();
 
   const nextPoll = first.page.waitForResponse(
-    (response) => response.url().endsWith('/api/match') && response.request().method() === 'POST',
+    (response) => response.url().endsWith('/match') && response.request().method() === 'POST',
   );
   await first.page.getByTestId('home-quick-start').click();
   expect((await (await nextPoll).json()).state).toBe('waiting');
@@ -292,7 +328,7 @@ test('排队租约只前移，并发轮询不会自我匹配', async ({ browser 
 
   // Cancelling a live reservation is reported honestly, and the released player can queue again.
   expect(
-    (await apiJson<{ cancelled: boolean }>(first.context, '/api/match', { method: 'DELETE' })).body
+    (await gameJson<{ cancelled: boolean }>(first.context, '/match', { method: 'DELETE' })).body
       .cancelled,
   ).toBe(true);
   const requeued = await matchTicket(first);
@@ -302,11 +338,11 @@ test('排队租约只前移，并发轮询不会自我匹配', async ({ browser 
   // Re-polling may have re-queued the account: cancel again so no reservation leaks into the
   // shared queue (the afterEach cleanup is the safety net, this is the intent).
   expect(
-    (await apiJson<{ cancelled: boolean }>(first.context, '/api/match', { method: 'DELETE' })).body
+    (await gameJson<{ cancelled: boolean }>(first.context, '/match', { method: 'DELETE' })).body
       .cancelled,
   ).toBe(true);
   expect(
-    (await apiJson<{ cancelled: boolean }>(second.context, '/api/match', { method: 'DELETE' })).body
+    (await gameJson<{ cancelled: boolean }>(second.context, '/match', { method: 'DELETE' })).body
       .cancelled,
   ).toBe(true);
 
@@ -348,7 +384,7 @@ test('对局中手动离开：确认后才返回首页，失利入档且可重�
   let leaveRequests = 0;
   const leaveArrived = Promise.withResolvers<void>();
   const releaseLeave = Promise.withResolvers<void>();
-  await leaver.page.route(/\/api\/rooms\/[0-9a-f]{24}\/leave$/, async (route) => {
+  await leaver.page.route(ROOM_LEAVE, async (route) => {
     leaveRequests += 1;
     leaveArrived.resolve();
     await releaseLeave.promise;
@@ -423,9 +459,7 @@ test('离开请求失败：如实报错、留在房间不误判离席，重试�
 
   // The request never reaches the server: the failure is announced, nothing is claimed and
   // nothing is committed.
-  await leaver.page.route(/\/api\/rooms\/[0-9a-f]{24}\/leave$/, (route) =>
-    route.abort('connectionfailed'),
-  );
+  await leaver.page.route(ROOM_LEAVE, (route) => route.abort('connectionfailed'));
   await leaver.page.getByTestId('battle-leave').click();
   await expect(leaver.page.locator('[data-testid="toast"] > [data-tone="error"]')).toBeVisible();
   await expect(leaver.page.getByTestId('view-room')).toBeVisible();
@@ -438,7 +472,7 @@ test('离开请求失败：如实报错、留在房间不误判离席，重试�
   expect(snapshotPlayer(untouched, leaverIdentity).hp).toBe(INITIAL_HEALTH);
 
   // The same button retries over a healthy network and completes the departure.
-  await leaver.page.unroute(/\/api\/rooms\/[0-9a-f]{24}\/leave$/);
+  await leaver.page.unroute(ROOM_LEAVE);
   await leaver.page.getByTestId('battle-leave').click();
   await expect(leaver.page.getByTestId('view-home')).toBeVisible({ timeout: 20_000 });
   await expect(leaver.page.getByTestId('view-room')).toBeHidden();
@@ -459,20 +493,21 @@ test('离场已提交但响应丢失：重试确认，不重复结算', async ({
   test.setTimeout(300_000);
   const { leaver, keeper, roomId } = await startedQuickMatch(browser, 'la');
   let committedStatus = 0;
-  const leavePath = /\/api\/rooms\/[0-9a-f]{24}\/leave$/;
-  await leaver.page.route(leavePath, async (route) => {
+  await leaver.page.route(ROOM_LEAVE, async (route) => {
     const response = await route.fetch();
     committedStatus = response.status();
     await route.abort('connectionfailed');
   });
 
   await leaver.page.getByTestId('battle-leave').click();
-  await expect(leaver.page.locator('[data-testid="toast"] > [data-tone="error"]')).toBeVisible();
+  await expect(
+    leaver.page.locator('[data-testid="toast"] > [data-tone="error"]').first(),
+  ).toBeVisible();
   expect(committedStatus).toBe(200);
   await expect(leaver.page.getByTestId('view-home')).toBeHidden();
   expect((await roomSnapshot(keeper.context, roomId)).phase).toBe('finished');
 
-  await leaver.page.unroute(leavePath);
+  await leaver.page.unroute(ROOM_LEAVE);
   await leaver.page
     .locator('[data-testid="battle-leave"]:visible, [data-testid="final-leave"]:visible')
     .click();

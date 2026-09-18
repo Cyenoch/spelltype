@@ -13,18 +13,20 @@
  * identities are sent verbatim on purpose. The scripted-cast test waits out the published
  * `notBefore` — it proves the timing rule is the only barrier, never that a typist is human.
  */
-import fs from 'node:fs';
-import path from 'node:path';
-import { expect, type BrowserContext, type Page, test } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
+import { test } from '../support/test';
+import { eq, inArray, sql } from 'drizzle-orm';
 import {
   INITIAL_HEALTH,
   WS_PROTOCOL,
   type Profile,
   type RoomSnapshot,
 } from '../../shared/protocol';
-import { openD1, querySql, runSql } from '../support/d1';
+import { combatVolleys, results, rooms } from '../../server/db';
+import { breakResultsSink, restoreResultsSink, resultsSinkIsBroken, testDb } from '../support/db';
+import { harness } from '../support/harness';
 import { apiJson, type Identity, selfIdentity } from '../support/api';
-import { gotoApp, settle, visibleErrorText } from '../support/app';
+import { gotoApp, settle } from '../support/app';
 import {
   backspace,
   battlePhase,
@@ -34,7 +36,6 @@ import {
   gateIndicator,
   inputValue,
   insertIntoField,
-  playUntilFinished,
   roomSnapshot,
   saveStatus,
   seatHealth,
@@ -48,7 +49,7 @@ import {
   waitForCombat,
   waitForInputGate,
 } from '../support/combat';
-import { fixture, restartInstance, ROOT, runtime } from '../support/runtime';
+import { fixture } from '../support/runtime';
 import {
   createRoom,
   setReady,
@@ -193,7 +194,12 @@ interface TrackedSocket {
 function trackWebsockets(page: Page): { sockets: TrackedSocket[]; count(): number } {
   const sockets: TrackedSocket[] = [];
   page.on('websocket', (socket) => {
-    if (!/^\/api\/rooms\/[^/]+\/ws$/.test(new URL(socket.url()).pathname)) return;
+    if (
+      !/^\/api\/releases\/[0-9a-f]{32}\/rooms\/[0-9a-f]{24}\/ws$/.test(
+        new URL(socket.url()).pathname,
+      )
+    )
+      return;
     const entry: TrackedSocket = { received: [], closed: false };
     sockets.push(entry);
     socket.on('framereceived', (event) => entry.received.push(String(event.payload)));
@@ -202,33 +208,6 @@ function trackWebsockets(page: Page): { sockets: TrackedSocket[]; count(): numbe
     });
   });
   return { sockets, count: () => sockets.length };
-}
-
-/** Fulfillls every page request out of the saved pre-deploy build; only /api reaches the app. */
-async function serveLegacyBuild(context: BrowserContext): Promise<void> {
-  const dir = path.join(ROOT, 'tests', '.state', 'input-gate-legacy-client');
-  const index = fs.readFileSync(path.join(dir, 'index.html'));
-  await context.route('**/*', async (route) => {
-    const url = new URL(route.request().url());
-    if (url.pathname.startsWith('/api/')) return route.continue();
-    if (route.request().resourceType() === 'document')
-      return route.fulfill({ body: index, contentType: 'text/html; charset=utf-8' });
-    const file = path.join(dir, decodeURIComponent(url.pathname).replace(/^\//, ''));
-    if (!file.startsWith(dir) || !fs.existsSync(file) || !fs.statSync(file).isFile())
-      return route.continue();
-    const contentType = file.endsWith('.js')
-      ? 'text/javascript'
-      : file.endsWith('.css')
-        ? 'text/css'
-        : file.endsWith('.svg')
-          ? 'image/svg+xml'
-          : file.endsWith('.png')
-            ? 'image/png'
-            : file.endsWith('.jpg') || file.endsWith('.jpeg')
-              ? 'image/jpeg'
-              : 'application/octet-stream';
-    return route.fulfill({ body: fs.readFileSync(file), contentType });
-  });
 }
 
 /* ------------------------------------------------------------------ rejects */
@@ -441,6 +420,14 @@ test('门槛满足后逐字、输入法确认、整段插入与选区替换同�
   await waitForInputGate(host);
   await typeText(host, `${fourth.slice(0, -1)}#`);
   await host.keyboard.press('Shift+ArrowLeft');
+  expect(
+    await host
+      .getByTestId('typing-input')
+      .evaluate<number[], void, HTMLTextAreaElement>((field) => [
+        field.selectionStart,
+        field.selectionEnd,
+      ]),
+  ).toEqual([fourth.length - 1, fourth.length]);
   await insertIntoField(host, fourth.slice(-1));
   await expectGuestHp(fourth);
   expect(await selfSpellsCast(host)).toBe(4);
@@ -675,7 +662,7 @@ test('刷新、第二连接接管与进程重启保持草稿、纪元与资格�
 
   // A real process restart: both pages' sockets die with the process and reconnect on their
   // own; identity, floor and deadline come back as the stored ones, byte for byte.
-  await restartInstance();
+  await harness().restartServer();
   await expect
     .poll(() => secondPage.getByTestId('connection-status').getAttribute('data-state'), {
       timeout: 120_000,
@@ -726,7 +713,7 @@ test('输入超限一次4004：在线与可见触发被地板拦住，重连保�
     window.WebSocket = class extends Original {
       constructor(...args: ConstructorParameters<typeof WebSocket>) {
         super(...args);
-        if (!String(args[0]).includes('/api/rooms/')) return;
+        if (!/\/rooms\/[^/]+\/ws/.test(String(args[0]))) return;
         timing.attempts.push(Date.now());
         this.addEventListener('close', (event) => {
           if (event.code !== 4004) return;
@@ -834,12 +821,14 @@ test('初始读取版本不符是终态：刷新按钮出现，网络恢复与�
   const room = await twoPlayerRoom(browser, { theme: '终态契约' });
   const host = room.host.page;
   const tracked = trackWebsockets(host);
-  await room.host.context.route(new RegExp(`/api/rooms/${room.roomId}$`), (route) =>
-    route.fulfill({
-      status: 409,
-      contentType: 'application/json',
-      body: JSON.stringify({ error: UPDATE_REQUIRED, protocolVersion: WS_PROTOCOL }),
-    }),
+  await room.host.context.route(
+    new RegExp(`/api/releases/[0-9a-f]{32}/rooms/${room.roomId}$`),
+    (route) =>
+      route.fulfill({
+        status: 409,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: UPDATE_REQUIRED, protocolVersion: WS_PROTOCOL }),
+      }),
   );
   await gotoApp(host, `/?room=${room.roomId}`);
 
@@ -854,55 +843,10 @@ test('初始读取版本不符是终态：刷新按钮出现，网络恢复与�
     await settle(400);
   }
   expect(tracked.count()).toBe(0);
-  await room.host.context.unroute(new RegExp(`/api/rooms/${room.roomId}$`));
+  await room.host.context.unroute(new RegExp(`/api/releases/[0-9a-f]{32}/rooms/${room.roomId}$`));
 
   await room.host.context.close();
   await room.guest.context.close();
-});
-
-test('部署前的旧客户端构建面对新服务端：终态诊断而非无限重连', async ({ browser }) => {
-  test.setTimeout(420_000);
-  // Register through the plain API, then hand the session cookie to a context that loads the
-  // saved legacy build, so the artifact itself plays against the current server.
-  const apiContext = await browser.newContext();
-  const username = uniqueName('legacy');
-  const registered = await apiJson<{ user: unknown }>(apiContext, '/api/register', {
-    method: 'POST',
-    data: { username, password: 'legacy-artifact-pw' },
-  });
-  expect(registered.status).toBe(200);
-  const created = await apiJson<{ roomId: string }>(apiContext, '/api/rooms', {
-    method: 'POST',
-    data: { theme: '旧构建契约' },
-  });
-  expect(created.status).toBe(200);
-  const roomId = created.body.roomId;
-
-  const legacy = await newContext(browser);
-  await legacy.addCookies(await apiContext.cookies());
-  await serveLegacyBuild(legacy);
-  const legacyPage = await legacy.newPage();
-  const tracked = trackWebsockets(legacyPage);
-  await gotoApp(legacyPage, `/?room=${roomId}`);
-  await settle(4000);
-  const countAfterLoad = tracked.count();
-
-  // The legacy page gets the server's verdict on its own read path and shows its own terminal
-  // problem instead of cycling.
-  await expect.poll(() => visibleErrorText(legacyPage), { timeout: 30_000 }).not.toBe('');
-  await settle(9000);
-  const countAfterWindow = tracked.count();
-
-  // Bounded attempts, every attempt refused, and not one authoritative state frame received.
-  expect(countAfterWindow).toBeLessThanOrEqual(countAfterLoad + 2);
-  expect(countAfterWindow).toBeLessThanOrEqual(6);
-  for (const socket of tracked.sockets) {
-    expect(socket.closed).toBe(true);
-    expect(socket.received.join('\n')).not.toContain('"type":"state"');
-  }
-
-  await apiContext.close();
-  await legacy.close();
 });
 
 test('重启后旧局策略与资格不可变；新局遵循新默认且观察模式只记录不拦截', async ({ browser }) => {
@@ -920,7 +864,7 @@ test('重启后旧局策略与资格不可变；新局遵循新默认且观察�
   // The instance reboots with observe as the new default: the running match keeps the policy it
   // was locked with, down to the exact stored floor instant.
   try {
-    await restartInstance({ inputPolicyMode: 'observe' });
+    await harness().restartServer({ inputPolicyMode: 'observe' });
     await expect
       .poll(() => host.getByTestId('connection-status').getAttribute('data-state'), {
         timeout: 90_000,
@@ -988,11 +932,11 @@ test('重启后旧局策略与资格不可变；新局遵循新默认且观察�
     await roomB.host.context.close();
     await roomB.guest.context.close();
   } finally {
-    await restartInstance({ inputPolicyMode: 'enforce' });
+    await harness().restartServer({ inputPolicyMode: 'enforce' });
   }
 });
 
-test('战绩只记一次、摘要不串局；D1只有聚合；历史只属于当前账号', async ({ browser }) => {
+test('战绩只记一次、摘要不串局；存储只有聚合；历史只属于当前账号', async ({ browser }) => {
   test.setTimeout(900_000);
   const room = await twoPlayerRoom(browser, { theme: '持久摘要' });
   const host = room.host.page;
@@ -1007,43 +951,69 @@ test('战绩只记一次、摘要不串局；D1只有聚合；历史只属于当
   const matchA = rejected.snapshot.matchId!;
   expect(rejected.snapshot.selfInputGate!.draftEpoch).toBe(1);
 
-  // Break the sink before settlement, play out, and watch the UI refuse to claim success.
-  const db = openD1(runtime().persistDir);
-  await runSql(db, 'ALTER TABLE results RENAME TO results_gate_backup');
+  // Stop before the current spell can kill, observing every committed volley first.
+  const guestHp = async () =>
+    snapshotPlayer(await roomSnapshot(room.host.context, room.roomId), guestIdentity).hp;
+  let lethalHp = await guestHp();
+  let castCount = 0;
+  while (lethalHp > completionDamage(await spellText(host))) {
+    expect(castCount).toBeLessThan(40);
+    const power = completionDamage(await spellText(host));
+    await completeSpell(host);
+    await expect.poll(guestHp).toBe(lethalHp - power);
+    lethalHp -= power;
+    castCount += 1;
+  }
+  expect(lethalHp).toBeGreaterThan(0);
+  const killingIndex = await selfSpellIndex(host);
+  await breakResultsSink();
   try {
-    await playUntilFinished(host);
-    await expect.poll(() => saveStatus(host), { timeout: 150_000 }).toBe('error');
+    // Acceptance survives a failed sink, but damage and terminal state do not.
+    await completeSpell(host);
+    expect(await selfSpellIndex(host)).toBe(killingIndex + 1);
+    const [pending] = await testDb()
+      .select()
+      .from(combatVolleys)
+      .where(eq(combatVolleys.room_id, room.roomId));
+    expect(pending.casts).toHaveLength(1);
+    expect(pending.casts[0]).toMatchObject({
+      attackerId: hostIdentity.userId,
+      spellIndex: killingIndex,
+    });
+    await expect
+      .poll(async () => {
+        const [stored] = await testDb()
+          .select({ next: rooms.next_alarm_at })
+          .from(rooms)
+          .where(eq(rooms.id, room.roomId));
+        return stored.next;
+      })
+      .toBeGreaterThan(pending.ends_at);
+    expect(await battlePhase(host)).toBe('playing');
+    expect(await guestHp()).toBe(lethalHp);
+    expect((await roomSnapshot(room.host.context, room.roomId)).persistence).toBe('idle');
   } finally {
-    if (
-      await querySql(db, "SELECT 1 FROM sqlite_master WHERE name = 'results_gate_backup'").then(
-        Boolean,
-      )
-    ) {
-      await runSql(db, 'ALTER TABLE results_gate_backup RENAME TO results');
-    }
+    if (await resultsSinkIsBroken()) await restoreResultsSink();
   }
 
-  // One restart (now defaulting new matches to observe) retries the same outbox entry: the
-  // settled match is stored exactly once, with the summaries the match itself produced.
+  // The accepted intent settles without another input, including across restart.
+  // Changing the default cannot rewrite the measured policy of this existing match.
   try {
-    await restartInstance({ inputPolicyMode: 'observe' });
+    await harness().restartServer({ inputPolicyMode: 'observe' });
     await gotoApp(host, `/?room=${room.roomId}`);
     await expect.poll(() => saveStatus(host), { timeout: 180_000 }).toBe('saved');
-    const rowsA = await querySql<{
-      match_id: string;
-      user_id: string;
-      input_policy_version: string;
-      input_policy_mode: string;
-      input_gate_hits: number | null;
-      input_recoveries: number | null;
-      input_min_completion_ratio: number | null;
-    }>(
-      db,
-      `SELECT match_id, user_id, input_policy_version, input_policy_mode, input_gate_hits,
-       input_recoveries, input_min_completion_ratio
-     FROM results WHERE match_id = ?`,
-      [matchA],
-    );
+    const rowsA = await testDb()
+      .select({
+        match_id: results.match_id,
+        user_id: results.user_id,
+        input_policy_version: results.input_policy_version,
+        input_policy_mode: results.input_policy_mode,
+        input_gate_hits: results.input_gate_hits,
+        input_recoveries: results.input_recoveries,
+        input_min_completion_ratio: results.input_min_completion_ratio,
+      })
+      .from(results)
+      .where(eq(results.match_id, matchA));
     expect(rowsA).toHaveLength(2);
     const hostA = rowsA.find((row) => row.user_id === hostIdentity.userId)!;
     const guestA = rowsA.find((row) => row.user_id === guestIdentity.userId)!;
@@ -1065,16 +1035,15 @@ test('战绩只记一次、摘要不串局；D1只有聚合；历史只属于当
     await guest.getByTestId('battle-leave').click();
     await expect.poll(() => saveStatus(host), { timeout: 120_000 }).toBe('saved');
 
-    const rowsAll = await querySql<{
-      match_id: string;
-      user_id: string;
-      input_policy_mode: string;
-      input_gate_hits: number | null;
-    }>(
-      db,
-      'SELECT match_id, user_id, input_policy_mode, input_gate_hits FROM results WHERE match_id IN (?, ?)',
-      [matchA, matchB],
-    );
+    const rowsAll = await testDb()
+      .select({
+        match_id: results.match_id,
+        user_id: results.user_id,
+        input_policy_mode: results.input_policy_mode,
+        input_gate_hits: results.input_gate_hits,
+      })
+      .from(results)
+      .where(inArray(results.match_id, [matchA, matchB]));
     expect(rowsAll).toHaveLength(4);
     for (const matchId of [matchA, matchB])
       for (const userId of [hostIdentity.userId, guestIdentity.userId])
@@ -1092,9 +1061,12 @@ test('战绩只记一次、摘要不串局；D1只有聚合；历史只属于当
     expect(hostAAgain.input_policy_mode).toBe('enforce');
 
     // The persisted table carries aggregates only: no draft, trajectory or raw-input column.
-    const columns = await querySql<{ name: string }>(db, 'PRAGMA table_info(results)');
+    const columns = await testDb()
+      .select({ column_name: sql<string>`column_name` })
+      .from(sql`information_schema.columns`)
+      .where(sql`table_schema = 'public' AND table_name = 'results'`);
     for (const column of columns)
-      expect(column.name.toLowerCase()).not.toMatch(
+      expect(column.column_name.toLowerCase()).not.toMatch(
         /draft|trajectory|raw_input|keystroke|input_text/,
       );
 
@@ -1118,7 +1090,7 @@ test('战绩只记一次、摘要不串局；D1只有聚合；历史只属于当
     await room.guest.context.close();
     await bystander.context.close();
   } finally {
-    await restartInstance({ inputPolicyMode: 'enforce' });
+    await harness().restartServer({ inputPolicyMode: 'enforce' });
   }
 });
 

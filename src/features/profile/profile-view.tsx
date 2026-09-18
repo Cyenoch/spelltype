@@ -10,6 +10,8 @@ import { profileOptions } from '../../app/queries';
 import type { AppContext } from '../../app/context';
 import { ui } from '../../ui/primitives';
 import { ProfileHistory } from './profile-history';
+import { InstallHint } from './install-hint';
+import { NotificationSettings } from './notification-settings';
 
 /** A stable empty window, so an account with no saved match never hands the table a new array. */
 const NO_HISTORY: MatchResult[] = [];
@@ -130,6 +132,16 @@ export function ProfileView(props: { ctx: AppContext }) {
         <h2>最近十场</h2>
 
         <ProfileHistory history={history()} />
+      </div>
+
+      <div class={stylex.props(ui.panel).className}>
+        <h2>对局提醒</h2>
+
+        <NotificationSettings ctx={props.ctx} />
+      </div>
+
+      <div class={stylex.props(ui.panel).className}>
+        <InstallHint />
       </div>
 
       <div class={stylex.props(ui.panel).className}>

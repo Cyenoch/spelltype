@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { normalizeSpellInput } from '../../shared/spell-input';
 
 describe('spell punctuation correction', () => {

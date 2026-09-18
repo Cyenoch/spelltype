@@ -10,12 +10,11 @@
 import { expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import {
   DAMAGE_PER_CHARACTER,
-  WS_PROTOCOL,
   type Player,
   type RoomSnapshot,
   type SelfInputGate,
 } from '../../shared/protocol';
-import { apiJson, selfIdentity, type Identity } from './api';
+import { gameJson, selfIdentity, type Identity } from './api';
 import { settle } from './app';
 
 /** Longest a single server round-trip may take before a spec should treat it as a failure. */
@@ -187,9 +186,7 @@ export function snapshotPlayer(snapshot: RoomSnapshot, identity: Identity): Play
  * server's 409, never a snapshot.
  */
 export async function roomSnapshot(context: BrowserContext, roomId: string): Promise<RoomSnapshot> {
-  const response = await apiJson<RoomSnapshot>(context, `/api/rooms/${roomId}`, {
-    headers: { 'X-Spelltype-Protocol': WS_PROTOCOL },
-  });
+  const response = await gameJson<RoomSnapshot>(context, `/rooms/${roomId}`);
   expect(response.status).toBe(200);
   return response.body;
 }
@@ -402,9 +399,19 @@ export async function defeatSeat(page: Page, userId: string, maxSpells = 40): Pr
   let cast = 0;
   while (cast < maxSpells) {
     if ((await battlePhase(page)) !== 'playing') break;
-    if ((await seatHealth(page, userId)).hp <= 0) break;
+    const hpBefore = (await seatHealth(page, userId)).hp;
+    if (hpBefore <= 0) break;
     await completeSpell(page);
     cast += 1;
+    // Cursor acknowledgment precedes damage. Observe this volley before deciding
+    // whether another cast is needed, or a late snapshot can kill the next seat.
+    await expect
+      .poll(
+        async () =>
+          (await battlePhase(page)) !== 'playing' || (await seatHealth(page, userId)).hp < hpBefore,
+        { timeout: ACK_TIMEOUT },
+      )
+      .toBe(true);
   }
   if ((await seatHealth(page, userId)).hp > 0 && (await battlePhase(page)) === 'playing') {
     throw new Error(

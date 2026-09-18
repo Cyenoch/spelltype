@@ -1,5 +1,5 @@
 /**
- * Shared wire contract for the browser client, the outer Worker and the Durable Objects.
+ * Shared wire contract for the browser client, stable API and release-scoped game runtimes.
  * Everything that crosses the network boundary is described here.
  *
  * The game is continuous health combat: one generated spell book, one board of players who trade
@@ -28,16 +28,17 @@ export type RoomMode = z.infer<typeof roomModeSchema>;
 export type Phase = 'lobby' | 'generating' | 'countdown' | 'playing' | 'finished';
 /** Why combat ended: at most one survivor remains, or the match deadline passed. */
 export type EndReason = 'elimination' | 'timeout';
-/** Persistence of the finished-match result into D1, as seen by the room. */
+/** Persistence of the finished-match result, as seen by the room. */
 export type Persistence = 'idle' | 'saving' | 'saved' | 'error';
 /** Reservation lifecycle of a room seat, used to reconcile matchmaking tickets. */
 export type ReservationState = 'none' | 'reserved' | 'cancelled' | 'expired' | 'locked';
 
 export const WS_PROTOCOL = 'spelltype.v2';
+export type InputPolicyMode = 'observe' | 'enforce';
 
 export type SelfInputGate = null | {
   policyVersion: string;
-  mode: 'observe' | 'enforce';
+  mode: InputPolicyMode;
   draftEpoch: number;
   notBefore: number;
   resetReason: null | 'completion_too_early';
@@ -63,7 +64,7 @@ export const THEME_PRESETS: readonly ThemePreset[] = [
   { id: 'bakery', label: '魔法面包房', theme: '魔法面包房的清晨配方' },
 ];
 
-/** Limits. Shared so the browser, the Worker and the rooms agree on the boundary values. */
+/** Shared limits keep the browser, API and game runtime on the same boundaries. */
 export const MAX_THEME_CHARS = 80;
 export const MAX_INPUT_CHARS = 256;
 export const MAX_MESSAGE_BYTES = 4096;
@@ -180,6 +181,8 @@ export interface CombatEvent {
 export interface RoomSnapshot {
   protocolVersion: string;
   id: string;
+  releaseId: string;
+  draining: boolean;
   matchId: string | null;
   hostId: string;
   mode: RoomMode;
@@ -216,6 +219,7 @@ export type ServerMessage =
 export type RoomInit = z.infer<typeof roomInitSchema>;
 
 export interface MatchTicket {
+  releaseId: string;
   state: 'waiting' | 'matched';
   /** Present only when `state` is `matched`. */
   roomId?: string;
@@ -279,7 +283,6 @@ export interface ActivitySummary {
  */
 export interface SessionInfo {
   user: User | null;
-  aiConfigured: boolean;
 }
 
 /**

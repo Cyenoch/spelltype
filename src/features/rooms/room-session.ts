@@ -1,11 +1,14 @@
 import { batch, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import { useNavigate } from '@tanstack/solid-router';
 import { parseResponse, DetailedError } from 'hono/client';
-import { WS_PROTOCOL } from '../../../shared/protocol';
-import type { ClientMessage, RoomSnapshot } from '../../../shared/protocol';
-import { client } from '../../app/client';
+import { WS_PROTOCOL, MATCH_DURATION_MS } from '../../../shared/protocol';
+import type { ClientMessage, Phase, RoomSnapshot } from '../../../shared/protocol';
+import { ReleaseError, type RoomLocation } from '../../../shared/release';
+import { gameClient } from '../../app/client';
+import { releaseCodeOf } from '../../app/releases';
 import type { AppContext } from '../../app/context';
 import { profileOptions } from '../../app/queries';
+import { resolveRoomEntry } from './room-entry';
 import { RoomConnection, type ConnectionState } from './room-connection';
 import { isProtocolRejection, type CloseInfo } from './room-wire';
 import { messageOf, toast } from '../../ui/toast';
@@ -28,8 +31,19 @@ export interface RoomProblem {
   reload?: boolean;
 }
 
-/** The route keeps the previous screen visible until the initial room read settles. */
-export type RoomLoad = { snapshot: RoomSnapshot } | { error: unknown };
+/**
+ * How long a generation-failure or finish reminder stays deliverable: long enough
+ * for the player to come back to the page, short enough to be about "now".
+ */
+const REMINDER_WINDOW_MS = 60_000;
+
+/**
+ * The route keeps the previous screen visible until the initial room read settles.
+ * `entry` means the room is retained by another release and the document must
+ * move to that release's own entry; `error` covers everything this bundle can
+ * already prove it cannot enter.
+ */
+export type RoomLoad = { snapshot: RoomSnapshot } | { entry: RoomLocation } | { error: unknown };
 
 export interface RoomSession {
   snapshot(): RoomSnapshot | null;
@@ -182,7 +196,7 @@ export function createRoomSession(props: {
   };
 
   /**
-   * Manual leave waits for the server's own acknowledgment: `POST /api/rooms/:id/leave`
+   * Manual leave waits for the server's acknowledgment: `POST /api/releases/:releaseId/rooms/:id/leave`
    * is what commits the departure (forfeiting a live match, releasing a seat), so
    * navigation, the success toast and the invite cleanup happen only after it. A
    * lost response is ambiguous: keep the page and offer an idempotent retry.
@@ -197,33 +211,74 @@ export function createRoomSession(props: {
     }
     const request = (async () => {
       setLeaving(true);
+      // The departure is committed — or proven moot because the server holds
+      // no seat to commit. Detach and move to the requested destination.
+      const departed = (): void => {
+        // The route may already be disposed (the player left some other way
+        // mid-request): never navigate a dead route.
+        if (closed) return;
+        // The seat is gone: no reminder bound to this room may outlive it.
+        props.ctx.notifications.invalidateRoom(props.roomId);
+        props.ctx.setPendingInvite(null);
+        socket?.close();
+        const quick = snapshot()?.mode === 'quick';
+        toast(quick ? '已离开快速匹配房间，可以重新匹配。' : '已离开房间。', 'info');
+        void navigate({ to: destination, search: {} });
+      };
       try {
         await parseResponse(
-          client.api.rooms[':roomId'].leave.$post({ param: { roomId: props.roomId } }),
+          gameClient.rooms[':roomId'].leave.$post({ param: { roomId: props.roomId } }),
         );
       } catch (error) {
-        // A missing room/seat is already released. A transport error is ambiguous:
-        // keep the page and offer an idempotent retry, never silently requeue.
-        if (!(error instanceof DetailedError && error.statusCode === 404)) {
+        if (closed) return;
+        if (error instanceof DetailedError && error.statusCode === 401) {
           setLeaving(false);
           leaveRequest = null;
-          if (closed) return;
-          if (error instanceof DetailedError && error.statusCode === 401) {
-            props.ctx.handleAuthFailure('登录状态已失效，请重新登录。');
-            return;
-          }
-          toast(messageOf(error, '未能确认离开房间，请重试。'), 'error');
+          props.ctx.handleAuthFailure('登录状态已失效，请重新登录。');
           return;
         }
+        if (
+          error instanceof DetailedError &&
+          error.statusCode === 404 &&
+          releaseCodeOf(error) === null
+        ) {
+          // The owner confirms no seat remains; an explicit retry may requeue.
+          departed();
+          return;
+        }
+        // Retirement stops the owning process, so even a transport failure may
+        // need the independent stable locator. The failure itself proves nothing.
+        const entry = await resolveRoomEntry(props.roomId);
+        if (closed) return;
+        const gone =
+          entry.kind === 'gone' &&
+          entry.error instanceof DetailedError &&
+          entry.error.statusCode === 404;
+        if (entry.kind === 'retired' || gone) {
+          props.ctx.notifications.invalidateRoom(props.roomId);
+          props.ctx.setPendingInvite(null);
+          socket?.close();
+          toast(new ReleaseError('release:room_retired').message, 'warn');
+          void navigate({ to: '/', search: {} });
+          return;
+        }
+        // A foreign owner, denied lookup, or outage never acknowledges departure.
+        setLeaving(false);
+        leaveRequest = null;
+        if (entry.kind === 'auth') {
+          props.ctx.handleAuthFailure('登录状态已失效，请重新登录。');
+          return;
+        }
+        toast(
+          releaseCodeOf(error)
+            ? '未能确认离开房间，请重试。'
+            : messageOf(error, '未能确认离开房间，请重试。'),
+          'error',
+        );
+        return;
       }
-      // The seat is released. If the player left some other way mid-request,
-      // never navigate a disposed route.
-      if (closed) return;
-      props.ctx.setPendingInvite(null);
-      socket?.close();
-      const quick = snapshot()?.mode === 'quick';
-      toast(quick ? '已离开快速匹配房间，可以重新匹配。' : '已离开房间。', 'info');
-      void navigate({ to: destination, search: {} });
+      // The seat is released.
+      departed();
     })();
     leaveRequest = request;
     return request;
@@ -278,6 +333,10 @@ export function createRoomSession(props: {
     if (initial) {
       props.ctx.setPendingInvite(next.id);
     }
+    if (!initial && !reconnected) {
+      // `current` was read before the batch: it is the phase the last live snapshot showed.
+      notifyTransition(current?.phase ?? null, current?.matchId ?? null, next);
+    }
 
     if (next.phase !== 'finished') {
       // A new match (or a rematch) arms both one-shot effects again.
@@ -304,6 +363,63 @@ export function createRoomSession(props: {
     props.ctx.setRoomConnection(state);
   }
 
+  /**
+   * Real phase transitions between two live snapshots are the only notification
+   * source. The initial read and reconnect replays never reach this: history must
+   * not become a reminder. Fire-and-forget — never awaited, never blocking the
+   * snapshot this state derives from.
+   */
+  function notifyTransition(
+    prevPhase: Phase | null,
+    prevMatchId: string | null,
+    next: RoomSnapshot,
+  ): void {
+    if (prevPhase === null || prevPhase === next.phase) return;
+    if (
+      prevPhase === 'generating' &&
+      next.phase === 'countdown' &&
+      next.matchId !== null &&
+      next.matchId === prevMatchId
+    ) {
+      void props.ctx.notifications
+        .notify({
+          kind: 'countdown',
+          roomId: next.id,
+          matchId: next.matchId,
+          expiresAt: next.deadline + MATCH_DURATION_MS,
+        })
+        .catch(() => undefined);
+      return;
+    }
+    if (prevPhase === 'generating' && next.phase === 'lobby' && next.error !== null) {
+      // The match this attempt belonged to is identified by the previous snapshot.
+      void props.ctx.notifications
+        .notify({
+          kind: 'generation-failed',
+          roomId: next.id,
+          matchId: prevMatchId,
+          expiresAt: next.serverNow + REMINDER_WINDOW_MS,
+        })
+        .catch(() => undefined);
+      return;
+    }
+    if (
+      (prevPhase === 'generating' || prevPhase === 'countdown' || prevPhase === 'playing') &&
+      next.phase === 'finished' &&
+      next.matchId !== null &&
+      next.matchId === prevMatchId
+    ) {
+      void props.ctx.notifications
+        .notify({
+          kind: 'finished',
+          roomId: next.id,
+          matchId: next.matchId,
+          expiresAt: next.serverNow + REMINDER_WINDOW_MS,
+        })
+        .catch(() => undefined);
+    }
+  }
+
   function handleClosed(info: CloseInfo): void {
     // A manual leave owns this socket's end: the server tears the seat down as
     // the request commits, and none of that is a connection failure to report.
@@ -314,12 +430,24 @@ export function createRoomSession(props: {
     }
     if (info.replaced) {
       replaced = true;
+      // Another window owns the seat now; this page's reminders are stale.
+      props.ctx.notifications.invalidateRoom(props.roomId);
       const message = '这个账号的房间连接已被另一个窗口接管，本窗口不再操作该席位。';
       setProblem({ message, tone: 'warn' });
       toast(message, 'warn');
       return;
     }
+    if (info.roomRetired) {
+      // The room's release was retired: this room is over for every build, and
+      // no reminder bound to it can be acted on again.
+      props.ctx.notifications.invalidateRoom(props.roomId);
+      const message = new ReleaseError('release:room_retired').message;
+      setProblem({ message, tone: 'error' });
+      toast(message, 'error');
+      return;
+    }
     if (info.roomClosed) {
+      props.ctx.notifications.invalidateRoom(props.roomId);
       const message =
         activeProblem()?.message ?? '房间已关闭或不再接受你加入（可能已经开始或结束）。';
       setProblem({ message, tone: 'error' });
@@ -361,6 +489,9 @@ export function createRoomSession(props: {
       onReconnectAttempt: () => renderConnection('reconnecting'),
     });
 
+    // Entries never reach this surface — the route renders its own handover
+    // screen — but the union keeps the session honest about what it can load.
+    if ('entry' in loaded) return;
     if ('error' in loaded) {
       socket.close();
       if (loaded.error instanceof DetailedError && loaded.error.statusCode === 401) {

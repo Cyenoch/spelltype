@@ -9,8 +9,8 @@
     "noEmit": true,
     "skipLibCheck": true,
     "lib": ["ES2024", "DOM", "DOM.Iterable"],
-    "types": ["node"],
+    "types": ["node", "bun"],
     "allowImportingTsExtensions": true
   },
-  "include": ["./**/*.ts", "../shared/**/*.ts", "../worker/**/*.ts", "../worker-configuration.d.ts"]
+  "include": ["./**/*.ts", "../shared/**/*.ts", "../server/**/*.ts"]
 }

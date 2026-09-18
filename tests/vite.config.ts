@@ -1,66 +1,32 @@
 /**
- * Vite config used only by the E2E harness (`tests/playwright.config.ts` starts it).
+ * Vite config used only by the E2E harness's UI servers (`tests/support/harness.ts` boots one
+ * instance per release identity through Vite's JS API).
  *
- * Differences from the product config:
- *  - the same frontend pipeline (JSX + StyleX) the product build uses, so the browser under test
- *    renders exactly what ships;
- *  - `worker/generation/provider.ts` is aliased to the fixture-backed provider (this file is the only place
- *    that alias exists);
- *  - the Cloudflare plugin runs against a generated per-instance wrangler config whose D1 database
- *    and persist directory are isolated from the developer's local state.
+ * The file carries the shared product pipeline only (routing, JSX + StyleX — the same pipeline
+ * the product build uses, so the browser under test renders exactly what ships). Everything
+ * instance-specific is injected inline per boot by the harness:
+ *  - the compiled `__SPELLTYPE_RELEASE_ID__` constant (`define`), because release A and release
+ *    B UIs run side by side;
+ *  - the dependency-optimizer `cacheDir`, isolated per worker and release so the instances
+ *    never delete each other's committed caches;
+ *  - the `/api` proxies, including the fixture-only Origin mapping to the stable API's
+ *    canonical public origin.
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cloudflare } from '@cloudflare/vite-plugin';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig } from 'vite';
 import { frontendPlugins } from '../vite.frontend.ts';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const productionProvider = path.join(root, 'worker', 'generation', 'provider.ts');
-const fixtureProvider = path.join(root, 'tests', 'support', 'test-provider.ts');
-
-function aliasWorkerProviderToFixture(): Plugin {
-  return {
-    name: 'e2e-alias-worker-provider',
-    enforce: 'pre',
-    resolveId(source, importer) {
-      if (!importer || !source.startsWith('.')) return null;
-      const importerPath = importer.split('?')[0];
-      const resolved = path.resolve(path.dirname(importerPath), source);
-      if (resolved === productionProvider || `${resolved}.ts` === productionProvider)
-        return fixtureProvider;
-      return null;
-    },
-  };
-}
-
-const configPath = process.env.E2E_WRANGLER_CONFIG;
-const persistPath = process.env.E2E_PERSIST_DIR;
-const port = Number(process.env.E2E_APP_PORT ?? '');
-
-if (!configPath || !persistPath || !Number.isInteger(port) || port <= 0) {
-  throw new Error(
-    'E2E vite config requires E2E_WRANGLER_CONFIG, E2E_PERSIST_DIR and E2E_APP_PORT (the harness sets them)',
-  );
-}
 
 export default defineConfig({
   root,
-  plugins: [
-    ...frontendPlugins(),
-    aliasWorkerProviderToFixture(),
-    cloudflare({
-      configPath,
-      persistState: { path: persistPath },
-    }),
-  ],
-  server: {
-    host: '127.0.0.1',
-    port,
-    strictPort: true,
-    // E2E observes a stable application; durability scenarios restart it explicitly.
-    hmr: false,
-    watch: null,
-  },
+  plugins: [...frontendPlugins()],
+  // The browser under test opts into the real service worker: `src/app/notifications.ts`
+  // gates registration on `import.meta.env.PROD || VITE_ENABLE_NOTIFICATIONS_SW === '1'`,
+  // and dev servers must stay SW-free by default, so the E2E UI sets the flag here.
+  // Merges with the harness's inline per-release `define` (release id) per boot.
+  define: { 'import.meta.env.VITE_ENABLE_NOTIFICATIONS_SW': '"1"' },
+  optimizeDeps: { holdUntilCrawlEnd: false },
   logLevel: 'info',
 });

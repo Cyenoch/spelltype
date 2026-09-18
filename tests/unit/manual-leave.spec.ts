@@ -1,69 +1,109 @@
 /**
  * 手动离场 — the explicit-departure contract shared by the `leave` lobby frame and the
- * authenticated `POST /api/rooms/:id/leave` endpoint.
+ * authenticated `POST /api/releases/:releaseId/rooms/:id/leave` endpoint.
  *
- * What is pinned here is the room's own decision, against a real SQLite engine:
+ * What is pinned here is the room's own decision, against real PGlite storage:
  * an explicit departure forfeits the live match (duel settles immediately,
  * larger tables fight on, results keep their order), ordinary membership releases
  * stay idempotent under HTTP retries, a settled match's ranking is never
  * rewritten by a later leave, and an abandoned match can neither be read nor
  * re-entered — while an ordinary disconnect never reaches this routine at all.
  */
-import { describe, expect, it } from 'vitest';
-import { INITIAL_HEALTH, WS_PROTOCOL } from '../../shared/protocol';
-import type { Phase, ReservationState } from '../../shared/protocol';
-import type { Env } from '../../worker/env';
-import { matchIsLive } from '../../worker/matchmaking/rooms';
-import { manualLeave } from '../../worker/rooms/leave';
-import { handleClientFrame } from '../../worker/rooms/frames';
-import { INPUT_MIN_MS_PER_CODE_POINT, INPUT_POLICY_VERSION } from '../../worker/rooms/rules';
-import { RoomRejection } from '../../worker/rooms/rejection';
-import { InputBudget, type RoomScope } from '../../worker/rooms/scope';
-import { snapshotFor } from '../../worker/rooms/snapshots';
-import { abandonedMatch, getDeparture } from '../../worker/rooms/storage/departures';
-import { getPlayer, insertPlayer, updatePlayer } from '../../worker/rooms/storage/players';
-import { getRoom, insertRoom, updateRoom } from '../../worker/rooms/storage/room';
-import { createSchema } from '../../worker/rooms/storage/schema';
-import type { SqlStore } from '../../worker/sql';
-import { advanceOnce } from '../../worker/rooms/transitions';
-import { openTestStorage, type TestStorage } from '../support/sql-storage';
+import { afterEach, describe, expect, it } from 'bun:test';
+import type { Database, OpenedDatabase } from '../../server/db';
+import { openDatabase } from '../../server/db';
+import { ensureDevelopmentRelease } from '../../server/releases/control';
+import { INITIAL_HEALTH } from '../../shared/protocol';
+import type { Phase, ReservationState, User } from '../../shared/protocol';
+import type { RoomSocket } from '../../server/contracts';
+import { handleClientFrame } from '../../server/rooms/frames';
+import { manualLeave } from '../../server/rooms/leave';
+import { RoomRejection } from '../../server/rooms/rejection';
+import { INPUT_MIN_MS_PER_CODE_POINT, INPUT_POLICY_VERSION } from '../../server/rooms/rules';
+import { createRoomScope, SocketRegistry } from '../../server/rooms/scope';
+import type { RoomScope, SocketAuth } from '../../server/rooms/scope';
+import { snapshotFor } from '../../server/rooms/snapshots';
+import { abandonedMatch, getDeparture } from '../../server/rooms/storage/departures';
+import {
+  getPlayer,
+  insertPlayer,
+  listPlayers,
+  updatePlayer,
+} from '../../server/rooms/storage/players';
+import { getRoom, updateRoom } from '../../server/rooms/storage/room';
+import { createRoom, readRoomRelease } from '../../server/rooms/storage/room';
+import { advanceOnce } from '../../server/rooms/transitions';
+import { results } from '../../server/db/schema';
 
+const RELEASE_ID = 'a'.repeat(32);
 const ROOM_ID = 'a'.repeat(24);
 const NOW = 1_700_000_000_000;
+const databases: OpenedDatabase[] = [];
+afterEach(async () => {
+  await Promise.all(databases.splice(0).map((database) => database.close()));
+});
 const MATCH_ID = 'match-1';
 /** Deadlines the room's own clock treats as due, and one far ahead of it. */
 const PAST = Date.now() - 1;
 const FUTURE = Date.now() + 100_000;
 
-type StubSocket = WebSocket & { readyState: number };
+interface StubSocket {
+  socket: RoomSocket;
+  auth: SocketAuth;
+  sent: unknown[];
+  closed: { code: number; reason: string }[];
+}
+
+function stubSocket(userId: string): StubSocket {
+  const state: StubSocket = {
+    socket: null as unknown as RoomSocket,
+    auth: {
+      userId,
+      username: userId,
+      connId: `${userId}-conn`,
+      sessionHash: `${userId}-session`,
+      sessionExpires: Date.now() + 60_000,
+      protocolVersion: 'spelltype.v2',
+    },
+    sent: [],
+    closed: [],
+  };
+  let readyState = 1;
+  state.socket = {
+    get readyState() {
+      return readyState;
+    },
+    send: (data: string) => {
+      state.sent.push(JSON.parse(data));
+    },
+    close: (code: number, reason: string) => {
+      state.closed.push({ code, reason });
+      readyState = 3;
+    },
+  } as unknown as RoomSocket;
+  return state;
+}
 
 /**
- * Locks the immutable per-match input policy on a live (generating/countdown/playing) fixture and
- * gives every seat an already-satisfied spell eligibility. New-rule fixtures must state their rules
- * explicitly — production code never backfills a live match's missing policy.
+ * Locks the immutable per-match input policy on a live fixture and gives every seat an
+ * already-satisfied spell eligibility, so forfeits and settlements can run under the gate.
  */
-function lockInputPolicy(
-  storage: TestStorage,
-  options: { mode?: 'observe' | 'enforce'; openedAt: number },
-): void {
-  const openedAt = options.openedAt;
-  updateRoom(storage.sql, {
+async function lockInputPolicy(db: Database, options: { openedAt: number }): Promise<void> {
+  await updateRoom(db, ROOM_ID, {
     input_policy_version: INPUT_POLICY_VERSION,
-    input_policy_mode: options.mode ?? 'enforce',
+    input_policy_mode: 'enforce',
     input_min_ms_per_code_point: INPUT_MIN_MS_PER_CODE_POINT,
   });
-  for (const player of storage.sql
-    .exec<{ user_id: string }>('SELECT user_id FROM players')
-    .toArray()) {
-    updatePlayer(storage.sql, player.user_id, {
-      input_opened_at: openedAt,
-      input_not_before: openedAt,
+  for (const player of await listPlayers(db, ROOM_ID)) {
+    await updatePlayer(db, ROOM_ID, player.user_id, {
+      input_opened_at: options.openedAt,
+      input_not_before: options.openedAt,
       draft_epoch: 0,
     });
   }
 }
 
-function setup(
+async function setup(
   userIds: readonly string[],
   room: {
     mode?: 'quick' | 'private';
@@ -74,300 +114,267 @@ function setup(
     deadline?: number;
     endReason?: 'elimination' | 'timeout' | null;
   },
-): { storage: TestStorage; scope: RoomScope; sockets: StubSocket[]; closed: { userId: string }[] } {
-  const storage = openTestStorage();
-  createSchema(storage.sql);
-  const closed: { userId: string }[] = [];
-  const sockets = userIds.map((userId) => {
-    const ws = {
-      readyState: WebSocket.OPEN as number,
-      deserializeAttachment: () => ({
-        userId,
-        username: userId,
-        connId: `${userId}-conn`,
-        sessionHash: `${userId}-session`,
-        sessionExpires: Date.now() + 60_000,
-        protocolVersion: WS_PROTOCOL,
-      }),
-      send: () => {},
-      close: () => {
-        closed.push({ userId });
-        ws.readyState = WebSocket.CLOSED;
-      },
-    };
-    return ws as unknown as StubSocket;
-  });
-  const scope: RoomScope = {
-    sql: storage.sql,
-    // Only the result-save batch and the duel index write ever reach D1 here.
-    env: {
-      MATCH_ADMISSION: 'open',
-      DB: { prepare: () => ({ bind: () => ({}) }), batch: async () => ({}) },
-    } as unknown as Env,
-    input: new InputBudget(),
-    alarm: { set: async () => {}, clear: async () => {} },
-    sockets: () => sockets,
-    transactionSync: storage.transactionSync,
-  };
-  insertRoom(storage.sql, {
+): Promise<{ db: Database; scope: RoomScope; sockets: StubSocket[] }> {
+  const opened = await openDatabase('pglite://:memory:');
+  databases.push(opened);
+  const { db } = opened;
+  await ensureDevelopmentRelease(db, RELEASE_ID);
+  await createRoom(db, {
     id: ROOM_ID,
-    hostId: userIds[0],
-    mode: room.mode ?? 'private',
+    releaseId: RELEASE_ID,
+    host: { id: userIds[0], username: userIds[0] },
     theme: '咒文契约',
-    difficulty: 'hard',
-    reservationState: room.reservationState ?? 'none',
-    reservationExpiresAt: room.reservationExpiresAt ?? null,
-    now: NOW,
+    mode: room.mode ?? 'private',
+    reserved: room.mode === 'quick' ? userIds.map((id) => ({ id, username: id })) : undefined,
   });
-  updateRoom(storage.sql, {
+  await updateRoom(db, ROOM_ID, {
     phase: room.phase,
     locked: room.phase === 'lobby' ? 0 : 1,
     match_id: room.matchId ?? null,
     deadline: room.deadline ?? 0,
     end_reason: room.endReason ?? null,
   });
+  const registry = new SocketRegistry();
+  const sockets = userIds.map((userId) => {
+    const stub = stubSocket(userId);
+    registry.attach(stub.socket, stub.auth);
+    return stub;
+  });
   for (const userId of userIds) {
-    insertPlayer(storage.sql, { userId, username: userId, slotExpiresAt: null, now: NOW });
-    updatePlayer(storage.sql, userId, { seated: 1, conn_id: `${userId}-conn` });
+    await insertPlayer(db, ROOM_ID, { userId, username: userId, slotExpiresAt: null, now: NOW });
+    await updatePlayer(db, ROOM_ID, userId, { seated: 1, conn_id: `${userId}-conn` });
   }
+  const scope = createRoomScope({
+    roomId: ROOM_ID,
+    releaseId: RELEASE_ID,
+    db,
+    generate: async () => {
+      throw new Error('generation not expected in this test');
+    },
+    registry,
+    matchAdmission: 'open',
+    inputPolicyMode: 'enforce',
+  });
   // A live match under the new rules carries its locked policy; a settled or
-  // pre-match room does not (rematch resets and re-locks it).
-  if (room.phase === 'generating' || room.phase === 'countdown' || room.phase === 'playing')
-    lockInputPolicy(storage, { openedAt: NOW - 1_000 });
-  return { storage, scope, sockets, closed };
+  // pre-match room does not (rematch resets and re-locks it). Production code
+  // never backfills a live match's missing policy, and neither do these fixtures.
+  if (room.phase === 'generating' || room.phase === 'countdown' || room.phase === 'playing') {
+    await lockInputPolicy(db, { openedAt: NOW - 1_000 });
+  }
+  return { db: db, scope, sockets };
 }
 
-function allResults(sql: SqlStore): { user_id: string; rank: number; hp_remaining: number }[] {
-  return sql
-    .exec<{ user_id: string; rank: number; hp_remaining: number }>(
-      'SELECT user_id, rank, hp_remaining FROM match_results ORDER BY user_id',
-    )
-    .toArray();
+async function allResults(
+  db: Database,
+): Promise<{ user_id: string; rank: number; hp_remaining: number }[]> {
+  const rows = await db
+    .select({ user_id: results.user_id, rank: results.rank, hp_remaining: results.hp_remaining })
+    .from(results)
+    .orderBy(results.user_id);
+  return rows;
+}
+
+const user = (id: string): User => ({ id, username: id });
+
+/** Asserts the call rejects with the room's own refusal class. */
+async function rejectsWith(fn: () => Promise<unknown>, errorClass: unknown): Promise<void> {
+  try {
+    await fn();
+  } catch (error) {
+    expect(error).toBeInstanceOf(errorClass);
+    return;
+  }
+  throw new Error('expected the call to be refused');
 }
 
 describe('对局中离场', () => {
   it('双人局弃赛立即结算：对手获胜、双方成绩保留、离场者被永久拦下', async () => {
-    const { storage, scope, closed } = setup(['host', 'guest'], {
+    const { db, scope } = await setup(['host', 'guest'], {
       phase: 'playing',
       matchId: MATCH_ID,
       reservationState: 'locked',
       deadline: FUTURE,
     });
-    try {
-      updatePlayer(storage.sql, 'guest', { hp: 300, damage_dealt: 900 });
-      await manualLeave(scope, 'guest');
+    await updatePlayer(db, ROOM_ID, 'guest', { hp: 300, damage_dealt: 900 });
+    await manualLeave(scope, 'guest');
 
-      const room = getRoom(storage.sql)!;
-      expect(room.phase).toBe('finished');
-      expect(room.end_reason).toBe('elimination');
-      expect(room.match_id).toBe(MATCH_ID);
-      expect(room.reservation_state).toBe('none');
+    const room = await getRoom(db, ROOM_ID);
+    expect(room!.phase).toBe('finished');
+    expect(room!.end_reason).toBe('elimination');
+    expect(room!.match_id).toBe(MATCH_ID);
+    expect(room!.reservation_state).toBe('none');
+    // 结果与终局同事务落库：可见状态直接是 saved。
+    expect(room!.persistence).toBe('saved');
 
-      const guest = getPlayer(storage.sql, 'guest')!;
-      expect(guest.hp).toBe(0);
-      expect(guest.eliminated_at).not.toBeNull();
-      expect(getPlayer(storage.sql, 'host')!.hp).toBe(INITIAL_HEALTH);
-      expect(abandonedMatch(storage.sql, 'guest', MATCH_ID)).toBe(true);
+    const guest = await getPlayer(db, ROOM_ID, 'guest');
+    expect(guest!.hp).toBe(0);
+    expect(guest!.eliminated_at).not.toBeNull();
+    expect((await getPlayer(db, ROOM_ID, 'host'))!.hp).toBe(INITIAL_HEALTH);
+    expect(await abandonedMatch(db, ROOM_ID, 'guest', MATCH_ID)).toBe(true);
 
-      const ranks = new Map(allResults(storage.sql).map((row) => [row.user_id, row.rank]));
-      expect(ranks.get('host')).toBe(1);
-      expect(ranks.get('guest')).toBe(2);
+    const ranks = new Map((await allResults(db)).map((row) => [row.user_id, row.rank]));
+    expect(ranks.get('host')).toBe(1);
+    expect(ranks.get('guest')).toBe(2);
 
-      expect(closed).toEqual([{ userId: 'guest' }]);
-
-      expect(() => snapshotFor(scope, { id: 'guest', username: 'guest' })).toThrow(RoomRejection);
-      const hostSnapshot = snapshotFor(scope, { id: 'host', username: 'host' });
-      expect(hostSnapshot.phase).toBe('finished');
-      expect(hostSnapshot.players.find((player) => player.id === 'guest')?.rank).toBe(2);
-    } finally {
-      storage.close();
-    }
+    await rejectsWith(() => snapshotFor(db, ROOM_ID, scope.registry, user('guest')), RoomRejection);
+    const hostSnapshot = await snapshotFor(db, ROOM_ID, scope.registry, user('host'));
+    expect(hostSnapshot.phase).toBe('finished');
+    expect(hostSnapshot.players.find((player) => player.id === 'guest')?.rank).toBe(2);
   });
 
   it('WebSocket 的 leave 帧与 HTTP 离场共享同一次弃赛', async () => {
-    const { storage, scope, sockets } = setup(['host', 'guest'], {
+    const { db, scope, sockets } = await setup(['host', 'guest'], {
       phase: 'playing',
       matchId: MATCH_ID,
       deadline: FUTURE,
     });
-    try {
-      await handleClientFrame(scope, sockets[1], sockets[1].deserializeAttachment(), {
-        type: 'leave',
-      });
-      expect(getRoom(storage.sql)!.phase).toBe('finished');
-      expect(abandonedMatch(storage.sql, 'guest', MATCH_ID)).toBe(true);
-      // 重放同一次离场是幂等成功，不再改写任何状态。
-      await expect(manualLeave(scope, 'guest')).resolves.toBeUndefined();
-      expect(getRoom(storage.sql)!.end_reason).toBe('elimination');
-    } finally {
-      storage.close();
-    }
+    await handleClientFrame(scope, sockets[1].socket, sockets[1].auth, { type: 'leave' });
+    expect((await getRoom(db, ROOM_ID))!.phase).toBe('finished');
+    expect(await abandonedMatch(db, ROOM_ID, 'guest', MATCH_ID)).toBe(true);
+    // 重放同一次离场是幂等成功，不再改写任何状态。
+    await manualLeave(scope, 'guest');
+    expect((await getRoom(db, ROOM_ID))!.end_reason).toBe('elimination');
   });
 
   it('多人局一人弃赛，其余人的对局照常继续', async () => {
-    const { storage, scope, closed } = setup(['host', 'guest', 'third'], {
+    const { db, scope } = await setup(['host', 'guest', 'third'], {
       phase: 'playing',
       matchId: MATCH_ID,
       deadline: FUTURE,
     });
-    try {
-      await manualLeave(scope, 'guest');
+    await manualLeave(scope, 'guest');
 
-      const room = getRoom(storage.sql)!;
-      expect(room.phase).toBe('playing');
-      expect(room.end_reason).toBeNull();
-      expect(getPlayer(storage.sql, 'guest')!.hp).toBe(0);
-      expect(getPlayer(storage.sql, 'third')!.hp).toBe(INITIAL_HEALTH);
-      expect(allResults(storage.sql)).toEqual([]);
-      expect(closed).toEqual([{ userId: 'guest' }]);
-      expect(abandonedMatch(storage.sql, 'guest', MATCH_ID)).toBe(true);
-      expect(abandonedMatch(storage.sql, 'third', MATCH_ID)).toBe(false);
+    const room = await getRoom(db, ROOM_ID);
+    expect(room!.phase).toBe('playing');
+    expect(room!.end_reason).toBeNull();
+    expect((await getPlayer(db, ROOM_ID, 'guest'))!.hp).toBe(0);
+    expect((await getPlayer(db, ROOM_ID, 'third'))!.hp).toBe(INITIAL_HEALTH);
+    expect(await allResults(db)).toEqual([]);
+    expect(await abandonedMatch(db, ROOM_ID, 'guest', MATCH_ID)).toBe(true);
+    expect(await abandonedMatch(db, ROOM_ID, 'third', MATCH_ID)).toBe(false);
 
-      const hostSnapshot = snapshotFor(scope, { id: 'host', username: 'host' });
-      const guest = hostSnapshot.players.find((player) => player.id === 'guest')!;
-      expect(guest.hp).toBe(0);
-      expect(guest.eliminatedAt).not.toBeNull();
-      expect(guest.connected).toBe(false);
-    } finally {
-      storage.close();
-    }
+    const hostSnapshot = await snapshotFor(db, ROOM_ID, scope.registry, user('host'));
+    const guest = hostSnapshot.players.find((player) => player.id === 'guest')!;
+    expect(guest.hp).toBe(0);
+    expect(guest.eliminatedAt).not.toBeNull();
+    expect(guest.connected).toBe(false);
   });
 
   it('已出局者的离场是幂等重放，不改写既有淘汰时间', async () => {
-    const { storage, scope } = setup(['host', 'guest', 'third'], {
+    const { db, scope } = await setup(['host', 'guest', 'third'], {
       phase: 'playing',
       matchId: MATCH_ID,
       deadline: FUTURE,
     });
-    try {
-      updatePlayer(storage.sql, 'guest', { hp: 0, eliminated_at: NOW - 5_000 });
-      await manualLeave(scope, 'guest');
-      const first = getPlayer(storage.sql, 'guest')!;
-      await manualLeave(scope, 'guest');
-      expect(getPlayer(storage.sql, 'guest')).toMatchObject({
-        hp: 0,
-        eliminated_at: first.eliminated_at,
-      });
-      expect(getDeparture(storage.sql, 'guest')!.match_id).toBe(MATCH_ID);
-      expect(getRoom(storage.sql)!.phase).toBe('playing');
-    } finally {
-      storage.close();
-    }
+    await updatePlayer(db, ROOM_ID, 'guest', { hp: 0, eliminated_at: NOW - 5_000 });
+    await manualLeave(scope, 'guest');
+    const first = await getPlayer(db, ROOM_ID, 'guest');
+    await manualLeave(scope, 'guest');
+    expect(await getPlayer(db, ROOM_ID, 'guest')).toMatchObject({
+      hp: 0,
+      eliminated_at: first!.eliminated_at,
+    });
+    expect((await getDeparture(db, ROOM_ID, 'guest'))!.match_id).toBe(MATCH_ID);
+    expect((await getRoom(db, ROOM_ID))!.phase).toBe('playing');
   });
 });
 
 describe('开赛前离场', () => {
   it('生成期弃赛保留参与数据，出题后的续延也无法让弃赛者复活', async () => {
-    const { storage, scope } = setup(['host', 'guest'], {
+    const { db, scope } = await setup(['host', 'guest'], {
       phase: 'generating',
       matchId: MATCH_ID,
       reservationState: 'locked',
     });
-    try {
-      await manualLeave(scope, 'guest');
-      expect(getRoom(storage.sql)!.phase).toBe('generating');
-      expect(getPlayer(storage.sql, 'guest')).toMatchObject({ hp: 0, conn_id: null });
-      expect(abandonedMatch(storage.sql, 'guest', MATCH_ID)).toBe(true);
+    await manualLeave(scope, 'guest');
+    expect((await getRoom(db, ROOM_ID))!.phase).toBe('generating');
+    expect(await getPlayer(db, ROOM_ID, 'guest')).toMatchObject({ hp: 0, conn_id: null });
+    expect(await abandonedMatch(db, ROOM_ID, 'guest', MATCH_ID)).toBe(true);
 
-      // 出题完成进入倒计时，倒计时到点：战斗开始的一刻按存活规则结算。
-      updateRoom(storage.sql, {
-        phase: 'countdown',
-        deadline: PAST,
-        spell_book: JSON.stringify([
-          { name: '焰', text: 'Fire!', translation: '火焰！', element: 'fire' },
-        ]),
-      });
-      await advanceOnce(scope);
+    // 出题完成进入倒计时，倒计时到点：战斗开始的一刻按存活规则结算。
+    await updateRoom(db, ROOM_ID, {
+      phase: 'countdown',
+      deadline: PAST,
+      spell_book: JSON.stringify([
+        { name: '焰', text: 'Fire!', translation: '火焰！', element: 'fire' },
+      ]),
+    });
+    await advanceOnce(scope);
 
-      const room = getRoom(storage.sql)!;
-      expect(room.phase).toBe('finished');
-      expect(room.end_reason).toBe('elimination');
-      const ranks = new Map(allResults(storage.sql).map((row) => [row.user_id, row.rank]));
-      expect(ranks.get('host')).toBe(1);
-      expect(ranks.get('guest')).toBe(2);
-      expect(() => snapshotFor(scope, { id: 'guest', username: 'guest' })).toThrow(RoomRejection);
-    } finally {
-      storage.close();
-    }
+    const room = await getRoom(db, ROOM_ID);
+    expect(room!.phase).toBe('finished');
+    expect(room!.end_reason).toBe('elimination');
+    const ranks = new Map((await allResults(db)).map((row) => [row.user_id, row.rank]));
+    expect(ranks.get('host')).toBe(1);
+    expect(ranks.get('guest')).toBe(2);
+    await rejectsWith(() => snapshotFor(db, ROOM_ID, scope.registry, user('guest')), RoomRejection);
   });
 
   it('快速预约期离场取消整个预约，重放与未离场的对方都被如实拒绝', async () => {
-    const { storage, scope, closed } = setup(['host', 'guest'], {
+    const { db, scope, sockets } = await setup(['host', 'guest'], {
       mode: 'quick',
       phase: 'lobby',
       reservationState: 'reserved',
       reservationExpiresAt: FUTURE,
     });
-    try {
-      await manualLeave(scope, 'guest');
+    await manualLeave(scope, 'guest');
 
-      const room = getRoom(storage.sql)!;
-      expect(room.reservation_state).toBe('cancelled');
-      expect(room.reservation_expires_at).toBeNull();
-      expect(
-        storage.sql.exec<{ total: number }>('SELECT COUNT(*) AS total FROM players').one().total,
-      ).toBe(0);
-      expect(closed.map((entry) => entry.userId).sort()).toEqual(['guest', 'host']);
-      expect(getDeparture(storage.sql, 'guest')!.match_id).toBeNull();
+    const room = await getRoom(db, ROOM_ID);
+    expect(room!.reservation_state).toBe('cancelled');
+    expect(room!.reservation_expires_at).toBeNull();
+    expect((await getRoom(db, ROOM_ID))!.error).toBe('对手已离开，请重新匹配。');
+    // 预约收尾先广播理由，再清席位、关闭所有连接。
+    expect(
+      sockets.every((stub) =>
+        stub.sent.some((message) => (message as { type: string }).type === 'state'),
+      ),
+    ).toBe(true);
+    expect(sockets.map((stub) => stub.closed.at(-1)?.code)).toEqual([4001, 4001]);
 
-      await expect(manualLeave(scope, 'guest')).resolves.toBeUndefined();
-      await expect(manualLeave(scope, 'host')).rejects.toThrow(RoomRejection);
-    } finally {
-      storage.close();
-    }
+    await manualLeave(scope, 'guest');
+    await rejectsWith(() => manualLeave(scope, 'host'), RoomRejection);
   });
 
   it('开放大厅离场删除座位，离场标记让重放成功', async () => {
-    const { storage, scope } = setup(['host', 'guest'], { phase: 'lobby' });
-    try {
-      await manualLeave(scope, 'guest');
-      expect(getPlayer(storage.sql, 'guest')).toBeNull();
-      expect(getPlayer(storage.sql, 'host')).not.toBeNull();
-      expect(getDeparture(storage.sql, 'guest')).toMatchObject({ match_id: null });
-      await expect(manualLeave(scope, 'guest')).resolves.toBeUndefined();
-      // 从未入座者不是幂等重放，而是诚实的 404。
-      await expect(manualLeave(scope, 'stranger')).rejects.toThrow(RoomRejection);
-    } finally {
-      storage.close();
-    }
+    const { db, scope } = await setup(['host', 'guest'], { phase: 'lobby' });
+    await manualLeave(scope, 'guest');
+    expect(await getPlayer(db, ROOM_ID, 'guest')).toBeNull();
+    expect(await getPlayer(db, ROOM_ID, 'host')).not.toBeNull();
+    expect(await getDeparture(db, ROOM_ID, 'guest')).toMatchObject({ match_id: null });
+    await manualLeave(scope, 'guest');
+    // 从未入座者不是幂等重放，而是诚实的 404。
+    await rejectsWith(() => manualLeave(scope, 'stranger'), RoomRejection);
   });
 });
 
-describe('已结束的对局与匹配释放', () => {
+describe('已结束的对局与匹配资格', () => {
   it('已结束对局的离场不改写任何名次与健康数据', async () => {
-    const { storage, scope } = setup(['host', 'guest'], {
+    const { db, scope } = await setup(['host', 'guest'], {
       phase: 'finished',
       matchId: MATCH_ID,
       deadline: 0,
       endReason: 'timeout',
     });
-    try {
-      updatePlayer(storage.sql, 'host', { hp: 640, eliminated_at: PAST });
-      updatePlayer(storage.sql, 'guest', { hp: 300 });
-      await manualLeave(scope, 'guest');
+    await updatePlayer(db, ROOM_ID, 'host', { hp: 640, eliminated_at: PAST });
+    await updatePlayer(db, ROOM_ID, 'guest', { hp: 300 });
+    await manualLeave(scope, 'guest');
 
-      expect(getPlayer(storage.sql, 'host')!.hp).toBe(640);
-      expect(getPlayer(storage.sql, 'guest')).toMatchObject({ hp: 300, eliminated_at: null });
-      expect(allResults(storage.sql)).toEqual([]);
-      expect(getDeparture(storage.sql, 'guest')!.match_id).toBe(MATCH_ID);
-      // 在场者读到的快照依旧带着完整名次。
-      const hostSnapshot = snapshotFor(scope, { id: 'host', username: 'host' });
-      expect(hostSnapshot.phase).toBe('finished');
-      expect(hostSnapshot.players.find((player) => player.id === 'guest')?.hp).toBe(300);
-    } finally {
-      storage.close();
-    }
+    expect((await getPlayer(db, ROOM_ID, 'host'))!.hp).toBe(640);
+    expect(await getPlayer(db, ROOM_ID, 'guest')).toMatchObject({ hp: 300, eliminated_at: null });
+    expect(await allResults(db)).toEqual([]);
+    expect((await getDeparture(db, ROOM_ID, 'guest'))!.match_id).toBe(MATCH_ID);
+    // 在场者读到的快照依旧带着完整名次。
+    const hostSnapshot = await snapshotFor(db, ROOM_ID, scope.registry, user('host'));
+    expect(hostSnapshot.phase).toBe('finished');
+    expect(hostSnapshot.players.find((player) => player.id === 'guest')?.hp).toBe(300);
   });
 
-  it('matchIsLive 以资格为准：被拒绝的资格释放，房间不可达时保守保留', async () => {
-    const binding = (stub: unknown): Env =>
-      ({ ROOMS: { idFromName: (name: string) => name, get: () => stub } }) as unknown as Env;
-    const rejecting = {
-      matchEntitlement: () => Promise.reject(new RoomRejection('room:reservation_gone', '离开')),
-    };
-    const broken = { matchEntitlement: () => Promise.reject(new Error('rpc down')) };
-    await expect(matchIsLive(binding(rejecting), 'guest', ROOM_ID)).resolves.toBe(false);
-    // 不可达的房间保守地保留座位：绝不因此发出重复席位。
-    await expect(matchIsLive(binding(broken), 'guest', ROOM_ID)).resolves.toBe(true);
+  it('readRoomRelease 回传房间的发布归属与当前指针，供开局闸门判定', async () => {
+    const { db } = await setup(['host', 'guest'], { phase: 'lobby' });
+    expect(await readRoomRelease(db, ROOM_ID)).toMatchObject({
+      state: 'active',
+      activeReleaseId: RELEASE_ID,
+      draining: false,
+    });
   });
 });

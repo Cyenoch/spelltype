@@ -25,13 +25,6 @@ export async function createRoom(
   return roomId;
 }
 
-/** The legacy invite URL, constructed from the room ID the lobby shows as the invite code. */
-export async function inviteUrl(page: Page): Promise<string> {
-  const roomId = (await page.getByTestId('lobby-room-id').textContent())?.trim() ?? '';
-  expect(roomId).toMatch(/^[0-9a-f]{24}$/);
-  return `${new URL(page.url()).origin}/?room=${roomId}`;
-}
-
 /**
  * Occupied seats only. The lobby always renders its full capacity (2 for quick, 4 for a
  * private room) and marks empty ones with an empty `data-user`, so seating assertions must
