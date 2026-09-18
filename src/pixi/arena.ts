@@ -1,6 +1,6 @@
 import { Container, Graphics, Sprite, type Texture } from 'pixi.js';
-import { ELEMENT_COLORS } from '../elements';
-import { ELEMENT_ORDER } from '../assets';
+import { ELEMENT_COLORS } from '../ui/elements';
+import { ELEMENT_ORDER } from './assets';
 import type { SparkPool } from './particles';
 
 export interface ArenaTextures {
@@ -53,11 +53,7 @@ export class Arena {
   private moteClock = 0;
   private readonly reduced: () => boolean;
 
-  constructor(
-    textures: ArenaTextures,
-    motes: SparkPool,
-    reduced: () => boolean,
-  ) {
+  constructor(textures: ArenaTextures, motes: SparkPool, reduced: () => boolean) {
     this.textures = textures;
     this.motes = motes;
     this.reduced = reduced;
@@ -91,7 +87,8 @@ export class Arena {
   /** Selects one of the preloaded arena backdrops for a fresh match. */
   setArena(index: number): void {
     const loaded = this.textures.skies.filter((texture): texture is Texture => texture !== null);
-    const next = loaded.length > 0 ? loaded[((index % loaded.length) + loaded.length) % loaded.length] : null;
+    const next =
+      loaded.length > 0 ? loaded[((index % loaded.length) + loaded.length) % loaded.length] : null;
     if (next === this.skyTexture) return;
     this.skyTexture = next;
     if (next) {
@@ -208,7 +205,8 @@ export class Arena {
 
     for (let index = 0; index < this.sigils.length; index += 1) {
       const sigil = this.sigils[index];
-      const phase = this.sigilPhase[index] + (reduced ? 0 : this.drift / 3000) * (0.6 + index * 0.12);
+      const phase =
+        this.sigilPhase[index] + (reduced ? 0 : this.drift / 3000) * (0.6 + index * 0.12);
       sigil.rotation = phase * 0.5;
       sigil.alpha = 0.1 + pulse * 0.08 + this.danger * 0.06;
       sigil.y = (this.sigilBaseY[index] ?? sigil.y) + (reduced ? 0 : Math.sin(phase) * 6);

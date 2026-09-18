@@ -1,6 +1,6 @@
 import { Application, Container, Sprite, type Texture, type Ticker } from 'pixi.js';
-import { ASSETS, arenaFor } from '../assets';
-import { motion } from '../motion';
+import { ASSETS, arenaFor } from './assets';
+import { motion } from '../ui/motion';
 import { SparkPool } from './particles';
 import { acquireTextures, releaseTextures } from './textures';
 
@@ -43,19 +43,21 @@ export async function createBackgroundScene(host: HTMLElement): Promise<Backgrou
   try {
     records = await acquireTextures(acquired);
   } catch (error) {
-    releaseTextures(acquired);
     app.destroy({ removeView: true }, { children: true });
+    releaseTextures(acquired);
     throw error;
   }
 
-  const arenas = records.slice(0, arenaUrls.length).filter((texture): texture is Texture => texture !== null);
+  const arenas = records
+    .slice(0, arenaUrls.length)
+    .filter((texture): texture is Texture => texture !== null);
   const fallbackTexture = records[arenaUrls.length] ?? null;
   const sparkTexture = records[arenaUrls.length + 1] ?? null;
   const plates = arenas.length > 0 ? arenas : fallbackTexture ? [fallbackTexture] : [];
   if (plates.length === 0 || !sparkTexture) {
     // Nothing to draw with: report the failure instead of running an empty loop.
-    releaseTextures(acquired);
     app.destroy({ removeView: true }, { children: true });
+    releaseTextures(acquired);
     throw new Error('背景素材加载失败');
   }
 
@@ -231,11 +233,14 @@ export async function createBackgroundScene(host: HTMLElement): Promise<Backgrou
       app.renderer.off('resize', layout);
       app.ticker.remove(tick);
       motes.destroy();
-      releaseTextures(acquired);
       // This scene is the page's backdrop and outlives every room: its teardown
       // is the last one on the page, so it is the right place to drain Pixi's
       // process-wide pools. Scene-scoped teardown deliberately leaves them alone.
       app.destroy({ removeView: true, releaseGlobalResources: true }, { children: true });
+      // Releasing can unload arena art, so it comes after the application: the
+      // renderer holds a bind group per texture it has drawn until its own
+      // teardown, and a source destroyed under it would report as still bound.
+      releaseTextures(acquired);
     },
   };
 }

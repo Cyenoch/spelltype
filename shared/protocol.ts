@@ -2,12 +2,25 @@
  * Shared wire contract for the browser client, the outer Worker and the Durable Objects.
  * Everything that crosses the network boundary is described here.
  *
- * The live game is continuous health combat, not rounds: one generated spell book, one board of
- * players who trade damage until a single player is left or the single match deadline passes.
+ * The game is continuous health combat: one generated spell book, one board of players who trade
+ * damage until a single player is left or the single match deadline passes.
+ *
+ * Every type that also has a runtime validator is inferred from its `shared/validation.ts` schema
+ * through a type-only import, so a shape is declared exactly once and the two can never drift.
  */
+import type { z } from 'zod';
+import type {
+  clientMessageSchema,
+  difficultySchema,
+  elementSchema,
+  roomInitSchema,
+  roomModeSchema,
+} from './validation';
 
-export type Difficulty = 'easy' | 'normal' | 'hard';
-export type Element = 'arcane' | 'fire' | 'ice' | 'storm';
+export type Difficulty = z.infer<typeof difficultySchema>;
+export type Element = z.infer<typeof elementSchema>;
+/** How a room came to exist: a host's private table, or a matchmaker pairing. */
+export type RoomMode = z.infer<typeof roomModeSchema>;
 export type Phase = 'lobby' | 'generating' | 'countdown' | 'playing' | 'finished';
 /** Why a finished match ended: the last opponent fell, or the match deadline passed. */
 export type EndReason = 'elimination' | 'timeout';
@@ -128,7 +141,7 @@ export interface RoomSnapshot {
   id: string;
   matchId: string | null;
   hostId: string;
-  mode: 'private' | 'quick';
+  mode: RoomMode;
   theme: string;
   difficulty: Difficulty;
   phase: Phase;
@@ -150,32 +163,14 @@ export interface RoomSnapshot {
   error: string | null;
 }
 
-export type ClientMessage =
-  | { type: 'ready'; ready: boolean }
-  | { type: 'start' }
-  /**
-   * `matchId` rejects replays of an earlier match; `spellIndex` rejects any stale or repeated
-   * packet, so a resent completion can never deal damage twice.
-   */
-  | { type: 'input'; matchId: string; spellIndex: number; text: string }
-  | { type: 'rematch' }
-  | { type: 'leave' }
-  | { type: 'ping' };
+export type ClientMessage = z.infer<typeof clientMessageSchema>;
 
 export type ServerMessage =
   | { type: 'state'; room: RoomSnapshot }
   | { type: 'error'; message: string }
   | { type: 'pong'; serverNow: number };
 
-export interface RoomInit {
-  id: string;
-  host: User;
-  theme: string;
-  difficulty: Difficulty;
-  mode: 'private' | 'quick';
-  /** Present for quick matches: the two accounts whose seats are reserved. */
-  reserved?: User[];
-}
+export type RoomInit = z.infer<typeof roomInitSchema>;
 
 export interface MatchTicket {
   state: 'waiting' | 'matched';
@@ -196,8 +191,7 @@ export interface MatchCancelResult {
 }
 
 /**
- * One persisted match row for one account, as returned by `GET /api/profile`. Every metric is the
- * live survival game's own measurement: there is no legacy variant and no unused column.
+ * One persisted match row for one account, as returned by `GET /api/profile`.
  */
 export interface MatchResult {
   match_id: string;
@@ -228,11 +222,6 @@ export interface SessionInfo {
   aiConfigured: boolean;
 }
 
-/** Every failing API response body. */
-export interface ApiError {
-  error: string;
-}
-
 /**
  * Close codes the room may send. Shared so the client, the room and the router cannot drift:
  * `replaced`/`closed`/`sessionExpired` are terminal (stop reconnecting), `restart` is recoverable
@@ -244,7 +233,7 @@ export const WS_CLOSE = {
   /** The room ended this reservation or match; there is nothing left to reconnect to. */
   closed: 4001,
   /** The session expired or was revoked: re-authenticate before retrying. */
-  sessionExpired: 4002
+  sessionExpired: 4002,
 } as const;
 
 export type WsCloseCode = (typeof WS_CLOSE)[keyof typeof WS_CLOSE];

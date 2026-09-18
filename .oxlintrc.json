@@ -1,0 +1,37 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc"],
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "typescript/no-floating-promises": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/await-thenable": "error",
+    "typescript/no-unnecessary-type-assertion": "error",
+    "typescript/no-explicit-any": "error",
+    "oxc/no-accumulating-spread": "error",
+    "oxc/no-map-spread": "error",
+    "unicorn/prefer-array-find": "error",
+    "unicorn/prefer-array-flat-map": "error",
+    "no-useless-call": "error"
+  },
+  "ignorePatterns": [
+    "src/routeTree.gen.ts",
+    "worker-configuration.d.ts",
+    ".agents/**",
+    ".scratch/**",
+    "tests/.state/**",
+    "dist/**",
+    ".wrangler/**"
+  ],
+  "overrides": [
+    {
+      "files": ["tests/support/test.ts"],
+      "rules": { "no-empty-pattern": "off" }
+    }
+  ],
+  "env": {
+    "builtin": true
+  }
+}

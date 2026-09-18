@@ -1,8 +1,9 @@
 import { defineConfig } from 'vite';
 import { cloudflare } from '@cloudflare/vite-plugin';
+import { frontendPlugins } from './vite.frontend.ts';
 
 export default defineConfig({
-  plugins: [cloudflare()],
+  plugins: [...frontendPlugins(), cloudflare()],
   server: {
     port: 5173,
     strictPort: true,
@@ -14,6 +15,6 @@ export default defineConfig({
      * and Vite keeps its own defaults (`.git`, `node_modules`, `test-results`, its cache dir), because
      * user patterns are appended to them rather than replacing them.
      */
-    watch: { ignored: ['**/tests/.state/**', '**/.scratch/**'] }
-  }
+    watch: { ignored: ['**/tests/.state/**', '**/.scratch/**'] },
+  },
 });

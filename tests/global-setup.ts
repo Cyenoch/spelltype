@@ -1,6 +1,6 @@
 /**
- * Playwright global setup: boots the fixture plus both application instances and keeps
- * them alive for the whole run. Teardown stops the processes.
+ * Playwright global setup: boots the fixture plus the isolated application instance and keeps them
+ * alive for the whole run. Teardown stops the processes.
  */
 import { startHarness } from './support/harness';
 

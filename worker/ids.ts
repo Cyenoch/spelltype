@@ -1,25 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { MAX_THEME_CHARS } from '../shared/protocol';
 import type { Difficulty } from '../shared/protocol';
 
-/** Room identity: 24 lowercase hex characters, generated with a secure RNG. */
-export const ROOM_ID_PATTERN = /^[0-9a-f]{24}$/;
-
+/** Room identity: 24 lowercase hex characters (`roomIdSchema`), generated with a secure RNG. */
 export function newRoomId(): string {
   return randomUUID().replace(/-/g, '').slice(0, 24);
 }
 
-const DIFFICULTIES: Record<string, true> = { easy: true, normal: true, hard: true };
+/** Shard names: one matchmaking coordinator per account, one queue per difficulty. */
+export const USER_SHARD_PREFIX = 'u:';
+export const QUEUE_SHARD_PREFIX = 'q:';
 
-/** Narrows an untrusted request value to a difficulty, or `null`. */
-export function readDifficulty(value: unknown): Difficulty | null {
-  return typeof value === 'string' && DIFFICULTIES[value] === true ? (value as Difficulty) : null;
+export function userShardName(userId: string): string {
+  return `${USER_SHARD_PREFIX}${userId}`;
 }
 
-/** Theme input, trimmed and length-checked. Themes are stored and passed through verbatim. */
-export function readTheme(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const theme = value.trim();
-  if (theme.length === 0 || [...theme].length > MAX_THEME_CHARS) return null;
-  return theme;
+export function queueShardName(difficulty: Difficulty): string {
+  return `${QUEUE_SHARD_PREFIX}${difficulty}`;
 }

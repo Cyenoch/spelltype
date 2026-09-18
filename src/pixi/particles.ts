@@ -147,7 +147,8 @@ export class SparkPool {
 
       const damping = 1 - this.drag[index] * deltaMS;
       const velocityX = this.vx[index] * (damping > 0 ? damping : 0);
-      const velocityY = this.vy[index] * (damping > 0 ? damping : 0) + this.gravity[index] * deltaMS;
+      const velocityY =
+        this.vy[index] * (damping > 0 ? damping : 0) + this.gravity[index] * deltaMS;
       this.vx[index] = velocityX;
       this.vy[index] = velocityY;
 

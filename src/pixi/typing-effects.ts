@@ -1,9 +1,9 @@
 import { Application, Graphics, type Texture, type Ticker } from 'pixi.js';
-import { ELEMENT_ORDER } from '../assets';
-import { ELEMENT_COLORS, ELEMENT_CORE } from '../elements';
-import { motion } from '../motion';
+import { ELEMENT_ORDER } from './assets';
+import { ELEMENT_COLORS, ELEMENT_CORE } from '../ui/elements';
+import { motion } from '../ui/motion';
 import { SparkPool } from './particles';
-import { drawElementShard } from './fx';
+import { drawElementShard } from './effects/shapes';
 import type { Element } from '../../shared/protocol';
 
 /**
@@ -66,13 +66,20 @@ export async function createTypingEffects(host: HTMLElement): Promise<TypingEffe
     for (const element of ELEMENT_ORDER) {
       const graphics = new Graphics();
       drawElementShard(graphics, element);
-      const texture = app.renderer.generateTexture({ target: graphics, resolution: 2, antialias: true });
+      const texture = app.renderer.generateTexture({
+        target: graphics,
+        resolution: 2,
+        antialias: true,
+      });
       graphics.destroy();
       shapes[element] = texture;
       owned.push(texture);
     }
   } catch (error) {
     app.destroy({ removeView: true }, { children: true });
+    for (const texture of owned) {
+      if (!texture.destroyed) texture.destroy(true);
+    }
     throw error;
   }
 
@@ -165,10 +172,13 @@ export async function createTypingEffects(host: HTMLElement): Promise<TypingEffe
       unsubscribeMotion();
       app.ticker.remove(tick);
       for (const element of ELEMENT_ORDER) pools[element].destroy();
+      // Renderer first: it owns one bind group per texture it has drawn and only
+      // lets them go in its own teardown, so destroying a shard source while the
+      // application is still alive would report it as destroyed while bound.
+      app.destroy({ removeView: true }, { children: true });
       for (const texture of owned) {
         if (!texture.destroyed) texture.destroy(true);
       }
-      app.destroy({ removeView: true }, { children: true });
     },
   };
 }

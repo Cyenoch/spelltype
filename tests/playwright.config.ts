@@ -24,7 +24,7 @@ export default defineConfig({
     locale: 'zh-CN',
     actionTimeout: 20_000,
     navigationTimeout: 30_000,
-    trace: 'retain-on-failure',
+    trace: { mode: 'retain-on-failure', screenshots: false },
     screenshot: 'only-on-failure',
   },
 });

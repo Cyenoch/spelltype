@@ -3,6 +3,7 @@
  * Everything here is pure: no clock, no storage, no randomness.
  */
 import { DAMAGE_PER_CHARACTER, MAX_PRIVATE_PLAYERS } from '../shared/protocol';
+import type { Spell } from '../shared/protocol';
 
 /** Unicode code point count (a surrogate pair counts once, lone surrogates once). */
 export function charCount(value: string): number {
@@ -59,7 +60,11 @@ export function diffSnapshot(previous: string, next: string, target: string): Ed
 
   const suffixLimit = Math.min(before.length - prefix, after.length - prefix);
   let suffix = 0;
-  while (suffix < suffixLimit && before[before.length - 1 - suffix] === after[after.length - 1 - suffix]) suffix++;
+  while (
+    suffix < suffixLimit &&
+    before[before.length - 1 - suffix] === after[after.length - 1 - suffix]
+  )
+    suffix++;
 
   const changedEnd = after.length - suffix;
   let inserted = 0;
@@ -77,6 +82,17 @@ export function diffSnapshot(previous: string, next: string, target: string): Ed
 }
 
 /**
+ * A player's spell for a private, monotonic, zero-based index. The index wraps
+ * around the shared book, so a match longer than the book repeats the same
+ * ordered practice spells instead of running out of content.
+ */
+export function spellAt(book: readonly Spell[], index: number): Spell | null {
+  if (book.length === 0) return null;
+  const wrapped = ((index % book.length) + book.length) % book.length;
+  return book[wrapped];
+}
+
+/**
  * Automatic target: the next alive player clockwise from the attacker's seat,
  * wrapping around the seat range. Nothing else picks a target — no mouse input,
  * no randomness — so every client resolves the same target from the same
@@ -91,7 +107,8 @@ export function nextAliveBySeat<T extends { slot: number }>(
   let bestDistance = Number.POSITIVE_INFINITY;
   for (const seat of seats) {
     if (!isAlive(seat) || seat.slot === fromSlot) continue;
-    const distance = ((seat.slot - fromSlot) % MAX_PRIVATE_PLAYERS + MAX_PRIVATE_PLAYERS) % MAX_PRIVATE_PLAYERS;
+    const distance =
+      (((seat.slot - fromSlot) % MAX_PRIVATE_PLAYERS) + MAX_PRIVATE_PLAYERS) % MAX_PRIVATE_PLAYERS;
     if (distance < bestDistance) {
       chosen = seat;
       bestDistance = distance;
@@ -128,7 +145,9 @@ function compareSurvivors(a: MatchStanding, b: MatchStanding): number {
 export function survivalRanks(standings: readonly MatchStanding[]): Map<string, number> {
   const survivors = standings.filter((entry) => entry.eliminatedAt === null).sort(compareSurvivors);
   const fallen = standings
-    .filter((entry): entry is MatchStanding & { eliminatedAt: number } => entry.eliminatedAt !== null)
+    .filter(
+      (entry): entry is MatchStanding & { eliminatedAt: number } => entry.eliminatedAt !== null,
+    )
     .sort((a, b) => b.eliminatedAt - a.eliminatedAt);
 
   const ranks = new Map<string, number>();
@@ -136,7 +155,11 @@ export function survivalRanks(standings: readonly MatchStanding[]): Map<string, 
   let index = 0;
   while (index < survivors.length) {
     let last = index;
-    while (last + 1 < survivors.length && compareSurvivors(survivors[last + 1], survivors[index]) === 0) last++;
+    while (
+      last + 1 < survivors.length &&
+      compareSurvivors(survivors[last + 1], survivors[index]) === 0
+    )
+      last++;
     for (let i = index; i <= last; i++) ranks.set(survivors[i].userId, rank);
     rank += last - index + 1;
     index = last + 1;
@@ -144,7 +167,8 @@ export function survivalRanks(standings: readonly MatchStanding[]): Map<string, 
   index = 0;
   while (index < fallen.length) {
     let last = index;
-    while (last + 1 < fallen.length && fallen[last + 1].eliminatedAt === fallen[index].eliminatedAt) last++;
+    while (last + 1 < fallen.length && fallen[last + 1].eliminatedAt === fallen[index].eliminatedAt)
+      last++;
     for (let i = index; i <= last; i++) ranks.set(fallen[i].userId, rank);
     rank += last - index + 1;
     index = last + 1;

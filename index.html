@@ -13,28 +13,8 @@
     <link rel="preload" as="image" href="/assets/bg/academy-hall.jpg" />
   </head>
   <body>
-    <a class="skip-link" href="#app">跳到主要内容</a>
-
-    <div id="fx-layer" aria-hidden="true"></div>
-
-    <div id="banner-slot"></div>
-
-    <main id="app" data-testid="app-root">
-      <div id="boot" class="boot" role="status" aria-live="polite">
-        <img class="boot__sigil" src="/assets/sigil.svg" alt="" width="56" height="56" />
-        <p class="boot__title">咒文对决</p>
-        <p class="boot__text" id="boot-text">正在唤醒竞技场…</p>
-      </div>
-    </main>
-
-    <div id="toast" role="status" aria-live="polite" data-testid="toast" data-tone="info"></div>
-
-    <noscript>
-      <p class="noscript">
-        咒文对决需要 JavaScript 才能运行。请在浏览器设置中启用 JavaScript 后重新加载页面。
-      </p>
-    </noscript>
-
-    <script type="module" src="/src/main.ts"></script>
+    <div id="root"></div>
+    <noscript>咒文对决需要 JavaScript 才能运行。请启用 JavaScript 后重新加载。</noscript>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

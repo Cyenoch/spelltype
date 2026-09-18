@@ -5,15 +5,7 @@
     "script": "scripts/process-art.mjs",
     "sourceDir": ".scratch/artdrop-final",
     "outDir": "public/assets",
-    "steps": [
-      "arenas",
-      "icons",
-      "characters",
-      "vfx",
-      "portraits",
-      "provenance",
-      "check"
-    ],
+    "steps": ["arenas", "icons", "characters", "vfx", "portraits", "provenance", "check"],
     "supersededFlag": [
       "white-background icon atlas (was delivered as spell-icons-sheet.png, sha256 d3f63d73…) — superseded by the black-background regeneration spell-icons-black-sheet.png (sha256 97db63de…) because enclosed backdrop could not be told apart from white highlights inside the artwork"
     ]

@@ -27,11 +27,13 @@ function dropEntry(url: string, entry: Entry): void {
   const texture = entry.texture;
   entry.texture = null;
   if (!texture) return;
-  const pending = Assets.unload(url).catch(() => {
-    // Teardown only; a failed unload has nothing left to affect.
-  }).finally(() => {
-    unloading.delete(url);
-  });
+  const pending = Assets.unload(url)
+    .catch(() => {
+      // Teardown only; a failed unload has nothing left to affect.
+    })
+    .finally(() => {
+      unloading.delete(url);
+    });
   unloading.set(url, pending);
 }
 
@@ -49,7 +51,9 @@ export async function acquireTextures(urls: readonly string[]): Promise<(Texture
       // Pixi's loader retains its cached load promise until asynchronous unload
       // finishes. A new holder must not receive the texture being destroyed.
       const pending = unloading.get(url);
-      const loading = pending ? pending.then(() => Assets.load<Texture>(url)) : Assets.load<Texture>(url);
+      const loading = pending
+        ? pending.then(() => Assets.load<Texture>(url))
+        : Assets.load<Texture>(url);
       entry.loading = loading.then(
         (texture) => {
           entry.loading = null;
@@ -134,7 +138,8 @@ export function trimTexture(texture: Texture): Texture {
     }
   }
 
-  if (maxX < 0 || (minX === 0 && minY === 0 && maxX === width - 1 && maxY === height - 1)) return texture;
+  if (maxX < 0 || (minX === 0 && minY === 0 && maxX === width - 1 && maxY === height - 1))
+    return texture;
 
   const trimmed = new Texture({
     source: texture.source,
@@ -154,9 +159,14 @@ export function createSilhouetteTexture(texture: Texture): Texture {
   if (!context) throw new Error('无法生成角色轮廓纹理');
   context.drawImage(
     source.resource as CanvasImageSource,
-    frame.x * resolution, frame.y * resolution,
-    frame.width * resolution, frame.height * resolution,
-    0, 0, canvas.width, canvas.height,
+    frame.x * resolution,
+    frame.y * resolution,
+    frame.width * resolution,
+    frame.height * resolution,
+    0,
+    0,
+    canvas.width,
+    canvas.height,
   );
   context.globalCompositeOperation = 'source-in';
   context.fillStyle = '#ffffff';

@@ -7,3 +7,7 @@ dist/
 .env*
 .scratch/
 /tests/.state/
+.tanstack/
+.DS_Store
+coverage/
+playwright-report/

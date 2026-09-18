@@ -11,10 +11,14 @@ import { request, type APIRequestContext, type BrowserContext } from '@playwrigh
 const tracked: APIRequestContext[] = [];
 
 /** Creates an out-of-band API context from the page's existing session cookie. */
-export async function trackAccountForQueueCleanup(context: BrowserContext, baseUrl: string): Promise<void> {
+export async function trackAccountForQueueCleanup(
+  context: BrowserContext,
+  baseUrl: string,
+): Promise<void> {
   const origin = new URL(baseUrl).origin;
   const cookies = await context.cookies(baseUrl);
-  if (cookies.length === 0) throw new Error(`queue cleanup tracking found no session cookie for ${baseUrl}`);
+  if (cookies.length === 0)
+    throw new Error(`queue cleanup tracking found no session cookie for ${baseUrl}`);
   const apiContext = await request.newContext({
     baseURL: baseUrl,
     extraHTTPHeaders: { origin },

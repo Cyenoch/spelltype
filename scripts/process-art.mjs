@@ -4,7 +4,7 @@
  *
  * Turns the generated masters for a match — four arena backdrops, a character
  * sheet, a spell-icon atlas and one effect sheet per element — into the exact
- * files src/assets.ts references, and rewrites public/assets/provenance.json from
+ * files src/pixi/assets.ts references, and rewrites public/assets/provenance.json from
  * the measurements of that run. Deterministic: the same input bytes always
  * produce the same output bytes, and every reported dimension and byte count is
  * read back from the file that was written.
@@ -33,7 +33,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const REGISTRY = path.join(REPO_ROOT, 'src/assets.ts');
+const REGISTRY = path.join(REPO_ROOT, 'src/pixi/assets.ts');
 const ELEMENTS = ['arcane', 'fire', 'ice', 'storm'];
 const ALL_STEPS = ['arenas', 'icons', 'characters', 'vfx', 'portraits', 'provenance', 'check'];
 
@@ -47,7 +47,8 @@ function parseArgs(argv) {
       flags.set(name, true);
       continue;
     }
-    if (!['source-dir', 'out-dir', 'only', 'superseded'].includes(name)) throw new Error(`unknown option --${name}`);
+    if (!['source-dir', 'out-dir', 'only', 'superseded'].includes(name))
+      throw new Error(`unknown option --${name}`);
     const value = inline ?? argv[++i];
     if (value === undefined) throw new Error(`--${name} needs a value`);
     flags.set(name, value);
@@ -59,9 +60,13 @@ const flags = parseArgs(process.argv.slice(2));
 const OUT_DIR = path.resolve(flags.get('out-dir') ?? path.join(REPO_ROOT, 'public/assets'));
 const SOURCE_DIR = flags.get('source-dir') ? path.resolve(flags.get('source-dir')) : null;
 const DRY_RUN = flags.get('dry-run') === true;
-const steps = (flags.get('only') ?? ALL_STEPS.join(',')).split(',').map((value) => value.trim()).filter(Boolean);
+const steps = (flags.get('only') ?? ALL_STEPS.join(','))
+  .split(',')
+  .map((value) => value.trim())
+  .filter(Boolean);
 for (const step of steps) {
-  if (!ALL_STEPS.includes(step)) throw new Error(`unknown step "${step}" (expected one of ${ALL_STEPS.join(', ')})`);
+  if (!ALL_STEPS.includes(step))
+    throw new Error(`unknown step "${step}" (expected one of ${ALL_STEPS.join(', ')})`);
 }
 if (!SOURCE_DIR && steps.some((step) => step !== 'check')) {
   throw new Error('--source-dir is required to process artwork');
@@ -89,16 +94,25 @@ async function emit(relative, buffer, meta) {
     await mkdir(path.dirname(absolute), { recursive: true });
     await writeFile(absolute, buffer);
   }
-  const entry = { path: `public/assets/${relative.split(path.sep).join('/')}`, bytes: buffer.length, ...meta };
+  const entry = {
+    path: `public/assets/${relative.split(path.sep).join('/')}`,
+    bytes: buffer.length,
+    ...meta,
+  };
   report.push(entry);
-  log(`  ${entry.path.padEnd(42)} ${String(meta.width).padStart(4)}x${String(meta.height).padEnd(4)} ${(buffer.length / 1024).toFixed(1).padStart(7)} KiB`);
+  log(
+    `  ${entry.path.padEnd(42)} ${String(meta.width).padStart(4)}x${String(meta.height).padEnd(4)} ${(buffer.length / 1024).toFixed(1).padStart(7)} KiB`,
+  );
   return entry;
 }
 
 /** Byte size plus sha256 of a generated master, so provenance can pin it. */
 async function fingerprint(file) {
   const bytes = await readFile(file);
-  return { sourceBytes: bytes.length, sourceSha256: createHash('sha256').update(bytes).digest('hex') };
+  return {
+    sourceBytes: bytes.length,
+    sourceSha256: createHash('sha256').update(bytes).digest('hex'),
+  };
 }
 
 async function fileExists(file) {
@@ -111,12 +125,16 @@ async function fileExists(file) {
 function assertGeometry(meta, file, { cols = 1, rows = 1, minCell = 200, square = false }) {
   const where = relativePath(file);
   if (meta.width < cols * minCell || meta.height < rows * minCell) {
-    throw new Error(`${where} is ${meta.width}x${meta.height}: expected at least ${cols * minCell}x${rows * minCell} for a ${cols}x${rows} grid`);
+    throw new Error(
+      `${where} is ${meta.width}x${meta.height}: expected at least ${cols * minCell}x${rows * minCell} for a ${cols}x${rows} grid`,
+    );
   }
   if (square) {
     const aspect = meta.width / meta.height;
     if (Math.abs(aspect - 1) > 0.15) {
-      throw new Error(`${where} is ${meta.width}x${meta.height}: a ${cols}x${rows} cell grid must be close to square`);
+      throw new Error(
+        `${where} is ${meta.width}x${meta.height}: a ${cols}x${rows} cell grid must be close to square`,
+      );
     }
   }
 }
@@ -124,11 +142,15 @@ function assertGeometry(meta, file, { cols = 1, rows = 1, minCell = 200, square 
 // ------------------------------------------------------------------- pixels ---
 
 async function readRaw(file) {
-  const { data, info } = await sharp(file).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { data, info } = await sharp(file)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
   return { data, width: info.width, height: info.height, source: path.basename(file) };
 }
 
-const asSharp = (img) => sharp(img.data, { raw: { width: img.width, height: img.height, channels: 4 } });
+const asSharp = (img) =>
+  sharp(img.data, { raw: { width: img.width, height: img.height, channels: 4 } });
 
 function alphaProfile(img, threshold = 16) {
   const { data, width, height } = img;
@@ -164,12 +186,16 @@ function cornerLuma({ data, width, height }) {
 function prepareSheet(sheet, label) {
   const profile = alphaProfile(sheet);
   if (profile.clear > 0.05 && profile.solid > 0.05) {
-    log(`  ${label}: already carries alpha (${(profile.clear * 100).toFixed(1)}% clear, ${(profile.solid * 100).toFixed(1)}% solid) — kept verbatim`);
+    log(
+      `  ${label}: already carries alpha (${(profile.clear * 100).toFixed(1)}% clear, ${(profile.solid * 100).toFixed(1)}% solid) — kept verbatim`,
+    );
     return { img: bleedEdgeColors(sheet), mode: 'existing-alpha', profile };
   }
   const luma = cornerLuma(sheet);
   if (luma < 60) {
-    log(`  ${label}: glow art on a dark backdrop (corner luma ${luma.toFixed(0)}/255) — alpha derived from luminance`);
+    log(
+      `  ${label}: glow art on a dark backdrop (corner luma ${luma.toFixed(0)}/255) — alpha derived from luminance`,
+    );
     return { img: bleedEdgeColors(luminanceToAlpha(sheet)), mode: 'luminance', profile };
   }
   throw new Error(
@@ -263,7 +289,9 @@ function alphaBounds(img, threshold = 6) {
       }
     }
   }
-  return maxX < 0 ? null : { left: minX, top: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
+  return maxX < 0
+    ? null
+    : { left: minX, top: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
 }
 
 // ------------------------------------------------------------------- sheets ---
@@ -310,7 +338,11 @@ function splitCells(img, cols, rows) {
       const top = ys[r];
       const cellWidth = xs[c + 1] - left;
       const cellHeight = ys[r + 1] - top;
-      const cell = { data: Buffer.alloc(cellWidth * cellHeight * 4), width: cellWidth, height: cellHeight };
+      const cell = {
+        data: Buffer.alloc(cellWidth * cellHeight * 4),
+        width: cellWidth,
+        height: cellHeight,
+      };
       for (let y = 0; y < cellHeight; y++) {
         data.copy(
           cell.data,
@@ -338,7 +370,12 @@ async function trimWithPad(img, padRatio) {
     .extract({ left, top, width: right - left, height: bottom - top })
     .raw()
     .toBuffer({ resolveWithObject: true });
-  return { data: cropped.data, width: cropped.info.width, height: cropped.info.height, source: img.source };
+  return {
+    data: cropped.data,
+    width: cropped.info.width,
+    height: cropped.info.height,
+    source: img.source,
+  };
 }
 
 /** Resolves, validates and decodes one generated grid sheet. */
@@ -365,12 +402,19 @@ async function processArenas() {
       continue;
     }
     const meta = await sharp(file).metadata();
-    if (meta.hasAlpha) throw new Error(`${relativePath(file)} has an alpha channel: an arena master must be an opaque backdrop`);
+    if (meta.hasAlpha)
+      throw new Error(
+        `${relativePath(file)} has an alpha channel: an arena master must be an opaque backdrop`,
+      );
     if (meta.width < 1200 || meta.height < 600) {
-      throw new Error(`${relativePath(file)} is ${meta.width}x${meta.height}: too small for an arena backdrop (need at least 1200x600)`);
+      throw new Error(
+        `${relativePath(file)} is ${meta.width}x${meta.height}: too small for an arena backdrop (need at least 1200x600)`,
+      );
     }
     if (Math.abs(meta.width / meta.height - 16 / 9) / (16 / 9) > 0.25) {
-      throw new Error(`${relativePath(file)} is ${meta.width}x${meta.height}: not a landscape 16:9-ish arena backdrop`);
+      throw new Error(
+        `${relativePath(file)} is ${meta.width}x${meta.height}: not a landscape 16:9-ish arena backdrop`,
+      );
     }
     // Never enlarge: withoutEnlargement leaves a 1672x941 master untouched and
     // still fits an oversized one into 1920x1080.
@@ -404,7 +448,12 @@ async function processIcons() {
     const element = ELEMENTS[Math.floor(index / 4)];
     const cell = await trimWithPad(cells[index], 0.06);
     const buffer = await asSharp(cell)
-      .resize({ width: 256, height: 256, fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+      .resize({
+        width: 256,
+        height: 256,
+        fit: 'contain',
+        background: { r: 0, g: 0, b: 0, alpha: 0 },
+      })
       .webp({ quality: 88, effort: 6, alphaQuality: 92 })
       .toBuffer();
     await emit(`spells/${element}-${(index % 4) + 1}.webp`, buffer, {
@@ -413,7 +462,8 @@ async function processIcons() {
       source: relativePath(loaded.file),
       sourceDimensions: `${loaded.sheet.width}x${loaded.sheet.height}`,
       ...loaded.fingerprint,
-      processing: '4x4 cell split on the alpha mask, trim to glyph + 6% padding, 256x256 contain, WebP q88 with alpha',
+      processing:
+        '4x4 cell split on the alpha mask, trim to glyph + 6% padding, 256x256 contain, WebP q88 with alpha',
       width: 256,
       height: 256,
     });
@@ -441,7 +491,8 @@ async function processCharacters() {
       source: relativePath(loaded.file),
       sourceDimensions: `${loaded.sheet.width}x${loaded.sheet.height}`,
       ...loaded.fingerprint,
-      processing: '2x2 cell split on the alpha mask, trim to figure + 3% padding, fit within 768x1024, palette PNG with alpha',
+      processing:
+        '2x2 cell split on the alpha mask, trim to figure + 3% padding, fit within 768x1024, palette PNG with alpha',
       width: written.width,
       height: written.height,
     });
@@ -458,7 +509,12 @@ async function processVfx() {
     for (let index = 0; index < 4; index++) {
       const cell = await trimWithPad(cells[index], 0.04);
       const buffer = await asSharp(cell)
-        .resize({ width: 512, height: 512, fit: 'contain', background: { r: 0, g: 0, b: 0, alpha: 0 } })
+        .resize({
+          width: 512,
+          height: 512,
+          fit: 'contain',
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
+        })
         .png({ compressionLevel: 9, palette: true, quality: 90, effort: 8 })
         .toBuffer();
       const written = await sharp(buffer).metadata();
@@ -468,7 +524,8 @@ async function processVfx() {
         source: relativePath(loaded.file),
         sourceDimensions: `${loaded.sheet.width}x${loaded.sheet.height}`,
         ...loaded.fingerprint,
-        processing: '2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha',
+        processing:
+          '2x2 cell split on the alpha mask, trim to effect + 4% padding, 512x512 contain, palette PNG with alpha',
         width: written.width,
         height: written.height,
       });
@@ -491,16 +548,35 @@ async function processPortraits() {
     const element = ELEMENTS[slot];
     const characterPath = path.join(OUT_DIR, `characters/slot-${slot}-${element}.png`);
     if (!(await fileExists(characterPath))) {
-      log(`  portrait ${slot + 1}: skipped, run the characters step first (${relativePath(characterPath)} is missing)`);
+      log(
+        `  portrait ${slot + 1}: skipped, run the characters step first (${relativePath(characterPath)} is missing)`,
+      );
       continue;
     }
-    const { data, info } = await sharp(characterPath).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const { data, info } = await sharp(characterPath)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
     const body = { data, width: info.width, height: info.height };
     const bounds = alphaBounds(body) ?? { left: 0, top: 0, width: body.width, height: body.height };
-    const side = Math.max(8, Math.min(Math.round(Math.min(bounds.width * 1.5, bounds.height * 0.5)), body.width, body.height));
-    const left = Math.max(0, Math.min(body.width - side, Math.round(bounds.left + bounds.width / 2 - side / 2)));
+    const side = Math.max(
+      8,
+      Math.min(
+        Math.round(Math.min(bounds.width * 1.5, bounds.height * 0.5)),
+        body.width,
+        body.height,
+      ),
+    );
+    const left = Math.max(
+      0,
+      Math.min(body.width - side, Math.round(bounds.left + bounds.width / 2 - side / 2)),
+    );
     const top = Math.max(0, Math.min(body.height - side, bounds.top - Math.round(side * 0.06)));
-    const crop = await asSharp(body).extract({ left, top, width: side, height: side }).resize(512, 512, { fit: 'cover' }).png().toBuffer();
+    const crop = await asSharp(body)
+      .extract({ left, top, width: side, height: side })
+      .resize(512, 512, { fit: 'cover' })
+      .png()
+      .toBuffer();
 
     const tint = tints[element];
     const backdrop = Buffer.from(
@@ -544,7 +620,8 @@ const HAND_AUTHORED = [
     tool: 'text editor',
     model: null,
     dimensions: '1600x900',
-    usage: 'Vector fallback for the backdrop if the bitmap fails to load. Authored markup, never described as generated.',
+    usage:
+      'Vector fallback for the backdrop if the bitmap fails to load. Authored markup, never described as generated.',
   },
   ...ELEMENTS.map((element) => ({
     path: `public/assets/elements/${element}.svg`,
@@ -592,20 +669,28 @@ const BACKGROUND_ENTRY = {
   path: 'public/assets/bg/academy-hall.jpg',
   kind: 'background',
   origin: 'generated-source',
-  method: 'generated bitmap, locally transcoded with ffmpeg (pre-existing asset, not touched by this pass)',
+  method:
+    'generated bitmap, locally transcoded with ffmpeg (pre-existing asset, not touched by this pass)',
   tool: 'session image_gen (via coordinating agent), ffmpeg',
-  model: 'not exposed to this worker (claimed as: the coordinating agent’s image-gen tool, model name unknown)',
+  model:
+    'not exposed to this worker (claimed as: the coordinating agent’s image-gen tool, model name unknown)',
   dimensions: '1672x941',
   processing: 'source PNG (1672x941) converted to JPEG with ffmpeg; no other edits',
-  usage: 'Full-page backdrop: CSS layer plus PIXI texture for the parallax backdrop. Dark magical academy hall; contains no text, logo or watermark.',
+  usage:
+    'Full-page backdrop: CSS layer plus PIXI texture for the parallax backdrop. Dark magical academy hall; contains no text, logo or watermark.',
 };
 
 const USAGE = {
-  arena: (entry) => `Arena backdrop ${entry.path.match(/arena-(\d)/)?.[1]} of 4, drawn behind the fighters. Painterly dark-fantasy magic-academy hall.`,
-  character: (entry) => `Full-body combatant for seat slot ${entry.slot} (${entry.element}), drawn with real alpha in the arena.`,
-  'spell-icon': (entry) => `Spell sigil for the ${entry.element} element, cycled by spell index in the typing panel.`,
-  'combat-fx': (entry) => `Impact effect for the ${entry.element} element, played over the target when a spell lands.`,
-  portrait: (entry) => `Lobby/results portrait for seat ${entry.slot + 1} (${entry.element}), cropped from the derived full-body character.`,
+  arena: (entry) =>
+    `Arena backdrop ${entry.path.match(/arena-(\d)/)?.[1]} of 4, drawn behind the fighters. Painterly dark-fantasy magic-academy hall.`,
+  character: (entry) =>
+    `Full-body combatant for seat slot ${entry.slot} (${entry.element}), drawn with real alpha in the arena.`,
+  'spell-icon': (entry) =>
+    `Spell sigil for the ${entry.element} element, cycled by spell index in the typing panel.`,
+  'combat-fx': (entry) =>
+    `Impact effect for the ${entry.element} element, played over the target when a spell lands.`,
+  portrait: (entry) =>
+    `Lobby/results portrait for seat ${entry.slot + 1} (${entry.element}), cropped from the derived full-body character.`,
 };
 
 const describeCutout = (stats) => {
@@ -617,11 +702,17 @@ const describeCutout = (stats) => {
 };
 
 const cutoutFor = (entry) =>
-  entry.kind === 'character' ? cutouts.characters : entry.kind === 'combat-fx' ? cutouts[`vfx-${entry.element}`] : cutouts.icons;
+  entry.kind === 'character'
+    ? cutouts.characters
+    : entry.kind === 'combat-fx'
+      ? cutouts[`vfx-${entry.element}`]
+      : cutouts.icons;
 
 async function writeProvenance() {
   if (report.length === 0) {
-    throw new Error('provenance is written from what this run measured: include the processing steps, not --only provenance');
+    throw new Error(
+      'provenance is written from what this run measured: include the processing steps, not --only provenance',
+    );
   }
   const measured = [];
   for (const entry of report) {
@@ -635,14 +726,16 @@ async function writeProvenance() {
           ? 'generated bitmap, locally transcoded (no synthesis in the pipeline)'
           : 'generated bitmap sheet, locally derived (split / trimmed / resized) — no hand-authored vector art',
       tool: 'session image_gen (via coordinating agent), sharp/libvips',
-      model: 'not exposed to this worker (claimed as: the coordinating agent’s image-gen tool, model name unknown)',
+      model:
+        'not exposed to this worker (claimed as: the coordinating agent’s image-gen tool, model name unknown)',
       source: entry.source,
       sourceDimensions: entry.sourceDimensions,
       dimensions: `${entry.width}x${entry.height}`,
       bytes: info?.size ?? entry.bytes,
-      processing: USAGE[entry.kind] && cutoutFor(entry)
-        ? `${describeCutout(cutoutFor(entry))}; then ${entry.processing}`
-        : entry.processing,
+      processing:
+        USAGE[entry.kind] && cutoutFor(entry)
+          ? `${describeCutout(cutoutFor(entry))}; then ${entry.processing}`
+          : entry.processing,
       usage: USAGE[entry.kind]?.(entry) ?? entry.kind,
     };
     if (entry.element) provenanceEntry.element = entry.element;
@@ -668,7 +761,9 @@ async function writeProvenance() {
     }
   }
   const generatedSources = [...masters.values()];
-  const backgroundBytes = (await stat(path.join(REPO_ROOT, BACKGROUND_ENTRY.path)).catch(() => null))?.size;
+  const backgroundBytes = (
+    await stat(path.join(REPO_ROOT, BACKGROUND_ENTRY.path)).catch(() => null)
+  )?.size;
   const entries = [
     backgroundBytes ? { ...BACKGROUND_ENTRY, bytes: backgroundBytes } : BACKGROUND_ENTRY,
     ...assets,
@@ -687,7 +782,9 @@ async function writeProvenance() {
       'backdrop, and a sharp-rendered SVG gradient for the portrait backdrops. No external hosting, CDN or remote URL ' +
       `is used. This pass shipped ${measured.length} files (${assets.length} arena/character/icon/effect assets plus ` +
       `${portraits.length} portraits derived from them) out of ${generatedSources.length} unique current masters.` +
-      (SUPERSEDED.length > 0 ? ` Superseded generations, deliberately not shipped: ${SUPERSEDED.join('; ')}.` : ''),
+      (SUPERSEDED.length > 0
+        ? ` Superseded generations, deliberately not shipped: ${SUPERSEDED.join('; ')}.`
+        : ''),
     generatedAt: new Date().toISOString().slice(0, 10),
     invocation: {
       script: relativePath(fileURLToPath(import.meta.url)),
@@ -697,7 +794,9 @@ async function writeProvenance() {
       supersededFlag: SUPERSEDED,
     },
     toolchain: {
-      sharp: JSON.parse(await readFile(path.join(REPO_ROOT, 'node_modules/sharp/package.json'), 'utf8')).version,
+      sharp: JSON.parse(
+        await readFile(path.join(REPO_ROOT, 'node_modules/sharp/package.json'), 'utf8'),
+      ).version,
       libvips: sharp.versions?.vips ?? 'unknown',
       node: process.version,
     },
@@ -723,7 +822,13 @@ async function writeProvenance() {
 
 /** Every URL literal in the assets module must resolve inside the asset root. */
 async function checkRegistry() {
-  const urls = [...new Set([...((await readFile(REGISTRY, 'utf8')).matchAll(/'(\/assets\/[^']+)'/g))].map((match) => match[1]))].sort();
+  const urls = [
+    ...new Set(
+      [...(await readFile(REGISTRY, 'utf8')).matchAll(/'(\/assets\/[^']+)'/g)].map(
+        (match) => match[1],
+      ),
+    ),
+  ].sort();
   const missing = [];
   let totalBytes = 0;
   for (const url of urls) {
@@ -740,7 +845,9 @@ async function checkRegistry() {
       `    ok ${url.padEnd(38)} ${meta ? `${meta.width}x${meta.height} ${meta.format}` : 'svg'} ${String(info.size).padStart(7)}B ${meta?.hasAlpha ? 'alpha' : ''}`,
     );
   }
-  log(`  ${urls.length} registry URLs, ${urls.length - missing.length} present, ${missing.length} missing, ${(totalBytes / 1024).toFixed(1)} KiB`);
+  log(
+    `  ${urls.length} registry URLs, ${urls.length - missing.length} present, ${missing.length} missing, ${(totalBytes / 1024).toFixed(1)} KiB`,
+  );
   if (missing.length > 0) process.exitCode = 1;
 }
 
@@ -761,4 +868,6 @@ await run('provenance', writeProvenance);
 await run('check', checkRegistry);
 
 const total = report.reduce((sum, entry) => sum + entry.bytes, 0);
-log(`\n${DRY_RUN ? 'would write' : 'wrote'} ${report.length} files, ${(total / 1024).toFixed(1)} KiB total`);
+log(
+  `\n${DRY_RUN ? 'would write' : 'wrote'} ${report.length} files, ${(total / 1024).toFixed(1)} KiB total`,
+);
