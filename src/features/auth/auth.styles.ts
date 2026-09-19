@@ -1,10 +1,14 @@
 import * as stylex from '@stylexjs/stylex';
 
-/** Local styles for the sign-in / register view. */
+/** Local styles for the WeChat sign-in view. */
 export const styles = stylex.create({
-  /** The mode chips sit above the first field. */
-  chipsSpaced: {
-    marginBottom: 14,
+  /** The sign-out row keeps its distance from the login link above it. */
+  actionsSpaced: {
+    marginTop: 14,
+  },
+  /** The login entry is an anchor wearing the button look; no link underline. */
+  link: {
+    textDecoration: 'none',
   },
   title: {
     fontSize: 'clamp(1.9rem, 4.4vw, 3rem)',

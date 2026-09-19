@@ -6,10 +6,8 @@ const server = await startServer({ config });
 console.info(
   JSON.stringify({
     event: 'listening',
-    role: config.role,
-    releaseId: config.releaseId,
+    buildId: config.buildId,
     url: server.url,
-    adminUrl: server.adminUrl,
   }),
 );
 

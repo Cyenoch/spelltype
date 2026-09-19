@@ -1,11 +1,12 @@
 import type { ServerWebSocket } from 'bun';
-import type { RoomSnapshot, User } from '../shared/protocol';
+import type { AccountRole, RoomSnapshot, User } from '../shared/protocol';
 import type { ServerConfig } from './config';
-import type { Database } from './db';
+import type { Database, Transaction } from './db';
 import type { GenerationInput, GenerationOutcome } from './generation/spells';
 
 export interface AuthenticatedSession {
   user: User;
+  role: AccountRole;
   tokenHash: string;
   expiresAt: number;
 }
@@ -20,14 +21,10 @@ export type RoomSocket = ServerWebSocket<RoomSocketData>;
 
 export type GenerateSpells = (input: GenerationInput) => Promise<GenerationOutcome>;
 
-export type ReleaseProbe = (
-  releaseId: string,
-) => Promise<{ releaseId: string; runtimeEpoch: number }>;
-
 /** The room runtime owns sockets, serialized commands and durable deadlines. */
 export interface RoomRuntimePort {
-  readonly releaseId: string;
   readonly runtimeEpoch: number;
+  assertOwnership(tx: Transaction): Promise<void>;
   snapshot(roomId: string, user: User): Promise<RoomSnapshot>;
   authorizeSocket(roomId: string, session: AuthenticatedSession): Promise<void>;
   connect(socket: RoomSocket): void;

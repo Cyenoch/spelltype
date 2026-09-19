@@ -12,7 +12,7 @@ import type { RoomQuery } from './storage/query';
 /** Bun reuses the standard WebSocket ready-state constants; open is 1. */
 const WS_OPEN = 1;
 
-/** The refresh message every non-v2 handshake and stale attachment is told exactly once. */
+/** The refresh message every mismatched handshake and stale attachment is told exactly once. */
 export const PROTOCOL_REFRESH_MESSAGE = '客户端版本已更新，请刷新页面后继续。';
 
 /** True when an attachment speaks exactly the wire protocol this build serves. */
@@ -108,7 +108,7 @@ export async function rejectStaleSocket(
 /**
  * Cuts off every attachment that does not speak this build's wire protocol. A page that cannot
  * name the protocol is never a working legacy dialect: a queued frame from it must never act
- * on a v2 match, so the sweep runs before any frame from the attachment is parsed. Returns how
+ * on a live match, so the sweep runs before any frame from the attachment is parsed. Returns how
  * many attachments were cut off; the caller owns the reconcile/snapshot/alarm trio.
  */
 export async function sweepStaleProtocolSockets(scope: RoomScope): Promise<number> {

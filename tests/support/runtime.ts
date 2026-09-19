@@ -2,10 +2,10 @@
  * Runtime contract shared between the E2E harness and the specs.
  *
  * The harness boots every part of the stack in-process — the fixture, the PGlite database, the
- * native servers (release A with role `all`, later a staged release B with role `game`) and the
- * Vite UI servers — and publishes an address book here. The address book is the one file-based
+ * native server (stable API, game and administrator paths on one listener), the WeChat bridge fixture and the
+ * Vite UI server — and publishes an address book here. The address book is the one file-based
  * handoff that survives across processes (the unit test spawns children against it), while the
- * live controls (restart, extra releases, the shared database handle) live on the harness
+ * live controls (restart, the shared database handle, the maintenance admin) live on the harness
  * singleton in `harness.ts`.
  */
 import { randomUUID } from 'node:crypto';
@@ -36,52 +36,31 @@ export const WORKER_STATE_DIR = path.join(STATE_DIR, workerKey);
 /** The repo's drizzle migration folder the harness passes to `openDatabase`. */
 export const MIGRATIONS_DIR = path.join(ROOT, 'drizzle');
 
-/** Release ids are 32 lowercase hex characters, exactly as the server and client compile them. */
-const RELEASE_ID_PATTERN = /^[0-9a-f]{32}$/;
-
 export interface RuntimeInfo {
-  /** The default UI origin (the Vite server compiled with the default release's constant). */
+  /** The UI origin (the one Vite server the harness boots). */
   appUrl: string;
-  /** The primary server (role `all`): stable API + the default release's game API + admin. */
+  /** The application server: stable API, game paths, admin surface and `/health` on one listener. */
   apiOrigin: string;
-  /** The primary server's admin listener (bearer `TEST_RELEASE_ADMIN_TOKEN`). */
-  adminUrl: string;
-  /** Fixture origin; generation requests are served from `${fixtureUrl}/v1`. */
+  /** Fixture origins; generation requests are served from `${fixtureUrl}/v1`. */
   fixtureUrl: string;
   /** The PGlite data directory. Harness-owned; specs never open these files directly. */
   databaseDir: string;
-  /**
-   * The release id new browser contexts and direct API calls identify with. The harness records
-   * its initial release here and the release scenario switches it after a real activation.
-   */
-  releaseId: string;
-  /** Per-release UI origins the harness has booted (release A at boot, more on demand). */
-  uiUrls: Record<string, string>;
 }
 
 let cached: RuntimeInfo | null = null;
 
-function validate(info: RuntimeInfo): RuntimeInfo {
-  if (!RELEASE_ID_PATTERN.test(info.releaseId)) {
-    throw new Error(
-      `runtime release id ${JSON.stringify(info.releaseId)} is not a 32 hex character release id; the harness must record a UUID32 release`,
-    );
-  }
-  return info;
-}
-
 export function runtime(): RuntimeInfo {
-  if (cached) return validate(cached);
+  if (cached) return cached;
   if (!fs.existsSync(RUNTIME_FILE)) {
     throw new Error(
       `E2E runtime file ${RUNTIME_FILE} is missing; the harness boots in-process with the tests, so a missing file means the suite bypassed tests/support/test.ts`,
     );
   }
   cached = JSON.parse(fs.readFileSync(RUNTIME_FILE, 'utf8')) as RuntimeInfo;
-  return validate(cached);
+  return cached;
 }
 
-/** Cache invalidation for the harness: it rewrites the file on every boot and release switch. */
+/** Cache invalidation for the harness: it rewrites the file on every boot. */
 export function forgetRuntime(): void {
   cached = null;
 }

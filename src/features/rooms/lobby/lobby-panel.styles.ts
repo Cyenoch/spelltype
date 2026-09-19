@@ -597,6 +597,10 @@ export const styles = stylex.create({
     backgroundSize: 'auto, 256px 256px',
     backgroundRepeat: 'no-repeat, repeat',
   },
+  /** Deliberately quiet: a synthetic opponent is stated once, never dressed up as a rival human. */
+  badgeSynthetic: {
+    color: 'var(--ink-faint)',
+  },
 
   /* ------------------------------------------------------------- brief --- */
 

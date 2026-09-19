@@ -1,7 +1,7 @@
 import { For, Show, createMemo } from 'solid-js';
 import * as stylex from '@stylexjs/stylex';
-import type { RoomSnapshot } from '../../../../shared/protocol';
-import { DIFFICULTY_LABELS, isPresetTheme } from '../../../ui/format';
+import type { Player, RoomSnapshot } from '../../../../shared/protocol';
+import { DIFFICULTY_LABELS, isPresetTheme, OPPONENT_KIND_LABELS } from '../../../ui/format';
 import { ASSETS, SEAT_LIMIT } from '../../../pixi/assets';
 import { ui } from '../../../ui/primitives';
 import { styles } from './lobby-panel.styles';
@@ -15,17 +15,26 @@ export interface LobbyActions {
 }
 
 /**
- * Mirrors the room's authoritative rule: still in the open lobby (never while
- * the spellbook is being prepared), at least two connected players, no seated
- * player offline, and every non-host player ready. A quick room under a live
- * reservation starts itself and refuses a manual start.
+ * Whether a seat counts as present for the lobby's readiness rules. A synthetic
+ * opponent is seated by the server and always available — the lobby never waits
+ * on a socket, a readiness gesture or a reconnect from it.
  */
-function canStart(snapshot: RoomSnapshot): boolean {
-  if (snapshot.phase !== 'lobby' || snapshot.draining) return false;
+export function seatPresent(player: Player): boolean {
+  return player.connected || player.kind !== 'human';
+}
+
+/**
+ * Mirrors the room's authoritative rule: still in the open lobby (never while
+ * the spellbook is being prepared), at least two present players, no seated
+ * human player offline, and every non-host player ready. A quick room under a
+ * live reservation starts itself and refuses a manual start. A maintenance
+ * window blocks the start itself, not the room.
+ */
+function canStart(snapshot: RoomSnapshot, admissionBlocked: boolean): boolean {
+  if (snapshot.phase !== 'lobby' || admissionBlocked) return false;
   if (snapshot.mode === 'quick' && snapshot.reservationExpiresAt !== null) return false;
-  const connected = snapshot.players.filter((player) => player.connected);
-  if (connected.length < 2) return false;
-  if (snapshot.players.some((player) => !player.connected)) return false;
+  if (snapshot.players.filter(seatPresent).length < 2) return false;
+  if (snapshot.players.some((player) => !seatPresent(player))) return false;
   return snapshot.players.every((player) => player.id === snapshot.hostId || player.ready);
 }
 
@@ -39,25 +48,26 @@ function joinedNames(players: { username: string }[]): string {
  * the moment both reserved seats are online — and generation hands over to the
  * opening countdown on its own.
  */
-function startHint(snapshot: RoomSnapshot, isHost: boolean): string {
+function startHint(snapshot: RoomSnapshot, isHost: boolean, admissionBlocked: boolean): string {
   if (snapshot.phase === 'generating') {
     return '咒文书准备完成后会自动进入开场倒计时，等待期间仍可调整准备状态。';
   }
   if (snapshot.mode === 'quick' && snapshot.reservationExpiresAt !== null) {
-    return snapshot.players.filter((player) => player.connected).length >= 2
+    return snapshot.players.filter(seatPresent).length >= 2
       ? '双方已到齐，即将自动开战。'
       : '对手正在进入房间，双方到齐后自动开战。';
   }
-  if (snapshot.draining) {
-    return '此版本已停止接受新对局，请离开房间后更新。';
+  if (admissionBlocked) {
+    return '系统维护中：暂时无法开始新对局，维护结束后即可开始。';
   }
-  const offline = snapshot.players.filter((player) => !player.connected);
+  const offline = snapshot.players.filter((player) => !seatPresent(player));
   if (offline.length > 0) return `等待 ${joinedNames(offline)} 重新连接。`;
-  const connected = snapshot.players.filter((player) => player.connected);
-  if (connected.length < 2) {
+  if (snapshot.players.filter(seatPresent).length < 2) {
     return snapshot.mode === 'quick' ? '等待对手进入房间。' : '邀请朋友加入，至少两人即可开战。';
   }
-  const waitingReady = connected.filter((player) => player.id !== snapshot.hostId && !player.ready);
+  const waitingReady = snapshot.players.filter(
+    (player) => player.id !== snapshot.hostId && !player.ready,
+  );
   if (waitingReady.length > 0) return `还需要这些玩家准备：${joinedNames(waitingReady)}。`;
   // A quick room here is one whose generation failed or whose match ended:
   // the host restarts it by hand, exactly like a private room.
@@ -77,6 +87,8 @@ export function LobbyPanel(props: {
   snapshot: RoomSnapshot;
   selfId: string;
   reservationRemainingMs: number | null;
+  /** A maintenance window (or unknown service status) blocks starting, not the room. */
+  admissionBlocked: boolean;
   /** The lobby stays mounted for the whole room; combat simply hides it. */
   hidden: boolean;
   actions: LobbyActions;
@@ -93,7 +105,7 @@ export function LobbyPanel(props: {
   const quickWaiting = () =>
     props.snapshot.mode === 'quick' &&
     props.snapshot.reservationExpiresAt !== null &&
-    props.snapshot.players.filter((player) => player.connected).length < 2;
+    props.snapshot.players.filter(seatPresent).length < 2;
   const generating = createMemo(() => props.snapshot.phase === 'generating');
   /** The stage is "working" while an opponent is pending or the book cooks. */
   const stageLive = createMemo(() => generating() || quickWaiting());
@@ -253,7 +265,7 @@ export function LobbyPanel(props: {
         </div>
 
         <p class={stylex.props(styles.state).className} data-testid="lobby-hint" aria-live="polite">
-          {startHint(props.snapshot, isHost())}
+          {startHint(props.snapshot, isHost(), props.admissionBlocked)}
         </p>
 
         <p
@@ -304,6 +316,14 @@ export function LobbyPanel(props: {
               {DIFFICULTY_LABELS[props.snapshot.difficulty] ?? props.snapshot.difficulty}
             </dd>
           </div>
+          <Show when={props.snapshot.opponentKind !== 'human'}>
+            <div class={stylex.props(styles.fact).className}>
+              <dt class={stylex.props(styles.factLabel).className}>对手</dt>
+              <dd class={stylex.props(styles.factValue).className} data-testid="room-opponent-kind">
+                {`${OPPONENT_KIND_LABELS[props.snapshot.opponentKind]} · 系统安排的训练对手`}
+              </dd>
+            </div>
+          </Show>
           <div class={stylex.props(styles.fact).className}>
             <dt class={stylex.props(styles.factLabel).className}>房主</dt>
             <dd class={stylex.props(styles.factValue).className} data-testid="lobby-seed">
@@ -340,7 +360,6 @@ export function LobbyPanel(props: {
             data-testid="lobby-ready"
             aria-pressed={ready()}
             hidden={!self()}
-            disabled={props.snapshot.draining && props.snapshot.reservationExpiresAt === null}
             onClick={() => props.actions.onReady(!ready())}
           >
             {ready() ? '取消准备' : '我准备好了'}
@@ -350,7 +369,7 @@ export function LobbyPanel(props: {
             class={stylex.props(ui.button, ui.gold).className}
             data-testid="lobby-start"
             hidden={!startVisible()}
-            disabled={!canStart(props.snapshot)}
+            disabled={!canStart(props.snapshot, props.admissionBlocked)}
             onClick={() => props.actions.onStart()}
           >
             开始对局

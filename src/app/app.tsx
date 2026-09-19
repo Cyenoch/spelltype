@@ -4,7 +4,7 @@ import { createRouter, RouterProvider, stringifySearchWith } from '@tanstack/sol
 import * as stylex from '@stylexjs/stylex';
 import { ServerClock } from './clock';
 import { createNotificationService } from './notifications';
-import { createReleaseService } from './releases';
+import { createMaintenanceService } from './maintenance';
 import { createSession } from './session';
 import { messageOf, toast, ToastHost } from '../ui/toast';
 import { installAssetBase } from '../pixi/assets';
@@ -26,23 +26,22 @@ export function App() {
 function Application(props: { queryClient: QueryClient }) {
   const session = createSession(props.queryClient);
   const notifications = createNotificationService({ session });
-  const release = createReleaseService();
+  const maintenance = createMaintenanceService();
   const [pending, setPending] = createSignal<string | null>(null);
   const [notice, setNotice] = createSignal('');
   const [connection, setConnection] = createSignal<RoomLinkState>('idle');
   const [graphicsFailed, setGraphicsFailed] = createSignal(false);
-  // Static-compiled styles cannot embed the release base, so the arena image
-  // rides a custom property; set it before any of those surfaces render.
+  // Static-compiled styles resolve asset URLs from the document base, so the
+  // arena image host is registered before any of those surfaces render.
   onMount(() => installAssetBase());
   const ctx: AppContext = {
     session,
     queryClient: props.queryClient,
     clock: new ServerClock(),
     notifications,
-    release,
+    maintenance,
     pendingInvite: pending,
     setPendingInvite: setPending,
-    roomEntryUrl: (room) => `${location.origin}/?room=${room}`,
     notify: toast,
     reportGraphicsFailure: () => {
       if (!graphicsFailed()) toast('战场画面暂不可用，已切换为文字模式。', 'warn');
@@ -54,7 +53,7 @@ function Application(props: { queryClient: QueryClient }) {
       // The shell owns the router, so re-authentication navigates with it.
       void router.navigate({
         to: '/auth',
-        search: { mode: 'login', room: pending() ?? undefined },
+        search: { room: pending() ?? undefined },
       });
       toast(reason, 'error');
     },

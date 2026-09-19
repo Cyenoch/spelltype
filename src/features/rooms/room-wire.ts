@@ -15,8 +15,6 @@ export interface CloseInfo {
   protocolMismatch: boolean;
   /** The server reset this connection because input messages were too dense. */
   inputOverload: boolean;
-  /** The room's release was retired: the room is over for every build. */
-  roomRetired: boolean;
 }
 
 const AUTH_CLOSE_CODES: Record<number, true> = { 1008: true, 4401: true, 4403: true };
@@ -49,7 +47,6 @@ export function closeInfo(code: number, reason: string): CloseInfo {
     roomClosed: code === WS_CLOSE.closed,
     protocolMismatch: code === WS_CLOSE.protocolMismatch,
     inputOverload: code === WS_CLOSE.inputOverload,
-    roomRetired: false,
   };
 }
 
@@ -57,7 +54,7 @@ export function closeInfo(code: number, reason: string): CloseInfo {
 export type Diagnosis = 'ok' | 'auth' | 'room' | 'protocol';
 
 /**
- * An HTTP 409 carrying the server's required protocol is an update-required verdict,
+ * An HTTP 409 carrying the server's required protocol is a refresh-required verdict,
  * including when a proxy or stale request omitted this page's current version header.
  * Shared by the initial route load and the post-close diagnosis, so both
  * surfaces reach the same terminal "refresh the page" state.

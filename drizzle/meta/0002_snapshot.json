@@ -1,6 +1,6 @@
 {
-  "id": "21efcb72-4439-4aa2-b786-664b7538aacf",
-  "prevId": "96d8eb61-c420-4fd8-a874-2950b3fdb75e",
+  "id": "389ccdb0-2e5c-4ee0-b085-8995abd0b0c3",
+  "prevId": "bcc6d78d-6a82-4eac-9f13-3bd16df49d73",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -20,17 +20,18 @@
           "primaryKey": false,
           "notNull": true
         },
-        "username_key": {
-          "name": "username_key",
+        "wechat_identity": {
+          "name": "wechat_identity",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "password_hash": {
-          "name": "password_hash",
+        "role": {
+          "name": "role",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": true,
+          "default": "'user'"
         },
         "created_at": {
           "name": "created_at",
@@ -43,14 +44,19 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "accounts_username_key_unique": {
-          "name": "accounts_username_key_unique",
+        "accounts_wechat_identity_unique": {
+          "name": "accounts_wechat_identity_unique",
           "nullsNotDistinct": false,
-          "columns": ["username_key"]
+          "columns": ["wechat_identity"]
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "accounts_role": {
+          "name": "accounts_role",
+          "value": "\"accounts\".\"role\" in ('user','admin')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.combat_volleys": {
@@ -158,6 +164,182 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.ghost_casts": {
+      "name": "ghost_casts",
+      "schema": "",
+      "columns": {
+        "room_id": {
+          "name": "room_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "match_id": {
+          "name": "match_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "spell_index": {
+          "name": "spell_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "at": {
+          "name": "at",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "ghost_casts_room_idx": {
+          "name": "ghost_casts_room_idx",
+          "columns": [
+            {
+              "expression": "room_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "ghost_casts_room_id_rooms_id_fk": {
+          "name": "ghost_casts_room_id_rooms_id_fk",
+          "tableFrom": "ghost_casts",
+          "tableTo": "rooms",
+          "columnsFrom": ["room_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "ghost_casts_match_id_user_id_spell_index_pk": {
+          "name": "ghost_casts_match_id_user_id_spell_index_pk",
+          "columns": ["match_id", "user_id", "spell_index"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.ghosts": {
+      "name": "ghosts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "source_user_id": {
+          "name": "source_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "theme": {
+          "name": "theme",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "book": {
+          "name": "book",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "casts": {
+          "name": "casts",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "rules_version": {
+          "name": "rules_version",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "ghosts_source_idx": {
+          "name": "ghosts_source_idx",
+          "columns": [
+            {
+              "expression": "source_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "ghosts_selection_idx": {
+          "name": "ghosts_selection_idx",
+          "columns": [
+            {
+              "expression": "rules_version",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "ghosts_source_user_id_accounts_id_fk": {
+          "name": "ghosts_source_user_id_accounts_id_fk",
+          "tableFrom": "ghosts",
+          "tableTo": "accounts",
+          "columnsFrom": ["source_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.match_tickets": {
       "name": "match_tickets",
       "schema": "",
@@ -170,12 +352,6 @@
         },
         "request_id": {
           "name": "request_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "release_id": {
-          "name": "release_id",
           "type": "text",
           "primaryKey": false,
           "notNull": true
@@ -218,15 +394,9 @@
         }
       },
       "indexes": {
-        "match_tickets_release_state_idx": {
-          "name": "match_tickets_release_state_idx",
+        "match_tickets_state_idx": {
+          "name": "match_tickets_state_idx",
           "columns": [
-            {
-              "expression": "release_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
             {
               "expression": "state",
               "isExpression": false,
@@ -261,15 +431,6 @@
           "tableFrom": "match_tickets",
           "tableTo": "accounts",
           "columnsFrom": ["user_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "match_tickets_release_id_release_versions_id_fk": {
-          "name": "match_tickets_release_id_release_versions_id_fk",
-          "tableFrom": "match_tickets",
-          "tableTo": "release_versions",
-          "columnsFrom": ["release_id"],
           "columnsTo": ["id"],
           "onDelete": "no action",
           "onUpdate": "no action"
@@ -563,156 +724,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.release_control": {
-      "name": "release_control",
-      "schema": "",
-      "columns": {
-        "singleton": {
-          "name": "singleton",
-          "type": "integer",
-          "primaryKey": true,
-          "notNull": true,
-          "default": 1
-        },
-        "active_release_id": {
-          "name": "active_release_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revision": {
-          "name": "revision",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "release_control_active_release_id_release_versions_id_fk": {
-          "name": "release_control_active_release_id_release_versions_id_fk",
-          "tableFrom": "release_control",
-          "tableTo": "release_versions",
-          "columnsFrom": ["active_release_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "release_control_singleton": {
-          "name": "release_control_singleton",
-          "value": "\"release_control\".\"singleton\" = 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.release_versions": {
-      "name": "release_versions",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "artifact_digest": {
-          "name": "artifact_digest",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "operation_id": {
-          "name": "operation_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "admission_epoch": {
-          "name": "admission_epoch",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "runtime_id": {
-          "name": "runtime_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "runtime_epoch": {
-          "name": "runtime_epoch",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "lease_until": {
-          "name": "lease_until",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "checked_epoch": {
-          "name": "checked_epoch",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "retired_at": {
-          "name": "retired_at",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "release_versions_id_hex": {
-          "name": "release_versions_id_hex",
-          "value": "\"release_versions\".\"id\" ~ '^[0-9a-f]{32}$'"
-        },
-        "release_versions_state": {
-          "name": "release_versions_state",
-          "value": "\"release_versions\".\"state\" in ('staged','active','retiring','retired')"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.results": {
       "name": "results",
       "schema": "",
@@ -740,6 +751,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "opponent_kind": {
+          "name": "opponent_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'human'"
         },
         "damage_dealt": {
           "name": "damage_dealt",
@@ -887,7 +905,12 @@
       },
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "results_opponent_kind": {
+          "name": "results_opponent_kind",
+          "value": "\"results\".\"opponent_kind\" in ('human','ghost','bot')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.room_sessions": {
@@ -965,19 +988,6 @@
           "primaryKey": true,
           "notNull": true
         },
-        "release_id": {
-          "name": "release_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "draining": {
-          "name": "draining",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "host_id": {
           "name": "host_id",
           "type": "text",
@@ -1036,6 +1046,25 @@
         "match_id": {
           "name": "match_id",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "opponent_kind": {
+          "name": "opponent_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'human'"
+        },
+        "ghost_id": {
+          "name": "ghost_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "opponent_next_at": {
+          "name": "opponent_next_at",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         },
@@ -1162,21 +1191,6 @@
         }
       },
       "indexes": {
-        "rooms_release_id_idx": {
-          "name": "rooms_release_id_idx",
-          "columns": [
-            {
-              "expression": "release_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "rooms_next_alarm_idx": {
           "name": "rooms_next_alarm_idx",
           "columns": [
@@ -1194,17 +1208,7 @@
           "with": {}
         }
       },
-      "foreignKeys": {
-        "rooms_release_id_release_versions_id_fk": {
-          "name": "rooms_release_id_release_versions_id_fk",
-          "tableFrom": "rooms",
-          "tableTo": "release_versions",
-          "columnsFrom": ["release_id"],
-          "columnsTo": ["id"],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -1217,6 +1221,10 @@
           "name": "rooms_mode",
           "value": "\"rooms\".\"mode\" in ('private','quick')"
         },
+        "rooms_opponent_kind": {
+          "name": "rooms_opponent_kind",
+          "value": "\"rooms\".\"opponent_kind\" in ('human','ghost','bot')"
+        },
         "rooms_difficulty": {
           "name": "rooms_difficulty",
           "value": "\"rooms\".\"difficulty\" = 'hard'"
@@ -1227,7 +1235,7 @@
         },
         "rooms_end_reason": {
           "name": "rooms_end_reason",
-          "value": "\"rooms\".\"end_reason\" is null or \"rooms\".\"end_reason\" in ('elimination','timeout')"
+          "value": "\"rooms\".\"end_reason\" is null or \"rooms\".\"end_reason\" in ('elimination','timeout','bot_concession','inactivity')"
         },
         "rooms_reservation_state": {
           "name": "rooms_reservation_state",
@@ -1236,6 +1244,73 @@
         "rooms_persistence": {
           "name": "rooms_persistence",
           "value": "\"rooms\".\"persistence\" in ('idle','saving','saved','error')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.runtime_control": {
+      "name": "runtime_control",
+      "schema": "",
+      "columns": {
+        "singleton": {
+          "name": "singleton",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "default": 1
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "runtime_id": {
+          "name": "runtime_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "runtime_epoch": {
+          "name": "runtime_epoch",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "lease_until": {
+          "name": "lease_until",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "runtime_control_singleton": {
+          "name": "runtime_control_singleton",
+          "value": "\"runtime_control\".\"singleton\" = 1"
+        },
+        "runtime_control_mode": {
+          "name": "runtime_control_mode",
+          "value": "\"runtime_control\".\"mode\" in ('open','draining')"
         }
       },
       "isRLSEnabled": false
@@ -1330,6 +1405,62 @@
           "type": "bigint",
           "primaryKey": false,
           "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.wechat_login_attempts": {
+      "name": "wechat_login_attempts",
+      "schema": "",
+      "columns": {
+        "state_hash": {
+          "name": "state_hash",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "room_id": {
+          "name": "room_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.wechat_relay_tokens": {
+      "name": "wechat_relay_tokens",
+      "schema": "",
+      "columns": {
+        "jti": {
+          "name": "jti",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
         }
       },
       "indexes": {},

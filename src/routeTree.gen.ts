@@ -16,6 +16,7 @@ import { Route as GuideRouteImport } from './routes/guide'
 import { Route as AuthenticatedCreateRouteImport } from './routes/_authenticated.create'
 import { Route as AuthenticatedMatchRouteImport } from './routes/_authenticated.match'
 import { Route as AuthenticatedMeRouteImport } from './routes/_authenticated.me'
+import { Route as AuthenticatedAdminMaintenanceRouteImport } from './routes/_authenticated.admin.maintenance'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -51,6 +52,12 @@ const AuthenticatedMeRoute = AuthenticatedMeRouteImport.update({
   path: '/me',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedAdminMaintenanceRoute =
+  AuthenticatedAdminMaintenanceRouteImport.update({
+    id: '/admin/maintenance',
+    path: '/admin/maintenance',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -59,6 +66,7 @@ export interface FileRoutesByFullPath {
   '/create': typeof AuthenticatedCreateRoute
   '/match': typeof AuthenticatedMatchRoute
   '/me': typeof AuthenticatedMeRoute
+  '/admin/maintenance': typeof AuthenticatedAdminMaintenanceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -67,6 +75,7 @@ export interface FileRoutesByTo {
   '/create': typeof AuthenticatedCreateRoute
   '/match': typeof AuthenticatedMatchRoute
   '/me': typeof AuthenticatedMeRoute
+  '/admin/maintenance': typeof AuthenticatedAdminMaintenanceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -77,12 +86,27 @@ export interface FileRoutesById {
   '/_authenticated/create': typeof AuthenticatedCreateRoute
   '/_authenticated/match': typeof AuthenticatedMatchRoute
   '/_authenticated/me': typeof AuthenticatedMeRoute
+  '/_authenticated/admin/maintenance': typeof AuthenticatedAdminMaintenanceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/auth' | '/guide' | '/create' | '/match' | '/me'
+  fullPaths:
+    | '/'
+    | '/auth'
+    | '/guide'
+    | '/create'
+    | '/match'
+    | '/me'
+    | '/admin/maintenance'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/auth' | '/guide' | '/create' | '/match' | '/me'
+  to:
+    | '/'
+    | '/auth'
+    | '/guide'
+    | '/create'
+    | '/match'
+    | '/me'
+    | '/admin/maintenance'
   id:
     | '__root__'
     | '/'
@@ -92,6 +116,7 @@ export interface FileRouteTypes {
     | '/_authenticated/create'
     | '/_authenticated/match'
     | '/_authenticated/me'
+    | '/_authenticated/admin/maintenance'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -152,6 +177,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof AuthenticatedMeRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/admin/maintenance': {
+      id: '/_authenticated/admin/maintenance'
+      path: '/admin/maintenance'
+      fullPath: '/admin/maintenance'
+      preLoaderRoute: typeof AuthenticatedAdminMaintenanceRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
   }
 }
 
@@ -159,12 +191,14 @@ interface AuthenticatedRouteChildren {
   AuthenticatedCreateRoute: typeof AuthenticatedCreateRoute
   AuthenticatedMatchRoute: typeof AuthenticatedMatchRoute
   AuthenticatedMeRoute: typeof AuthenticatedMeRoute
+  AuthenticatedAdminMaintenanceRoute: typeof AuthenticatedAdminMaintenanceRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedCreateRoute: AuthenticatedCreateRoute,
   AuthenticatedMatchRoute: AuthenticatedMatchRoute,
   AuthenticatedMeRoute: AuthenticatedMeRoute,
+  AuthenticatedAdminMaintenanceRoute: AuthenticatedAdminMaintenanceRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(

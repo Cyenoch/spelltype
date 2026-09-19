@@ -4,18 +4,6 @@ import type { InputPolicyMode } from '../../shared/protocol';
 import { pushSnapshots } from './snapshots';
 import { INPUTS_PER_SECOND } from './rules';
 
-/**
- * The immutable admission rules a runtime hands its rooms. Both are validated at
- * startup; the room only ever reads the typed value and refuses to open a match
- * when the runtime was not configured for one.
- */
-export interface RoomMatchPolicy {
-  /** Global admission: only `open` starts new matches; `draining` pauses them. */
-  readonly matchAdmission: 'open' | 'draining';
-  /** The input-time mode every match this runtime opens locks into its room row. */
-  readonly inputPolicyMode: InputPolicyMode;
-}
-
 /** The identity a socket was accepted with, fixed once at connect time. */
 export type SocketAuth = {
   userId: string;
@@ -91,14 +79,12 @@ export class InputBudget {
  */
 export interface RoomScope {
   readonly roomId: string;
-  readonly releaseId: string;
   /** Plain (non-transactional) database access; command transactions flow through `transact`. */
   readonly db: QueryDatabase;
   readonly generate: GenerateSpells;
   readonly input: InputBudget;
   readonly registry: SocketRegistry;
-  /** The admission rules this runtime was started with; match opening reads them. */
-  readonly matchAdmission: 'open' | 'draining';
+  /** The input-time mode every match this runtime opens locks into its room row. */
   readonly inputPolicyMode: InputPolicyMode;
   /**
    * The generation attempt this engine is currently awaiting, if any. The
@@ -117,12 +103,10 @@ export interface RoomScope {
 
 export interface RoomScopeOptions {
   roomId: string;
-  releaseId: string;
   db: QueryDatabase;
   generate: GenerateSpells;
   registry: SocketRegistry;
-  /** The runtime's admission rules; mandatory, so a scope can never guess them. */
-  matchAdmission: 'open' | 'draining';
+  /** The input-time mode every match this runtime opens locks into its room row. */
   inputPolicyMode: InputPolicyMode;
   /** The engine's quota tracker; when omitted the scope owns a fresh one. */
   input?: InputBudget;
@@ -142,12 +126,10 @@ export interface RoomScopeOptions {
 export function createRoomScope(options: RoomScopeOptions): RoomScope {
   const scope: RoomScope = {
     roomId: options.roomId,
-    releaseId: options.releaseId,
     db: options.db,
     generate: options.generate,
     input: options.input ?? new InputBudget(),
     registry: options.registry,
-    matchAdmission: options.matchAdmission,
     inputPolicyMode: options.inputPolicyMode,
     inFlightGeneration: null,
     now: () => Date.now(),

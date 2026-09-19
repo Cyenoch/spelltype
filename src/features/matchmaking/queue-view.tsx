@@ -1,7 +1,7 @@
-import { Link, useNavigate } from '@tanstack/solid-router';
+import { Link } from '@tanstack/solid-router';
 import * as stylex from '@stylexjs/stylex';
 import { useQuery } from '@tanstack/solid-query';
-import { Show, createEffect, createMemo, createSignal, on } from 'solid-js';
+import { Show, createEffect, createMemo, on } from 'solid-js';
 import { formatDuration } from '../../ui/format';
 import { activityOptions } from '../../app/queries';
 import type { AppContext } from '../../app/context';
@@ -14,23 +14,9 @@ import { styles } from './queue-view.styles';
 
 /** Server-owned matchmaking status alongside local-only typing practice. */
 export function QueueView(props: { ctx: AppContext }) {
-  const navigate = useNavigate();
   const queue = createMatchQueue(props);
   const searching = createMemo(() => queue.state() === 'waiting');
   const settled = createMemo(() => queue.state() === 'cancelled' || queue.state() === 'blocked');
-  /** A newer release is live: the only way out of this page's queue is to cancel. */
-  const updateRequired = () => props.ctx.release.updateRequired();
-  const [updateCancelPending, setUpdateCancelPending] = createSignal(false);
-
-  /** Cancel-for-update: home first, then the shell's explicit update button. */
-  const cancelForUpdate = () => {
-    if (updateCancelPending()) return;
-    setUpdateCancelPending(true);
-    void queue.cancelForUpdate().then((cancelled) => {
-      setUpdateCancelPending(false);
-      if (cancelled) void navigate({ to: '/', search: {} });
-    });
-  };
 
   /** Live population, read from the homepage counters' poll (10s refresh, 5s stale). */
   const activity = useQuery(() => activityOptions);
@@ -150,35 +136,20 @@ export function QueueView(props: { ctx: AppContext }) {
           </Show>
 
           <div class={stylex.props(ui.buttonRow).className}>
-            <Show
-              when={updateRequired() && searching()}
-              fallback={
-                <button
-                  type="button"
-                  class={stylex.props(ui.button, ui.danger).className}
-                  data-testid="queue-cancel"
-                  hidden={queue.state() === 'cancelled'}
-                  disabled={queue.cancelPending() || queue.state() === 'matched'}
-                  onClick={() => queue.cancel()}
-                >
-                  {queue.state() === 'matched'
-                    ? '正在进入房间…'
-                    : queue.state() === 'blocked'
-                      ? '取消已有排队'
-                      : '取消等待'}
-                </button>
-              }
+            <button
+              type="button"
+              class={stylex.props(ui.button, ui.danger).className}
+              data-testid="queue-cancel"
+              hidden={queue.state() === 'cancelled'}
+              disabled={queue.cancelPending() || queue.state() === 'matched'}
+              onClick={() => queue.cancel()}
             >
-              <button
-                type="button"
-                class={stylex.props(ui.button, ui.danger).className}
-                data-testid="queue-cancel-update"
-                disabled={updateCancelPending() || queue.cancelPending()}
-                onClick={() => cancelForUpdate()}
-              >
-                {updateCancelPending() ? '正在取消排队…' : '取消排队，去更新'}
-              </button>
-            </Show>
+              {queue.state() === 'matched'
+                ? '正在进入房间…'
+                : queue.state() === 'blocked'
+                  ? '取消已有排队'
+                  : '取消等待'}
+            </button>
             <button
               type="button"
               class={stylex.props(ui.button, ui.primary).className}

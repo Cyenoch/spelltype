@@ -1,12 +1,13 @@
 import { For, Show, createMemo } from 'solid-js';
 import * as stylex from '@stylexjs/stylex';
 import type { Player } from '../../../../shared/protocol';
+import { OPPONENT_KIND_LABELS } from '../../../ui/format';
 import { ASSETS, avatarFallbackForSlot, avatarForSlot } from '../../../pixi/assets';
 import { styles } from './lobby-panel.styles';
 
 interface SeatBadge {
   label: string;
-  tone: 'host' | 'ready' | 'not-ready' | 'offline';
+  tone: 'host' | 'ready' | 'not-ready' | 'offline' | 'synthetic';
   testid: string;
 }
 
@@ -15,11 +16,20 @@ const BADGE_TONE = {
   ready: 'badgeReady',
   'not-ready': 'badgeOffline',
   offline: 'badgeOffline',
+  synthetic: 'badgeSynthetic',
 } as const;
 
 /** The badges one seat shows, in the order the lobby has always shown them. */
 function seatBadges(player: Player, hostId: string): SeatBadge[] {
   const badges: SeatBadge[] = [];
+  // A synthetic opponent names itself first: it is never presented as an offline
+  // or secretly online human.
+  if (player.kind !== 'human')
+    badges.push({
+      label: OPPONENT_KIND_LABELS[player.kind],
+      tone: 'synthetic',
+      testid: 'lobby-badge-kind',
+    });
   if (player.id === hostId)
     badges.push({ label: '房主', tone: 'host', testid: 'lobby-badge-host' });
   badges.push(
@@ -27,7 +37,7 @@ function seatBadges(player: Player, hostId: string): SeatBadge[] {
       ? { label: '已准备', tone: 'ready', testid: 'lobby-badge-ready' }
       : { label: '未准备', tone: 'not-ready', testid: 'lobby-badge-not-ready' },
   );
-  if (!player.connected)
+  if (player.kind === 'human' && !player.connected)
     badges.push({ label: '离线', tone: 'offline', testid: 'lobby-badge-offline' });
   return badges;
 }
@@ -64,12 +74,16 @@ export function Seat(props: {
         stylex.props(
           styles.card,
           props.compact && styles.cardCompact,
-          props.player && !props.player.connected && styles.cardOffline,
+          props.player &&
+            props.player.kind === 'human' &&
+            !props.player.connected &&
+            styles.cardOffline,
         ).className
       }
       data-testid="lobby-slot"
       data-slot={props.slot}
       data-user={props.player?.id ?? ''}
+      data-kind={props.player?.kind ?? ''}
       data-connected={props.player ? String(props.player.connected) : ''}
       data-ready={props.player ? String(props.player.ready) : ''}
       data-self={props.player ? String(isSelf()) : ''}
@@ -149,9 +163,11 @@ export function Seat(props: {
         </div>
         <div class={stylex.props(styles.note).className} data-testid="lobby-slot-meta">
           {props.player
-            ? props.player.connected
-              ? `席位 ${props.slot + 1} · 已连接`
-              : `席位 ${props.slot + 1} · 连接中断`
+            ? props.player.kind !== 'human'
+              ? `席位 ${props.slot + 1} · 训练对手，随开随战`
+              : props.player.connected
+                ? `席位 ${props.slot + 1} · 已连接`
+                : `席位 ${props.slot + 1} · 连接中断`
             : props.emptyNote}
         </div>
         <div class={stylex.props(styles.badges).className} data-testid="lobby-slot-badges">

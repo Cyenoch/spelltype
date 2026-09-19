@@ -1,0 +1,40 @@
+# Dokploy-host override: the authoritative Traefik routing for the app
+# service. Enable it by setting in deploy/compose.env:
+#
+#   COMPOSE_FILE=compose.yaml:deploy/compose.dokploy.yaml
+#
+# Because routing lives in this checked-in file (not in a Dokploy-generated
+# copy), every `bun run deploy deploy` / `rollback` container recreate keeps
+# the domain, the external network and the TLS labels exactly as written
+# here. The CLI resolves the same COMPOSE_FILE set for every compose
+# command, so routing can never silently diverge between operator and CLI.
+#
+# Dokploy usage rules for this stateful app:
+#   - Provision the project once (initial `up`), then disable Dokploy UI
+#     auto-deploy/webhook/trigger settings for it. scripts/deploy.ts is the
+#     single owner of the app lifecycle; a UI redeploy would recreate the
+#     app container without the drain -> stop -> migrate -> verify ->
+#     resume sequence and is therefore never used for updates.
+#   - Dokploy's domain UI is not used; routing comes from the labels below.
+#   - The app container never mounts the Docker socket.
+#
+# HTTP -> HTTPS redirection follows the host Traefik's global policy; add a
+# web entrypoint router + redirect middleware here if your host has none.
+services:
+  app:
+    # Keep the project-internal default network (postgres) and join
+    # Dokploy's shared ingress network so its Traefik can reach app:3000.
+    networks:
+      default: {}
+      dokploy-network: {}
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.${SPELLTYPE_TRAEFIK_ROUTER:-spelltype}.rule=Host(`${SPELLTYPE_DOKPLOY_HOST:?set SPELLTYPE_DOKPLOY_HOST in deploy/compose.env to the public domain}`)
+      - traefik.http.routers.${SPELLTYPE_TRAEFIK_ROUTER:-spelltype}.entrypoints=${SPELLTYPE_TRAEFIK_ENTRYPOINTS:-websecure}
+      - traefik.http.routers.${SPELLTYPE_TRAEFIK_ROUTER:-spelltype}.tls=true
+      - traefik.http.routers.${SPELLTYPE_TRAEFIK_ROUTER:-spelltype}.tls.certresolver=${SPELLTYPE_TRAEFIK_CERTRESOLVER:-letsencrypt}
+      - traefik.http.services.${SPELLTYPE_TRAEFIK_ROUTER:-spelltype}.loadbalancer.server.port=3000
+
+networks:
+  dokploy-network:
+    external: true

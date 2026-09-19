@@ -7,6 +7,7 @@ import {
   type Difficulty,
   type Element,
   type EndReason,
+  type OpponentKind,
   type Phase,
 } from '../../shared/protocol';
 
@@ -38,10 +39,23 @@ export function isPresetTheme(theme: string): boolean {
   return THEME_PRESETS.some((preset) => preset.theme === trimmed);
 }
 
-/** How a finished match was decided. Both are legitimate endings, never an error. */
+/**
+ * How a finished match was decided. All are legitimate endings, never an error. The two synthetic
+ * endings are the opponent's own doing: `bot_concession` is a yielded training opponent,
+ * `inactivity` is the room ending a match nobody was casting in.
+ */
 export const END_REASON_LABELS: Record<EndReason, string> = {
   elimination: '场上存活者不足两人，战斗结束',
   timeout: '时间耗尽，存活者按剩余生命排名',
+  bot_concession: '训练对手认输，战斗结束',
+  inactivity: '长时间无有效施法，战斗结束',
+};
+
+/** What a seat is. Human seats stay unlabelled in the UI; only synthetic kinds get a badge. */
+export const OPPONENT_KIND_LABELS: Record<OpponentKind, string> = {
+  human: '真人',
+  ghost: '幻影',
+  bot: '机器人',
 };
 
 export const ELEMENTS: readonly Element[] = ['arcane', 'fire', 'ice', 'storm'];

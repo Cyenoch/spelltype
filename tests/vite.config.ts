@@ -1,16 +1,13 @@
 /**
- * Vite config used only by the E2E harness's UI servers (`tests/support/harness.ts` boots one
- * instance per release identity through Vite's JS API).
+ * Vite config used only by the E2E harness's UI server (`tests/support/harness.ts` boots the one
+ * instance through Vite's JS API).
  *
  * The file carries the shared product pipeline only (routing, JSX + StyleX — the same pipeline
  * the product build uses, so the browser under test renders exactly what ships). Everything
  * instance-specific is injected inline per boot by the harness:
- *  - the compiled `__SPELLTYPE_RELEASE_ID__` constant (`define`), because release A and release
- *    B UIs run side by side;
- *  - the dependency-optimizer `cacheDir`, isolated per worker and release so the instances
- *    never delete each other's committed caches;
- *  - the `/api` proxies, including the fixture-only Origin mapping to the stable API's
- *    canonical public origin.
+ *  - the dependency-optimizer `cacheDir`, isolated per worker so the instance never deletes
+ *    another producer's committed caches;
+ *  - the `/api` proxy to the application server (the UI origin IS the configured public origin).
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';

@@ -1,7 +1,6 @@
 import { queryOptions } from '@tanstack/solid-query';
 import { parseResponse } from 'hono/client';
-import { client, gameClient } from './client';
-import { RELEASE_ID } from './release-id';
+import { client } from './client';
 
 /** The session is the one entry the shell always reads: a guest is a 200 with `user: null`. */
 export const sessionOptions = queryOptions({
@@ -24,15 +23,6 @@ export const profileOptions = (userId: string) =>
 export const activityOptions = queryOptions({
   queryKey: ['activity'],
   queryFn: ({ signal }) => parseResponse(client.api.activity.$get({}, { init: { signal } })),
-  staleTime: 5_000,
-  refetchInterval: 10_000,
-  retry: false,
-});
-
-/** Capability belongs to this game runtime, never to the stable identity service. */
-export const gameHealthOptions = queryOptions({
-  queryKey: ['game-health', RELEASE_ID],
-  queryFn: ({ signal }) => parseResponse(gameClient.health.$get({}, { init: { signal } })),
   staleTime: 5_000,
   refetchInterval: 10_000,
   retry: false,

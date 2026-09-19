@@ -1,1 +1,0 @@
-ALTER TABLE "players" ALTER COLUMN "draft_epoch" SET DATA TYPE bigint;

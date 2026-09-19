@@ -130,6 +130,12 @@ export function ProfileView(props: { ctx: AppContext }) {
 
       <div class={stylex.props(ui.panel).className}>
         <h2>最近十场</h2>
+        <p
+          class={stylex.props(ui.smallText, ui.faint).className}
+          data-testid="profile-history-note"
+        >
+          对手列标明每局的对手类型（真人 / 幻影 / 机器人）；与训练对手的对局照常记录，暂无排名奖励。
+        </p>
 
         <ProfileHistory history={history()} />
       </div>

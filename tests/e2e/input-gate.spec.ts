@@ -194,12 +194,7 @@ interface TrackedSocket {
 function trackWebsockets(page: Page): { sockets: TrackedSocket[]; count(): number } {
   const sockets: TrackedSocket[] = [];
   page.on('websocket', (socket) => {
-    if (
-      !/^\/api\/releases\/[0-9a-f]{32}\/rooms\/[0-9a-f]{24}\/ws$/.test(
-        new URL(socket.url()).pathname,
-      )
-    )
-      return;
+    if (!/^\/api\/rooms\/[0-9a-f]{24}\/ws$/.test(new URL(socket.url()).pathname)) return;
     const entry: TrackedSocket = { received: [], closed: false };
     sockets.push(entry);
     socket.on('framereceived', (event) => entry.received.push(String(event.payload)));
@@ -821,14 +816,16 @@ test('初始读取版本不符是终态：刷新按钮出现，网络恢复与�
   const room = await twoPlayerRoom(browser, { theme: '终态契约' });
   const host = room.host.page;
   const tracked = trackWebsockets(host);
-  await room.host.context.route(
-    new RegExp(`/api/releases/[0-9a-f]{32}/rooms/${room.roomId}$`),
-    (route) =>
-      route.fulfill({
-        status: 409,
-        contentType: 'application/json',
-        body: JSON.stringify({ error: UPDATE_REQUIRED, protocolVersion: WS_PROTOCOL }),
+  await room.host.context.route(new RegExp(`/api/rooms/${room.roomId}$`), (route) =>
+    route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        code: 'protocol:mismatch',
+        error: UPDATE_REQUIRED,
+        protocolVersion: WS_PROTOCOL,
       }),
+    }),
   );
   await gotoApp(host, `/?room=${room.roomId}`);
 
@@ -843,7 +840,7 @@ test('初始读取版本不符是终态：刷新按钮出现，网络恢复与�
     await settle(400);
   }
   expect(tracked.count()).toBe(0);
-  await room.host.context.unroute(new RegExp(`/api/releases/[0-9a-f]{32}/rooms/${room.roomId}$`));
+  await room.host.context.unroute(new RegExp(`/api/rooms/${room.roomId}$`));
 
   await room.host.context.close();
   await room.guest.context.close();

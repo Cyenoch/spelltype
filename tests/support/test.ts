@@ -2,8 +2,9 @@
  * Playwright test object for this suite.
  *
  * The native harness boots lazily in this worker process on first use and stops at worker
- * teardown: fixture, PGlite database, release-A server (role `all`, with admin) and the release-A
- * UI all live here, so specs share the owning server's Drizzle instance directly.
+ * teardown: fixture, WeChat bridge, PGlite database, the application server (stable API + game
+ * and administrator paths on one listener) and the UI all live here, so specs share the server's Drizzle
+ * instance directly.
  *
  * The auto fixture also gives every tracked account a clean handover after each test: queue
  * reservations are cancelled, and a started match — which truthfully refuses cancellation — is

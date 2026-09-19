@@ -68,47 +68,18 @@ export function createAuthRateLimiter(limits: AuthRateLimit): AuthRateLimiter {
   };
 }
 
-/**
- * The client identity for one authentication attempt.
- *
- * The key is the socket's own peer address — reported by the runtime, not by any header — so a
- * direct client cannot rotate its identity. The forwarded chain is honored only when the
- * deployment explicitly trusts its edge (`trustForwardedFor`) AND that peer is an internal
- * address: the pinned edge is the only host that can reach the API port, and it appends the real
- * client address, so the rightmost entry is what it observed. Loopback alone is not trusted — a
- * direct local request can set any header it likes. External peers, untrusted deployments, and
- * dispatches with no socket all collapse onto their own fixed keys; client-spoofable values never
- * decide.
- */
+/** Explicitly configured headers are trusted; the ingress must prevent client spoofing. */
 export function rateLimitKey(
   peerAddress: string | undefined,
-  forwardedFor: string | undefined,
-  trustForwardedFor: boolean,
+  headerValue: string | undefined,
+  headerName: ServerConfig['trustForwardedFor'],
 ): string {
-  if (
-    trustForwardedFor &&
-    peerAddress !== undefined &&
-    isInternalPeer(peerAddress) &&
-    forwardedFor
-  ) {
-    const entries = forwardedFor.split(',');
-    const observed = entries[entries.length - 1].trim();
-    if (observed.length > 0) return observed;
+  if (headerName && headerValue) {
+    const observed =
+      headerName === 'x-forwarded-for'
+        ? headerValue.slice(headerValue.lastIndexOf(',') + 1).trim()
+        : headerValue.trim();
+    if (observed) return observed;
   }
   return peerAddress ?? 'local';
-}
-
-/** Loopback, RFC 1918 and IPv6 unique/link-local ranges: where our own proxies live. */
-export function isInternalPeer(address: string): boolean {
-  const normalized = address.startsWith('::ffff:') ? address.slice('::ffff:'.length) : address;
-  return (
-    normalized === '127.0.0.1' ||
-    normalized.startsWith('127.') ||
-    normalized.startsWith('10.') ||
-    normalized.startsWith('192.168.') ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(normalized) ||
-    normalized === '::1' ||
-    /^f[cd][0-9a-f]{2}:/.test(normalized) ||
-    normalized.startsWith('fe80:')
-  );
 }

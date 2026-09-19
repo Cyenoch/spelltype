@@ -32,6 +32,8 @@ export function computeNextAlarm(
     timers.push(now);
   if (TIMED_PHASES[room.phase] && room.deadline > 0) timers.push(room.deadline);
   if (room.phase === 'playing' && volleyEndsAt !== null) timers.push(volleyEndsAt);
+  if (room.phase === 'playing' && room.opponent_next_at !== null)
+    timers.push(room.opponent_next_at);
   if (room.reservation_state === 'reserved' && room.reservation_expires_at !== null)
     timers.push(room.reservation_expires_at);
   if (room.locked === 0 && room.phase === 'lobby') {

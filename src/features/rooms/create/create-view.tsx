@@ -5,14 +5,12 @@ import * as stylex from '@stylexjs/stylex';
 import { MAX_THEME_CHARS, THEME_PRESETS, type ThemePreset } from '../../../../shared/protocol';
 import { createRoomSchema, themeSchema } from '../../../../shared/validation';
 import { parseResponse, DetailedError } from 'hono/client';
-import { gameClient } from '../../../app/client';
+import { client } from '../../../app/client';
 import { messageOf, toast } from '../../../ui/toast';
 import type { AppContext } from '../../../app/context';
 import { ui } from '../../../ui/primitives';
 import { noticeStyles } from '../../../ui/notice.styles';
 import { styles } from './create-view.styles';
-import { useQuery } from '@tanstack/solid-query';
-import { gameHealthOptions } from '../../../app/queries';
 
 interface CreateRoomForm {
   theme: string;
@@ -47,7 +45,7 @@ export function CreateRoomView(props: { ctx: AppContext }) {
     onSubmit: async ({ value }) => {
       try {
         const { roomId } = await parseResponse(
-          gameClient.rooms.$post({
+          client.api.rooms.$post({
             json: { theme: value.theme.trim() },
           }),
         );
@@ -71,8 +69,8 @@ export function CreateRoomView(props: { ctx: AppContext }) {
 
   const submitting = form.useSelector((state) => state.isSubmitting);
   const issues = form.useSelector((state) => [...(state.fieldMeta.theme?.errors ?? [])]);
-  const health = useQuery(() => gameHealthOptions);
-  const unavailable = () => health.isError || health.data?.aiConfigured === false;
+  const maintenance = props.ctx.maintenance;
+  const blocked = () => maintenance.admissionBlocked();
 
   const errorText = () => {
     const invalid = [...new Set(issues().map(textOfIssue))]
@@ -108,12 +106,15 @@ export function CreateRoomView(props: { ctx: AppContext }) {
 
           <div
             class={stylex.props(ui.notice, noticeStyles.warn).className}
-            data-testid="create-ai-notice"
+            data-testid="create-service-notice"
             data-tone="warn"
-            hidden={!unavailable()}
+            data-state={maintenance.draining() ? 'draining' : 'unavailable'}
+            hidden={!blocked()}
           >
-            {unavailable()
-              ? '咒文生成暂不可用：预设主题可能仍有共享咒文书，可照常开战；自定义主题需等生成恢复。'
+            {blocked()
+              ? maintenance.draining()
+                ? '系统维护中：暂时无法创建新房间，维护结束后即可创建。'
+                : '暂时无法获取服务状态：已暂停创建新房间，恢复后即可创建。'
               : ''}
           </div>
 
@@ -195,9 +196,13 @@ export function CreateRoomView(props: { ctx: AppContext }) {
               type="submit"
               class={stylex.props(ui.button, ui.primary).className}
               data-testid="room-create-submit"
-              disabled={submitting()}
+              disabled={submitting() || blocked()}
             >
-              {submitting() ? '正在创建…' : '创建房间并获取邀请码'}
+              {blocked()
+                ? '维护中，暂不能创建'
+                : submitting()
+                  ? '正在创建…'
+                  : '创建房间并获取邀请码'}
             </button>
             <button
               type="button"

@@ -16,7 +16,6 @@ import type { RoomSocket } from '../../server/contracts';
 import type { Database, OpenedDatabase } from '../../server/db';
 import { openDatabase } from '../../server/db';
 import { results } from '../../server/db/schema';
-import { ensureDevelopmentRelease } from '../../server/releases/control';
 import { handleInput } from '../../server/rooms/combat';
 import { INPUT_MIN_MS_PER_CODE_POINT, INPUT_POLICY_VERSION } from '../../server/rooms/rules';
 import { createRoomScope, InputBudget, SocketRegistry } from '../../server/rooms/scope';
@@ -32,7 +31,6 @@ import { spellAt } from '../../server/scoring';
 
 // PGlite keeps native timer deadlines; deterministic offsets need no historic epoch.
 const T0 = Date.now();
-const RELEASE_ID = 'a'.repeat(32);
 const ROOM_ID = 'c'.repeat(24);
 const MATCH_ID = 'match-volley';
 const COMBAT_END = T0 + MATCH_DURATION_MS;
@@ -84,7 +82,6 @@ function meta(userId: string): SocketAuth {
 async function openTestDb(dir?: string): Promise<OpenedDatabase> {
   const opened = await openDatabase(dir === undefined ? 'pglite://:memory:' : `pglite://${dir}`);
   databases.push(opened);
-  await ensureDevelopmentRelease(opened.db, RELEASE_ID);
   return opened;
 }
 
@@ -92,7 +89,6 @@ async function openTestDb(dir?: string): Promise<OpenedDatabase> {
 async function seedMatchState(db: Database, userIds: readonly string[]): Promise<void> {
   await createRoom(db, {
     id: ROOM_ID,
-    releaseId: RELEASE_ID,
     host: { id: userIds[0], username: userIds[0] },
     theme: '同窗契约',
     mode: 'private',
@@ -142,13 +138,11 @@ function combatHarness(db: Database, userIds: readonly string[]): Harness {
   }
   const scope = createRoomScope({
     roomId: ROOM_ID,
-    releaseId: RELEASE_ID,
     db,
     generate: async () => {
       throw new Error('generation not expected in volley tests');
     },
     registry,
-    matchAdmission: 'open',
     inputPolicyMode: 'observe',
     input: new InputBudget(),
     arm: async () => {},

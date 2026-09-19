@@ -1,5 +1,6 @@
 import * as stylex from '@stylexjs/stylex';
 import { createMemo } from 'solid-js';
+import { QUICK_GHOST_FALLBACK_MS } from '../../../shared/protocol';
 import { ASSETS } from '../../pixi/assets';
 import { styles } from './queue-view.styles';
 import type { QueueState } from './queue-controller';
@@ -9,22 +10,22 @@ const SELF_NOTES: Record<QueueState, string> = {
   matched: '已配对',
   cancelled: '已退出排队',
   blocked: '未加入排队',
-  outdated: '需要更新',
+  maintenance: '维护中',
 };
 
 const RIVAL_NOTES: Record<QueueState, string> = {
-  waiting: '尚未揭晓',
+  waiting: `超过 ${QUICK_GHOST_FALLBACK_MS / 1000} 秒自动安排训练对手`,
   matched: '已配对',
   cancelled: '本次匹配已结束',
   blocked: '本次匹配未开始',
-  outdated: '本次匹配未开始',
+  maintenance: '本次匹配未开始',
 };
 
 /** Decorative search stage; system reduced-motion preferences disable animation. */
 export function QueueStage(props: { state: QueueState; username: string; retry: boolean }) {
   const searching = createMemo(() => props.state === 'waiting');
   const settled = createMemo(
-    () => props.state === 'cancelled' || props.state === 'blocked' || props.state === 'outdated',
+    () => props.state === 'cancelled' || props.state === 'blocked' || props.state === 'maintenance',
   );
 
   return (

@@ -1,7 +1,7 @@
 /**
  * The runtime address book is the one cross-process handoff of the E2E harness: each logical run
  * resolves its own state directory, and whatever the harness records there is what a reader in
- * that run observes — never another run's addresses. Release ids are strict UUID32 everywhere.
+ * that run observes — never another run's addresses.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -49,20 +49,14 @@ it('两个运行各自发布地址，新读取方只读所属运行而不会串�
   const firstInfo: RuntimeInfo = {
     appUrl: 'http://127.0.0.1:31001/',
     apiOrigin: 'http://127.0.0.1:31002',
-    adminUrl: 'http://127.0.0.1:31003',
     fixtureUrl: 'http://127.0.0.1:31004',
     databaseDir: `${first.stateDir}/pglite`,
-    releaseId: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-    uiUrls: { aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa: 'http://127.0.0.1:31001/' },
   };
   const secondInfo: RuntimeInfo = {
     appUrl: 'http://127.0.0.1:32001/',
     apiOrigin: 'http://127.0.0.1:32002',
-    adminUrl: 'http://127.0.0.1:32003',
     fixtureUrl: 'http://127.0.0.1:32004',
     databaseDir: `${second.stateDir}/pglite`,
-    releaseId: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
-    uiUrls: { bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb: 'http://127.0.0.1:32001/' },
   };
   try {
     recorded(first.runtimeFile, first.stateDir, firstInfo);
@@ -72,28 +66,5 @@ it('两个运行各自发布地址，新读取方只读所属运行而不会串�
   } finally {
     rmSync(first.stateDir, { recursive: true, force: true });
     rmSync(second.stateDir, { recursive: true, force: true });
-  }
-});
-
-it('运行信息要求发布标识是 32 位小写十六进制，旧格式一律拒绝', () => {
-  const { runId, stateDir, runtimeFile } = JSON.parse(child()) as {
-    runId: string;
-    stateDir: string;
-    runtimeFile: string;
-  };
-  const info: RuntimeInfo = {
-    appUrl: 'http://127.0.0.1:33001/',
-    apiOrigin: 'http://127.0.0.1:33002',
-    adminUrl: 'http://127.0.0.1:33003',
-    fixtureUrl: 'http://127.0.0.1:33004',
-    databaseDir: `${stateDir}/pglite`,
-    releaseId: 'e2e-a',
-    uiUrls: {},
-  };
-  try {
-    recorded(runtimeFile, stateDir, info);
-    expect(() => JSON.parse(child(runId, true))).toThrow(/32 hex character release id/);
-  } finally {
-    rmSync(stateDir, { recursive: true, force: true });
   }
 });

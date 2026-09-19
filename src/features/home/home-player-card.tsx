@@ -92,7 +92,7 @@ export function PlayerCard(props: { ctx: AppContext }) {
               />
             </div>
             <p class={stylex.props(styles.pcMeta, styles.pcNote).className}>
-              注册账号，开启你的第一场对决。
+              微信登录，开启你的第一场对决。
             </p>
             <div class={stylex.props(ui.buttonRow, styles.pcActions).className}>
               <button
@@ -102,11 +102,11 @@ export function PlayerCard(props: { ctx: AppContext }) {
                 onClick={() =>
                   void navigate({
                     to: '/auth',
-                    search: { mode: 'login', room: props.ctx.pendingInvite() ?? undefined },
+                    search: { room: props.ctx.pendingInvite() ?? undefined },
                   })
                 }
               >
-                登录 / 注册
+                微信登录
               </button>
             </div>
           </div>

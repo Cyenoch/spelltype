@@ -1,18 +1,17 @@
 import { eq } from 'drizzle-orm';
-import { releaseControl, releaseVersions, rooms, players } from '../../db/schema';
+import { rooms, players } from '../../db/schema';
 import type { RoomRow } from '../../db/schema';
 import type { RoomQuery } from './query';
 import type { QueryDatabase } from '../../db';
-import type { ReleaseState } from '../../../shared/release';
 import type { RoomInit } from '../../../shared/protocol';
 import { roomInitSchema } from '../../../shared/validation';
 import { RESERVATION_TTL_MS } from '../../../shared/protocol';
 import { SEAT_TTL_MS } from '../rules';
 
 /**
- * Columns a room patch may name; identity, release registration and creation
- * stamps are fixed once the room exists. `next_alarm_at` and `draining` are
- * runtime-owned hints the runtime and the coordination layer may update.
+ * Columns a room patch may name; identity and creation stamps are fixed once
+ * the room exists. `next_alarm_at` is a runtime-owned hint the runtime may
+ * update.
  */
 const ROOM_PATCH_COLUMNS = [
   'host_id',
@@ -35,10 +34,12 @@ const ROOM_PATCH_COLUMNS = [
   'input_policy_version',
   'input_policy_mode',
   'input_min_ms_per_code_point',
+  'opponent_kind',
+  'ghost_id',
+  'opponent_next_at',
   'persistence',
   'persist_attempts',
   'persist_retry_at',
-  'draining',
   'next_alarm_at',
 ] as const;
 
@@ -47,38 +48,6 @@ export type RoomPatch = Partial<Pick<RoomRow, (typeof ROOM_PATCH_COLUMNS)[number
 /** Reads the room's one row, or `null` when no such room exists. */
 export async function getRoom(db: RoomQuery, roomId: string): Promise<RoomRow | null> {
   const rows = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
-  return rows[0] ?? null;
-}
-
-export interface RoomReleaseState {
-  /** Lifecycle of the release this room belongs to. */
-  state: ReleaseState;
-  /** The currently active release, or `null` before the first activation. */
-  activeReleaseId: string | null;
-  draining: boolean;
-}
-
-/**
- * The room's release registration joined with the admission pointer, read in the
- * caller's transaction. Start and rematch decisions consult it so a room whose
- * release is retiring — or already replaced — never opens a new match, while
- * live reservations and running matches keep their own clocks.
- */
-export async function readRoomRelease(
-  db: RoomQuery,
-  roomId: string,
-): Promise<RoomReleaseState | null> {
-  const rows = await db
-    .select({
-      state: releaseVersions.state,
-      activeReleaseId: releaseControl.active_release_id,
-      draining: rooms.draining,
-    })
-    .from(rooms)
-    .innerJoin(releaseVersions, eq(rooms.release_id, releaseVersions.id))
-    .leftJoin(releaseControl, eq(releaseControl.singleton, 1))
-    .where(eq(rooms.id, roomId))
-    .limit(1);
   return rows[0] ?? null;
 }
 
@@ -106,9 +75,9 @@ export async function updateRoom(db: RoomQuery, roomId: string, patch: RoomPatch
  * This is the seam the matchmaker calls to pair a quick match and the one the
  * private-room flow uses: it writes the room row and every reserved seat, and
  * it takes no admission lock of its own — the caller's transaction already
- * holds the release/admission gate — and it starts no runtime. A room row that
- * already exists with the same shape is an idempotent replay, matching the old
- * object-room contract; any other pre-existing row is a caller bug.
+ * holds the runtime_control admission gate — and it starts no runtime. A room
+ * row that already exists with the same shape is an idempotent replay, matching
+ * the old object-room contract; any other pre-existing row is a caller bug.
  *
  * All persisted state is written before the transaction can commit, so a
  * later wake-up can never observe a half-created room.
@@ -118,7 +87,7 @@ export async function createRoom(tx: QueryDatabase, init: RoomInit): Promise<voi
   if (!parsed.success) {
     throw new Error(`room:invalid_init:${parsed.error.issues[0]?.path.join('.') || 'shape'}`);
   }
-  const { id, host, theme, mode, releaseId, reserved } = parsed.data;
+  const { id, host, theme, mode, reserved } = parsed.data;
   const existing = await getRoom(tx, id);
   if (existing) {
     if (existing.mode !== mode) throw new Error('room:already_initialized');
@@ -134,7 +103,6 @@ export async function createRoom(tx: QueryDatabase, init: RoomInit): Promise<voi
 
   await tx.insert(rooms).values({
     id,
-    release_id: releaseId,
     host_id: host.id,
     mode,
     theme,

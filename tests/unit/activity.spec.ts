@@ -8,7 +8,6 @@
  * the read fails. Everything runs against a real PGlite database and the real stable app.
  */
 import { describe, expect, it } from 'bun:test';
-import { DEV_RELEASE_ID } from '../../shared/release';
 import { readActivitySummary } from '../../server/activity';
 import type { ServerConfig } from '../../server/config';
 import type { Database } from '../../server/db';
@@ -18,17 +17,14 @@ import {
   departures,
   matchTickets,
   players,
-  releaseControl,
-  releaseVersions,
   results,
   roomSessions,
   rooms,
   sessions,
 } from '../../server/db/schema';
-import { createStableApp } from '../../server/http/app';
+import { createApp } from '../../server/http/app';
 
 const ORIGIN = 'https://app.example';
-const RELEASE = DEV_RELEASE_ID;
 const NOW = Date.now();
 
 let database: OpenedDatabase;
@@ -43,29 +39,15 @@ async function wipeEverything(db: Database): Promise<void> {
   await db.delete(rooms);
   await db.delete(sessions);
   await db.delete(accounts);
-  await db.delete(releaseControl);
-  await db.delete(releaseVersions);
 }
 
 async function setup(): Promise<void> {
   database ??= await openDatabase('pglite://:memory:');
   await wipeEverything(database.db);
-  await database.db.insert(releaseVersions).values({
-    id: RELEASE,
-    state: 'active',
-    artifact_digest: 'a'.repeat(64),
-    operation_id: '00000000-0000-0000-0000-000000000000',
-    created_at: NOW,
-    updated_at: NOW,
-  });
-  await database.db
-    .insert(releaseControl)
-    .values({ singleton: 1, active_release_id: RELEASE, revision: 0, updated_at: NOW });
   await database.db.insert(accounts).values({
     id: '000000000000000000000000',
     username: '等待者',
-    username_key: '等待者',
-    password_hash: '$argon2id$v=19$m=19456,t=2,p=1$' + 'a'.repeat(22) + '$' + 'b'.repeat(43),
+    wechat_identity: 'union:activity-account',
     created_at: NOW,
   });
 }
@@ -78,7 +60,6 @@ async function seedRoom(
 ): Promise<void> {
   await database.db.insert(rooms).values({
     id: roomId,
-    release_id: RELEASE,
     host_id: '000000000000000000000000',
     mode: 'quick',
     theme: '主题',
@@ -100,14 +81,12 @@ async function seedTicket(
   await database.db.insert(accounts).values({
     id: userId,
     username: requestId,
-    username_key: requestId,
-    password_hash: '$argon2id$v=19$m=19456,t=2,p=1$' + 'a'.repeat(22) + '$' + 'b'.repeat(43),
+    wechat_identity: `union:${userId}`,
     created_at: NOW,
   });
   await database.db.insert(matchTickets).values({
     user_id: userId,
     request_id: requestId,
-    release_id: RELEASE,
     username: requestId,
     state,
     expires_at: expiresAt,
@@ -118,22 +97,21 @@ async function seedTicket(
 
 function testApp(databaseHandle: Database) {
   const config: ServerConfig = {
-    role: 'all',
-    releaseId: RELEASE,
+    buildId: 'unit-test',
+    autoMigrate: false,
     databaseUrl: 'pglite://:memory:',
     hostname: '127.0.0.1',
     port: 0,
-    adminPort: null,
     publicOrigin: ORIGIN,
-    adminToken: null,
+    maintenanceToken: null,
     assetsRoot: null,
     ai: { apiKey: null, model: 'test-model' },
     authLimits: { attempts: 100, windowMs: 60_000 },
     trustForwardedFor: false,
-    matchAdmission: 'open',
+    wechatBridge: null,
     inputPolicyMode: 'observe',
   };
-  return createStableApp({ database: databaseHandle, config, rooms: null });
+  return createApp({ database: databaseHandle, config, rooms: null });
 }
 
 describe('进行中的对决判定', () => {

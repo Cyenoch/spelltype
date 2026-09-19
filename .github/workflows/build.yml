@@ -1,0 +1,32 @@
+# Verifies the repository builds: type-check, lint, unit tests, dist build,
+# and a real image build from the checkout. No publishing, no registry push,
+# no secrets: deployment stays an operator action (scripts/deploy.ts).
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - run: bun run check
+      - run: bun run lint
+      - run: bun run test
+      - run: bun run build
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Proves the multi-stage Dockerfile builds from the checkout; the image
+      # is loaded locally and discarded. No push, no registry.
+      - run: docker buildx build --load --tag spelltype:ci .

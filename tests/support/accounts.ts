@@ -6,9 +6,8 @@
  */
 import { and, eq, gt, inArray, or } from 'drizzle-orm';
 import { expect, request, type APIRequestContext, type BrowserContext } from '@playwright/test';
-import { gameApiBase } from '../../shared/release';
-import type { SessionInfo } from '../../shared/protocol';
-import { players, releaseControl, rooms } from '../../server/db';
+import { WS_PROTOCOL, type SessionInfo } from '../../shared/protocol';
+import { players, rooms } from '../../server/db';
 import { testDb } from './db';
 import { runtime } from './runtime';
 
@@ -26,11 +25,14 @@ export async function trackAccountForQueueCleanup(
   const cookies = await context.cookies(baseUrl);
   if (cookies.length === 0)
     throw new Error(`queue cleanup tracking found no session cookie for ${baseUrl}`);
-  const api = await request.newContext({ storageState: { cookies, origins: [] } });
+  const api = await request.newContext({
+    storageState: { cookies, origins: [] },
+    extraHTTPHeaders: { 'X-Spelltype-Protocol': WS_PROTOCOL },
+  });
   tracked.push({ api, browser: context });
 }
 
-/** Releases each account's own seats; an authorization or release mismatch is never success. */
+/** Releases each account's own seats; an authorization or server refusal is never success. */
 export async function cleanupTrackedQueues(): Promise<void> {
   const accounts = tracked.splice(0);
   const failures: unknown[] = [];
@@ -39,47 +41,38 @@ export async function cleanupTrackedQueues(): Promise<void> {
     for (const browser of new Set(accounts.map((account) => account.browser))) {
       await browser.close();
     }
-    const current = runtime();
-    const [control] = await testDb().select().from(releaseControl);
-    const activeRelease = control?.active_release_id;
-    if (!activeRelease) throw new Error('account cleanup found no active release');
-    const endpoint = (releaseId: string, path: string) => {
-      const origin = current.uiUrls[releaseId];
-      if (!origin) throw new Error(`account cleanup has no UI origin for release ${releaseId}`);
-      return {
-        url: new URL(`${gameApiBase(releaseId)}${path}`, origin).href,
-        headers: { 'x-spelltype-release': releaseId, origin },
-      };
-    };
+    const appUrl = runtime().appUrl;
     const activeRoom = or(
       inArray(rooms.phase, ['generating', 'countdown', 'playing']),
       and(eq(rooms.reservation_state, 'reserved'), gt(rooms.reservation_expires_at, Date.now())),
     );
     for (const { api } of accounts) {
       try {
-        const session = await api.get(new URL('/api/session', current.appUrl).href);
+        const session = await api.get(new URL('/api/session', appUrl).href);
         if (session.status() !== 200)
           throw new Error(`account cleanup: GET /api/session returned ${session.status()}`);
         const { user } = (await session.json()) as SessionInfo;
         if (!user) continue; // Revoked sessions cannot perform further authenticated operations.
 
-        const cancelTarget = endpoint(activeRelease, '/match');
-        const cancel = await api.delete(cancelTarget.url, { headers: cancelTarget.headers });
+        const cancel = await api.delete(new URL('/api/match', appUrl).href, {
+          headers: { origin: appUrl },
+        });
         if (cancel.status() !== 200)
-          throw new Error(`account cleanup: DELETE /match returned ${cancel.status()}`);
+          throw new Error(`account cleanup: DELETE /api/match returned ${cancel.status()}`);
         if (typeof (await cancel.json()).cancelled !== 'boolean')
           throw new Error('account cleanup: cancellation response has no boolean result');
 
-        // cancelled:false is truthful for a started match. Leave actual membership, including
-        // private rooms with no ticket, through its owning release rather than the active one.
+        // cancelled:false is truthful for a started match. Leave actual membership — including
+        // private rooms with no ticket — through the room's own public leave endpoint.
         const memberships = await testDb()
-          .select({ id: rooms.id, releaseId: rooms.release_id })
+          .select({ id: rooms.id })
           .from(rooms)
           .innerJoin(players, eq(players.room_id, rooms.id))
           .where(and(eq(players.user_id, user.id), activeRoom));
         for (const room of memberships) {
-          const target = endpoint(room.releaseId, `/rooms/${room.id}/leave`);
-          const left = await api.post(target.url, { headers: target.headers });
+          const left = await api.post(new URL(`/api/rooms/${room.id}/leave`, appUrl).href, {
+            headers: { origin: appUrl },
+          });
           if (left.status() !== 200)
             throw new Error(`account cleanup: leave ${room.id} returned ${left.status()}`);
         }

@@ -7,6 +7,7 @@ import { currentConns, onlineUserIds, reconcileHost } from './sockets';
 import { armLobbySeatExpiry, listPlayers } from './storage/players';
 import { getRoom, updateRoom } from './storage/room';
 import type { Transaction } from '../db';
+import { participantKind } from './opponents';
 
 /**
  * Returns the room to an open lobby after a match never came together. A
@@ -39,16 +40,16 @@ export async function abortMatchInTx(
     error: message,
     generation_token: null,
     generation_claim: null,
+    opponent_next_at: null,
     reservation_state: 'none',
     reservation_expires_at: null,
   });
   const roster = await listPlayers(tx, scope.roomId);
-  await armLobbySeatExpiry(
-    tx,
-    scope.roomId,
-    [...onlineUserIds(roster, await currentConns(tx, scope.roomId, scope.registry))],
-    Date.now() + SEAT_TTL_MS,
-  );
+  const room = await getRoom(tx, scope.roomId);
+  if (!room) throw new Error('room:not_found');
+  const present = onlineUserIds(roster, await currentConns(tx, scope.roomId, scope.registry));
+  for (const row of roster) if (participantKind(room, row) !== 'human') present.add(row.user_id);
+  await armLobbySeatExpiry(tx, scope.roomId, [...present], Date.now() + SEAT_TTL_MS);
   await reconcileHost(tx, scope.roomId, scope.registry);
 }
 

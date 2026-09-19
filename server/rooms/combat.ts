@@ -1,14 +1,7 @@
 import { normalizeSpellInput } from '../../shared/spell-input';
-import { COMBAT_BATCH_MS, MAX_INPUT_CHARS, WS_CLOSE } from '../../shared/protocol';
+import { MAX_INPUT_CHARS, WS_CLOSE } from '../../shared/protocol';
 import type { ClientMessage } from '../../shared/protocol';
-import {
-  charCount,
-  damageOf,
-  diffSnapshot,
-  inputCompletionRatio,
-  inputNotBefore,
-  spellAt,
-} from '../scoring';
+import { charCount, diffSnapshot, inputCompletionRatio, spellAt } from '../scoring';
 import { finishMatchTx } from './match';
 import { INPUT_GATE_ERROR_MESSAGE, inputGateState, reportGateStateInvalid } from './input-gate';
 import type { RoomScope } from './scope';
@@ -18,10 +11,11 @@ import { closeSocket, sendTo } from './sockets';
 import { listPlayers, updatePlayer } from './storage/players';
 import { getRoom } from './storage/room';
 import { readSpellBook } from './storage/spell-book';
-import { queueCast, readVolley } from './storage/volley';
+import { readVolley } from './storage/volley';
 import type { RoomSocket } from '../contracts';
 import { advanceCombat } from './volleys';
 import type { Transaction } from '../db';
+import { commitCastTx } from './casts';
 
 /** The one accepted typing packet: it must name the live match and the player's current spell. */
 export type InputFrame = Extract<ClientMessage, { type: 'input' }>;
@@ -94,7 +88,9 @@ async function judge(
   const now = Date.now();
   if (
     room.phase === 'playing' &&
-    (now >= room.deadline || (pending !== null && pending.endsAt <= now))
+    (now >= room.deadline ||
+      (pending !== null && pending.endsAt <= now) ||
+      (room.opponent_next_at !== null && room.opponent_next_at <= now))
   )
     return 'retry';
   if (socket.readyState !== 1) return 'ignored';
@@ -170,40 +166,10 @@ async function judge(
     });
     return 'push';
   }
-  const nextSpell = spellAt(book, self.spell_index + 1);
-  if (!nextSpell) throw new Error('room:missing_spell');
-  const notBefore = inputNotBefore(charCount(nextSpell.text), now, gate.minMsPerCodePoint);
-  const startedAt = room.started_at ?? now;
-  const windowStart = startedAt + Math.floor((now - startedAt) / COMBAT_BATCH_MS) * COMBAT_BATCH_MS;
-  const volley = pending ?? {
-    matchId: room.match_id,
-    endsAt: Math.min(room.deadline, windowStart + COMBAT_BATCH_MS),
-    // A departure during an otherwise empty window must not amplify later casts.
-    roster: players
-      .filter((player) => player.eliminated_at === null || player.eliminated_at > windowStart)
-      .map((player) => player.user_id),
-    casts: [],
-  };
-  // Accepted intent, cursor, eligibility and metrics commit together.
-  await queueCast(tx, scope.roomId, volley, {
-    attackerId: self.user_id,
-    spellIndex: self.spell_index,
-    element: spell.element,
-    power: damageOf(spell.text),
-  });
+  await commitCastTx(tx, room, self, players, book, pending, now);
   await updatePlayer(tx, scope.roomId, self.user_id, {
-    progress: 0,
-    last_input: '',
-    spell_index: self.spell_index + 1,
-    spells_cast: self.spells_cast + 1,
-    correct_chars: self.correct_chars + spellLength,
     attempt_total: attemptTotal,
     error_total: errorTotal,
-    input_opened_at: now,
-    input_not_before: notBefore,
-    draft_epoch: 0,
-    input_reset_reason: null,
-    input_sampled: 0,
     input_gate_hits: gateHits,
     input_min_completion_ratio: minimumRatio,
     input_recovered_completions: self.input_recovered_completions + Number(self.draft_epoch > 0),

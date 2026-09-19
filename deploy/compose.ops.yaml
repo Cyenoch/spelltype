@@ -1,0 +1,28 @@
+# Optional remote maintenance API: mounts the machine bearer token for
+# /api/ops/maintenance (GET DrainStatus; POST draining/open with the full
+# revision + runtime-epoch CAS). Opt in by appending this file to the
+# standard COMPOSE_FILE set in deploy/compose.env:
+#
+#   COMPOSE_FILE=compose.yaml:deploy/compose.dokploy.yaml:deploy/compose.ops.yaml
+#
+# and provisioning the token (64 lowercase hex):
+#
+#   MAINTENANCE_TOKEN=$(openssl rand -hex 32) bun run deploy secrets
+#
+# Without this file in COMPOSE_FILE (or without the token), the ops API is
+# disabled and only the WeChat admin role and the host docker-exec path can
+# move maintenance. The token authorizes NOTHING else: no user-admin
+# endpoints, no cookies, no container replacement — CI/platform automation
+# uses it to drain and resume around a replacement it performs itself.
+# The token reaches the app at the next container recreate (initial install
+# or the next `bun run deploy deploy`).
+services:
+  app:
+    environment:
+      MAINTENANCE_TOKEN_FILE: /run/secrets/maintenance_token
+    secrets:
+      - maintenance_token
+
+secrets:
+  maintenance_token:
+    file: ${SPELLTYPE_STATE_DIR}/secrets/maintenance_token

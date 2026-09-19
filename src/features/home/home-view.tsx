@@ -2,7 +2,7 @@ import { For, Show } from 'solid-js';
 import { useQuery } from '@tanstack/solid-query';
 import { Link, useNavigate } from '@tanstack/solid-router';
 import * as stylex from '@stylexjs/stylex';
-import { activityOptions, gameHealthOptions } from '../../app/queries';
+import { activityOptions } from '../../app/queries';
 import { ELEMENTS } from '../../ui/format';
 import { ASSETS } from '../../pixi/assets';
 import { ui } from '../../ui/primitives';
@@ -105,15 +105,15 @@ export function ActivityPanel() {
 export function HomeView(props: { ctx: AppContext }) {
   const navigate = useNavigate();
 
-  const health = useQuery(() => gameHealthOptions);
-  const unavailable = () => health.isError || health.data?.aiConfigured === false;
+  const maintenance = props.ctx.maintenance;
+  const blocked = () => maintenance.admissionBlocked();
   const user = () => props.ctx.session.user;
 
   const requireAuth = (action: () => void) => {
     if (!props.ctx.session.user) {
       void navigate({
         to: '/auth',
-        search: { mode: 'login', room: props.ctx.pendingInvite() ?? undefined },
+        search: { room: props.ctx.pendingInvite() ?? undefined },
       });
       return;
     }
@@ -162,24 +162,17 @@ export function HomeView(props: { ctx: AppContext }) {
             {/* Kept mounted so availability stays observable even while hidden. */}
             <div
               class={stylex.props(ui.notice, noticeStyles.warn, styles.heroNotice).className}
-              data-testid="home-ai-notice"
+              data-testid="home-service-notice"
               data-tone="warn"
-              data-state={
-                health.isPending
-                  ? 'checking'
-                  : health.isError
-                    ? 'unavailable'
-                    : health.data?.aiConfigured
-                      ? 'configured'
-                      : 'missing'
-              }
-              hidden={!unavailable()}
+              data-state={maintenance.draining() ? 'draining' : 'unavailable'}
+              hidden={!blocked()}
             >
-              <Show when={unavailable()}>
-                咒文生成暂不可用。预设主题的共享咒文书在有效期内仍可正常开战；自定义主题需等生成恢复。
+              <Show when={blocked()}>
+                {maintenance.draining()
+                  ? '系统维护中：暂时无法开始新的对局，正在进行的对局不受影响；维护结束后即可重新匹配。'
+                  : '暂时无法获取服务状态：已暂停开始新的对局，恢复后即可正常匹配。'}
               </Show>
             </div>
-
             <Show when={props.ctx.pendingInvite()}>
               <div
                 class={stylex.props(ui.notice, styles.heroNotice).className}
@@ -251,6 +244,7 @@ export function HomeView(props: { ctx: AppContext }) {
                   class={stylex.props(ui.button, ui.primary, styles.entryButton).className}
                   type="button"
                   data-testid="home-quick-start"
+                  disabled={blocked()}
                   onClick={() => requireAuth(() => void navigate({ to: '/match' }))}
                 >
                   快速匹配 · 1v1
@@ -283,6 +277,7 @@ export function HomeView(props: { ctx: AppContext }) {
                   class={stylex.props(ui.button, styles.entryButton).className}
                   type="button"
                   data-testid="home-create"
+                  disabled={blocked()}
                   onClick={() => requireAuth(() => void navigate({ to: '/create', search: {} }))}
                 >
                   创建私人房 · 2–4 人

@@ -1,13 +1,25 @@
-# Building an image is only meaningful from a protected release snapshot
-# (see scripts/release.mjs stage), which whitelists exactly the runtime
-# payload below. Building from the repository checkout is refused by
-# exclusion: no source tree, no git history and no secret files can ever
-# enter an image context, even by accident.
+# The image is a standard multi-stage build from this repository checkout
+# (see Dockerfile). The context is an explicit allowlist: exactly the files
+# the Dockerfile build stage consumes. No git history, no .env files, no
+# local .data directory, no test output and no deploy state can ever enter
+# an image context, even by accident.
 **
 !Dockerfile
-!app
-!app/**
-!drizzle
-!drizzle/**
 !package.json
 !bun.lock
+!index.html
+!tsconfig.json
+!vite.config.ts
+!vite.frontend.ts
+!drizzle.config.ts
+!drizzle
+!drizzle/**
+!public
+!public/**
+!scripts/build.mjs
+!shared
+!shared/**
+!server
+!server/**
+!src
+!src/**

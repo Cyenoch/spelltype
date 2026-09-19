@@ -15,14 +15,7 @@ export { manualLeave } from './leave';
 export { handleInput, type InputFrame } from './combat';
 export { advanceOnce, type AdvanceOutcome } from './transitions';
 export { snapshotFor, pushSnapshots, sendSnapshotTo } from './snapshots';
-export {
-  createRoom,
-  getRoom,
-  updateRoom,
-  readRoomRelease,
-  type RoomPatch,
-  type RoomReleaseState,
-} from './storage/room';
+export { createRoom, getRoom, updateRoom, type RoomPatch } from './storage/room';
 export * from './storage/players';
 export * from './storage/departures';
 export { insertResults } from './storage/results';

@@ -1,8 +1,7 @@
 import { parseResponse, DetailedError } from 'hono/client';
 import { WS_CLOSE_RESTART, WS_PROTOCOL } from '../../../shared/protocol';
 import type { ClientMessage, RoomSnapshot } from '../../../shared/protocol';
-import { gameApiBase } from '../../../shared/release';
-import { client, gameClient } from '../../app/client';
+import { client } from '../../app/client';
 import {
   closeInfo,
   isProtocolRejection,
@@ -10,8 +9,6 @@ import {
   type CloseInfo,
   type Diagnosis,
 } from './room-wire';
-import { RELEASE_ID } from '../../app/release-id';
-import { resolveRoomEntry } from './room-entry';
 
 export type ConnectionState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed';
 
@@ -39,18 +36,15 @@ const MAX_BACKOFF_MS = 8_000;
 const OVERLOAD_RECONNECT_FLOOR_MS = 1_000;
 
 /**
- * One authenticated socket per room. Before every connection attempt the stable
- * room locator decides whether this bundle may attach at all: a room retained
- * by another release receives the whole document (a full-page entry of that
- * room's own build), a retired room ends the connection for good. Within its
- * own release it reconnects on its own (the server replaces the old connection
- * with the new one and replays authoritative state), keeps the server clock
- * calibrated from pongs, and never treats a rejected session or a vanished room
- * as a transient failure.
+ * One authenticated socket per room, at the stable `/api/rooms/:id/ws` path.
+ * It reconnects on its own (the server replaces the old connection with the
+ * new one and replays authoritative state), keeps the server clock calibrated
+ * from pongs, and never treats a rejected session or a vanished room as a
+ * transient failure.
  *
  * The socket is created with the wire protocol subprotocol: a server that no
  * longer speaks this page's version refuses the handshake, and the diagnosis
- * that follows turns that into a terminal update-required state instead of a
+ * that follows turns that into an explicit refresh state instead of a
  * reconnect loop. A protocol-mismatch close (4003) is terminal on its own;
  * an input-overload close (4004) reconnects, but never sooner than the floor.
  */
@@ -152,66 +146,13 @@ export class RoomConnection {
       this.scheduleReconnect();
       return;
     }
-    const seq = ++this.generation;
     this.setState(this.everOpened ? 'reconnecting' : 'connecting');
 
-    // The stable locator gate: never attach this bundle to a room another
-    // release owns, and never reconnect into a room whose release has been
-    // retired. An unreachable locator is not proof of anything: retry.
-    const entry = await resolveRoomEntry(this.roomId);
-    if (this.stopped || seq !== this.generation) return;
-    if (entry.kind === 'elsewhere') {
-      // The room is retained by its own release. Only a full document load of
-      // that release's entry can serve it — this bundle must never attach, so
-      // the browser itself is handed over before a single frame is sent.
-      this.stopped = true;
-      this.setState('closed');
-      window.location.assign(entry.location.entryUrl);
-      return;
-    }
-    if (entry.kind === 'retired' || entry.kind === 'gone') {
-      this.handlers.onClosed({
-        code: 0,
-        reason: '',
-        authExpired: false,
-        replaced: false,
-        roomClosed: true,
-        protocolMismatch: false,
-        inputOverload: false,
-        roomRetired: entry.kind === 'retired',
-      });
-      this.setState('closed');
-      return;
-    }
-    if (entry.kind === 'auth') {
-      this.handlers.onClosed({
-        code: 0,
-        reason: '',
-        authExpired: true,
-        replaced: false,
-        roomClosed: false,
-        protocolMismatch: false,
-        inputOverload: false,
-        roomRetired: false,
-      });
-      this.setState('closed');
-      return;
-    }
-    // `entry` is `current` — or the locator is unreachable, which proves
-    // nothing: this connection only ever exists after the route loaded a
-    // snapshot through this bundle's own version-prefixed API, so the room is
-    // already this release's by proof, and the handshake below re-validates
-    // release identity server-side on every attempt. A healthy game runtime is
-    // never held hostage by an unavailable stable API, and a room that in fact
-    // moved on is rejected at the handshake rather than served wrong HTML.
-
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // The version prefix and the release query both carry this bundle's
-    // identity: the browser cannot set headers on a WebSocket, so the URL is
-    // the handshake's release declaration.
-    const url =
-      `${scheme}//${location.host}${gameApiBase(RELEASE_ID)}` +
-      `/rooms/${encodeURIComponent(this.roomId)}/ws?release=${encodeURIComponent(RELEASE_ID)}`;
+    // The stable path carries no client identity: the wire protocol subprotocol
+    // is the whole handshake declaration, and the server refuses a handshake
+    // that does not speak its version.
+    const url = `${scheme}//${location.host}/api/rooms/${encodeURIComponent(this.roomId)}/ws`;
 
     let socket: WebSocket;
     try {
@@ -287,9 +228,8 @@ export class RoomConnection {
         return;
       }
       if (event.code === WS_CLOSE_RESTART) {
-        // Recoverable server restart: back off and reconnect. The locator gate
-        // at the top of `connect` re-checks the room's release first, so a
-        // restart that was actually a retirement stops here instead.
+        // Recoverable server restart: back off and reconnect. A close that was
+        // actually the room ending arrives with its own terminal code instead.
         this.scheduleReconnect();
         return;
       }
@@ -337,10 +277,7 @@ export class RoomConnection {
     }
     try {
       const room = await parseResponse(
-        gameClient.rooms[':roomId'].$get(
-          { param: { roomId: this.roomId } },
-          { headers: { 'X-Spelltype-Protocol': WS_PROTOCOL } },
-        ),
+        client.api.rooms[':roomId'].$get({ param: { roomId: this.roomId } }),
       );
       return room.protocolVersion === WS_PROTOCOL ? 'ok' : 'protocol';
     } catch (error) {

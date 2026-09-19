@@ -3,7 +3,7 @@ import { readServerConfig } from '../server/config';
 import { startServer } from '../server/start';
 
 const config = await readServerConfig();
-if (config.role !== 'all') throw new Error('Local development requires SERVER_ROLE=all.');
+if (!config.autoMigrate) throw new Error('Local development requires NODE_ENV=development.');
 const backend = await startServer({ config });
 const origin = new URL(config.publicOrigin);
 let frontend: ViteDevServer;
@@ -18,7 +18,6 @@ try {
         },
       },
     ],
-    define: { __SPELLTYPE_RELEASE_ID__: JSON.stringify(config.releaseId) },
     server: {
       host: origin.hostname,
       port: Number(origin.port || 5173),
@@ -32,7 +31,7 @@ try {
   throw error;
 }
 frontend.printUrls();
-console.info(`[server] ${backend.url}; PGlite migrations completed before listening.`);
+console.info(`[server] ${backend.url}; database ready before listening.`);
 
 let stopping = false;
 function shutdown(): void {

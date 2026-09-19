@@ -28,9 +28,8 @@ import {
 } from '../../shared/protocol';
 import type { RoomSocket } from '../../server/contracts';
 import type { Database, OpenedDatabase, Transaction } from '../../server/db';
-import { openDatabase, releaseVersions } from '../../server/db';
+import { openDatabase, runtimeControl } from '../../server/db';
 import { players as playersTable, results } from '../../server/db/schema';
-import { ensureDevelopmentRelease } from '../../server/releases/control';
 import { handleClientFrame } from '../../server/rooms/frames';
 import { INPUT_GATE_ERROR_MESSAGE } from '../../server/rooms/input-gate';
 import { manualLeave } from '../../server/rooms/leave';
@@ -49,17 +48,15 @@ import { readVolley } from '../../server/rooms/storage/volley';
 import { advanceOnce } from '../../server/rooms/transitions';
 import { charCount, damageOf, spellAt } from '../../server/scoring';
 import type { InputFrame } from '../../server/rooms/combat';
-import { RuntimeOwnershipLostError, acquireRuntime } from '../../server/releases/ownership';
+import { RuntimeOwnershipLostError, acquireRuntime } from '../../server/maintenance/ownership';
 
 // Freeze relative offsets without moving PGlite's process-wide timers back by years.
 const T0 = Date.now();
-const RELEASE_ID = 'a'.repeat(32);
 const ROOM_ID = 'b'.repeat(24);
 const MATCH_ID = 'match-gate';
 const COMBAT_END = T0 + MATCH_DURATION_MS;
 /** 座位不可能产出的锁定模式：锁定列只允许 observe/enforce，其余按损坏拒绝。 */
 const INVALID_POLICY_MODE = 'normal' as InputPolicyMode;
-const INVALID_ADMISSION = 'paused' as 'open' | 'draining';
 /**
  * 四条咒文：长度各不相同，让「新资格按各自法术的码点成本计算」可被精确断言；
  * 第二条含代理对，把「长度按码点、不按 UTF-16 单元」钉进端到端裁决。
@@ -197,13 +194,11 @@ async function buildHarness(
   }
   const scope = createRoomScope({
     roomId: ROOM_ID,
-    releaseId: RELEASE_ID,
     db,
     generate: async () => {
       throw new Error('generation not expected in gate tests');
     },
     registry,
-    matchAdmission: 'open',
     inputPolicyMode: mode,
     input: new InputBudget(),
     transact: (fn) =>
@@ -281,7 +276,6 @@ async function buildHarness(
 async function openTestDb(): Promise<Database> {
   const opened = await openDatabase('pglite://:memory:');
   databases.push(opened);
-  await ensureDevelopmentRelease(opened.db, RELEASE_ID);
   return opened.db;
 }
 
@@ -297,7 +291,6 @@ async function seedMatchRoom(
 ): Promise<void> {
   await createRoom(db, {
     id: ROOM_ID,
-    releaseId: RELEASE_ID,
     host: { id: userIds[0], username: userIds[0] },
     theme: '门槛契约',
     mode: 'private',
@@ -361,7 +354,6 @@ async function lobbyHarness(
   const db = await openTestDb();
   await createRoom(db, {
     id: ROOM_ID,
-    releaseId: RELEASE_ID,
     host: { id: userIds[0], username: userIds[0] },
     theme: '门槛契约',
     mode: 'private',
@@ -372,13 +364,11 @@ async function lobbyHarness(
   }
   const scope = createRoomScope({
     roomId: ROOM_ID,
-    releaseId: RELEASE_ID,
     db,
     generate: async () => {
       throw new Error('generation not expected in gate tests');
     },
     registry: new SocketRegistry(),
-    matchAdmission: 'open',
     inputPolicyMode: 'enforce',
     input: new InputBudget(),
   });
@@ -391,12 +381,8 @@ function windowEnd(atMs: number): number {
 }
 
 /** Opens one fenced transaction for a direct start call, exactly like the production callers. */
-function runStart(
-  db: Database,
-  room: RoomRow,
-  policy: { matchAdmission: 'open' | 'draining'; inputPolicyMode: InputPolicyMode },
-): Promise<boolean> {
-  return db.transaction((tx) => startMatchTx(interceptTx(tx), ROOM_ID, room, policy));
+function runStart(db: Database, room: RoomRow, mode: InputPolicyMode): Promise<boolean> {
+  return db.transaction((tx) => startMatchTx(interceptTx(tx), ROOM_ID, room, mode));
 }
 
 beforeEach(() => {
@@ -1023,7 +1009,6 @@ describe('持久、接管与策略锁定', () => {
     const dir = mkdtempSync(join(tmpdir(), 'spelltype-input-gate-restart-'));
     try {
       const first = await openDatabase(`pglite://${dir}`);
-      await ensureDevelopmentRelease(first.db, RELEASE_ID);
       await seedMatchRoom(first.db, ['a', 'b'], {
         mode: 'enforce',
         phase: 'playing',
@@ -1071,7 +1056,6 @@ describe('持久、接管与策略锁定', () => {
     const dir = mkdtempSync(join(tmpdir(), 'spelltype-input-gate-policy-'));
     try {
       const file = await openDatabase(`pglite://${dir}`);
-      await ensureDevelopmentRelease(file.db, RELEASE_ID);
       await seedMatchRoom(file.db, ['a', 'b'], {
         mode: 'enforce',
         phase: 'playing',
@@ -1129,12 +1113,7 @@ describe('持久、接管与策略锁定', () => {
       input_opened_at: T0,
       input_not_before: T0 + 70,
     });
-    expect(
-      await runStart(lobby.db, (await getRoom(lobby.db, ROOM_ID))!, {
-        matchAdmission: 'open',
-        inputPolicyMode: 'observe',
-      }),
-    ).toBe(true);
+    expect(await runStart(lobby.db, (await getRoom(lobby.db, ROOM_ID))!, 'observe')).toBe(true);
     expect(await getRoom(lobby.db, ROOM_ID)).toMatchObject({
       phase: 'generating',
       input_policy_version: INPUT_POLICY_VERSION,
@@ -1163,10 +1142,7 @@ describe('持久、接管与策略锁定', () => {
     const invalid = await lobbyHarness(['a', 'b']);
     await updatePlayer(invalid.db, ROOM_ID, 'a', { hp: 7, input_gate_hits: 9 });
     expect(
-      await runStart(invalid.db, (await getRoom(invalid.db, ROOM_ID))!, {
-        matchAdmission: 'open',
-        inputPolicyMode: INVALID_POLICY_MODE,
-      }),
+      await runStart(invalid.db, (await getRoom(invalid.db, ROOM_ID))!, INVALID_POLICY_MODE),
     ).toBe(false);
     expect(await getRoom(invalid.db, ROOM_ID)).toMatchObject({
       phase: 'lobby',
@@ -1176,19 +1152,6 @@ describe('持久、接管与策略锁定', () => {
     expect(await getPlayer(invalid.db, ROOM_ID, 'a')).toMatchObject({
       hp: 7,
       input_gate_hits: 9,
-    });
-
-    // 无法识别的准入配置拒绝开局，绝不默认为开放。
-    const invalidAdmission = await lobbyHarness(['a', 'b']);
-    expect(
-      await runStart(invalidAdmission.db, (await getRoom(invalidAdmission.db, ROOM_ID))!, {
-        matchAdmission: INVALID_ADMISSION,
-        inputPolicyMode: 'enforce',
-      }),
-    ).toBe(false);
-    expect(await getRoom(invalidAdmission.db, ROOM_ID)).toMatchObject({
-      phase: 'lobby',
-      error: '服务器维护中，暂不开始新对局。',
     });
   });
 });
@@ -1429,7 +1392,7 @@ async function hpof(h: Harness, userId: string): Promise<PlayerRow> {
 
 it('部分输入不能绕过已被接管的运行时写入围栏', async () => {
   const h = await playingHarness(['a', 'b'], { mode: 'enforce', openedAt: T0 });
-  const owner = await acquireRuntime(h.db, RELEASE_ID);
+  const owner = await acquireRuntime(h.db);
   const scope: RoomScope = {
     ...h.scope,
     transact: (fn) =>
@@ -1442,11 +1405,12 @@ it('部分输入不能绕过已被接管的运行时写入围栏', async () => {
     await handleClientFrame(scope, h.sockets.a.socket, metaOf('a'), await h.frame('a', 'A'));
     const accepted = await h.player('a');
     expect(accepted).toMatchObject({ progress: 1, last_input: 'A', attempt_total: 1 });
+    // 租约到期：过期租约永不复活，后来者取得更新代次，旧所有者的证明即刻失效。
     await h.db
-      .update(releaseVersions)
+      .update(runtimeControl)
       .set({ lease_until: 0 })
-      .where(eq(releaseVersions.id, RELEASE_ID));
-    const successor = await acquireRuntime(h.db, RELEASE_ID);
+      .where(eq(runtimeControl.singleton, 1));
+    const successor = await acquireRuntime(h.db);
     try {
       expect(
         handleClientFrame(scope, h.sockets.a.socket, metaOf('a'), await h.frame('a', 'AX')),
@@ -1466,12 +1430,9 @@ describe('SQL 异常回滚', () => {
     await updatePlayer(lobby.db, ROOM_ID, 'a', { hp: 7, input_gate_hits: 5, spells_cast: 3 });
 
     injection = { op: 'update', table: 'rooms' };
-    expect(
-      runStart(lobby.db, await roomSync(lobby.db), {
-        matchAdmission: 'open',
-        inputPolicyMode: 'enforce',
-      }),
-    ).rejects.toThrow('injected sql failure');
+    expect(runStart(lobby.db, await roomSync(lobby.db), 'enforce')).rejects.toThrow(
+      'injected sql failure',
+    );
     injection = null;
 
     expect(await getRoom(lobby.db, ROOM_ID)).toMatchObject({
@@ -1487,12 +1448,7 @@ describe('SQL 异常回滚', () => {
       spells_cast: 3,
     });
 
-    expect(
-      await runStart(lobby.db, (await getRoom(lobby.db, ROOM_ID))!, {
-        matchAdmission: 'open',
-        inputPolicyMode: 'enforce',
-      }),
-    ).toBe(true);
+    expect(await runStart(lobby.db, (await getRoom(lobby.db, ROOM_ID))!, 'enforce')).toBe(true);
     expect(await getRoom(lobby.db, ROOM_ID)).toMatchObject({
       phase: 'generating',
       input_policy_version: INPUT_POLICY_VERSION,

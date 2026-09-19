@@ -1,7 +1,7 @@
 import { and, eq, inArray, isNotNull, isNull, or, sql } from 'drizzle-orm';
 import { rooms } from '../db/schema';
-import type { Database } from '../db';
-import { acquireRuntime, type RuntimeOwnership } from '../releases/ownership';
+import type { Database, Transaction } from '../db';
+import { acquireRuntime, type RuntimeOwnership } from '../maintenance/ownership';
 import type { InputPolicyMode } from '../../shared/protocol';
 import type {
   AuthenticatedSession,
@@ -21,10 +21,7 @@ import { RoomEngine } from './engine';
 
 export interface RoomRuntimeOptions {
   database: Database;
-  releaseId: string;
   generate: GenerateSpells;
-  /** Global admission for every match this runtime opens: `open` or `draining`. */
-  matchAdmission: 'open' | 'draining';
   /** The input-time mode every match this runtime opens locks into its room row. */
   inputPolicyMode: InputPolicyMode;
 }
@@ -33,14 +30,13 @@ export interface RoomRuntimeOptions {
 const WATCH_SWEEP_MS = 5_000;
 
 /**
- * The native room runtime: one process owns one release's rooms. It holds the
- * release's runtime lease (the coordination layer's ownership module), keeps a
+ * The native room runtime: the one process that owns every room. It holds the
+ * global runtime lease (the maintenance layer's ownership module), keeps a
  * per-room engine with a serialized command queue for every room it has
  * touched, persists the earliest durable deadline per room in `next_alarm_at`,
  * and recovers due work at startup.
  */
 export class RoomRuntime implements RoomRuntimePort {
-  readonly releaseId: string;
   readonly runtimeEpoch: number;
 
   private readonly engines = new Map<string, RoomEngine>();
@@ -50,24 +46,21 @@ export class RoomRuntime implements RoomRuntimePort {
   private constructor(
     readonly database: Database,
     readonly generate: GenerateSpells,
-    readonly matchAdmission: 'open' | 'draining',
     readonly inputPolicyMode: InputPolicyMode,
     private readonly ownership: RuntimeOwnership,
-    releaseId: string,
   ) {
-    this.releaseId = releaseId;
     this.runtimeEpoch = ownership.epoch;
   }
 
   /**
-   * Acquires the release's runtime lease and recovers every room that still
-   * owes work. A busy lease — another live owner — fails the startup: two
-   * owners of one release would race the rooms. An active room of this release
-   * that carries no locked input policy fails the startup too: the runtime
-   * refuses to adopt a match it could neither judge nor settle.
+   * Acquires the global runtime lease and recovers every room that still owes
+   * work. A busy lease — another live owner — fails the startup: two owners
+   * would race the rooms. An active room that carries no locked input policy
+   * fails the startup too: the runtime refuses to adopt a match it could
+   * neither judge nor settle.
    */
   static async start(options: RoomRuntimeOptions): Promise<RoomRuntime> {
-    const ownership = await acquireRuntime(options.database, options.releaseId, {
+    const ownership = await acquireRuntime(options.database, {
       onLost: () => {
         void runtime.handleOwnershipLost();
       },
@@ -75,10 +68,8 @@ export class RoomRuntime implements RoomRuntimePort {
     const runtime = new RoomRuntime(
       options.database,
       options.generate,
-      options.matchAdmission,
       options.inputPolicyMode,
       ownership,
-      options.releaseId,
     );
     try {
       await runtime.rejectUnmeasuredActiveRooms();
@@ -95,20 +86,18 @@ export class RoomRuntime implements RoomRuntimePort {
   // ------------------------------------------------------------------ port API
 
   /**
-   * Validates that a room belongs to this runtime's release before adopting it.
-   * Coordination and HTTP may hand this runtime a room id of another release
-   * (a cancel outcome, a stale locator); adopting a foreign room would drive
-   * its timers under this runtime's lease. A foreign or missing room is a
-   * refusal, never an adoption.
+   * Validates that the room exists before adopting it. Coordination and HTTP
+   * may hand this runtime a stale or unknown room id (a cancel outcome, an
+   * old locator); a missing room is a refusal, never an adoption. There is
+   * exactly one runtime, so an existing room is always this runtime's own.
    */
   private async engineForOwnRoom(roomId: string): Promise<RoomEngine> {
     const rows = await this.database
-      .select({ release_id: rooms.release_id })
+      .select({ id: rooms.id })
       .from(rooms)
       .where(eq(rooms.id, roomId))
       .limit(1);
-    if (rows[0]?.release_id !== this.releaseId)
-      throw new RoomRejection('room:not_found', '房间不存在或已结束。');
+    if (rows[0] === undefined) throw new RoomRejection('room:not_found', '房间不存在或已结束。');
     return this.engineFor(roomId);
   }
 
@@ -184,7 +173,7 @@ export class RoomRuntime implements RoomRuntimePort {
   // ----------------------------------------------------------------- internals
 
   /** The write fence every room mutation transaction asserts before its first statement. */
-  assertOwnership(tx: Parameters<RuntimeOwnership['assert']>[0]): Promise<void> {
+  assertOwnership(tx: Transaction): Promise<void> {
     return this.ownership.assert(tx);
   }
 
@@ -208,10 +197,10 @@ export class RoomRuntime implements RoomRuntimePort {
   }
 
   /**
-   * Startup recovery: every room of this release that owes a wake-up — a due
-   * timer, a live match, an open reservation, an open lobby — gets its engine
-   * and an immediate catch-up pass. A generation interrupted by a crash is
-   * failed honestly by the catch-up, exactly like the old alarm catch-up.
+   * Startup recovery: every room that owes a wake-up — a due timer, a live
+   * match, an open reservation, an open lobby — gets its engine and an
+   * immediate catch-up pass. A generation interrupted by a crash is failed
+   * honestly by the catch-up, exactly like the old alarm catch-up.
    */
   private async recover(): Promise<void> {
     const now = Date.now();
@@ -219,27 +208,23 @@ export class RoomRuntime implements RoomRuntimePort {
       .select({ id: rooms.id })
       .from(rooms)
       .where(
-        and(
-          eq(rooms.release_id, this.releaseId),
-          or(
-            and(isNotNull(rooms.next_alarm_at), sql`${rooms.next_alarm_at} <= ${now}`),
-            inArray(rooms.phase, ['generating', 'countdown', 'playing']),
-            eq(rooms.reservation_state, 'reserved'),
-            and(eq(rooms.locked, 0), eq(rooms.phase, 'lobby')),
-          ),
+        or(
+          and(isNotNull(rooms.next_alarm_at), sql`${rooms.next_alarm_at} <= ${now}`),
+          inArray(rooms.phase, ['generating', 'countdown', 'playing']),
+          eq(rooms.reservation_state, 'reserved'),
+          and(eq(rooms.locked, 0), eq(rooms.phase, 'lobby')),
         ),
       );
     await Promise.all(due.map((row) => this.engineFor(row.id).catchup()));
   }
 
   /**
-   * Refuses to adopt a generating, countdown or playing room of this runtime's
-   * OWN release whose match policy was never locked: judging, snapshots and
-   * settlement all read those columns, and measuring a match mid-flight would
-   * invent a start time for spells already typed. Rooms of other releases are
-   * other runtimes' business — this runtime never fences them. The check is
-   * one startup query, so an active match under the old build either drains
-   * under its own build first, or this runtime does not start at all.
+   * Refuses to adopt a generating, countdown or playing room whose match
+   * policy was never locked: judging, snapshots and settlement all read those
+   * columns, and measuring a match mid-flight would invent a start time for
+   * spells already typed. The check is one startup query over every active
+   * room — the single runtime owns them all, so an unmeasured active match is
+   * always this runtime's business and always fails the startup.
    */
   private async rejectUnmeasuredActiveRooms(): Promise<void> {
     const unmeasured = await this.database
@@ -247,7 +232,6 @@ export class RoomRuntime implements RoomRuntimePort {
       .from(rooms)
       .where(
         and(
-          eq(rooms.release_id, this.releaseId),
           inArray(rooms.phase, ['generating', 'countdown', 'playing']),
           or(
             isNull(rooms.input_policy_version),
@@ -271,6 +255,7 @@ export class RoomRuntime implements RoomRuntimePort {
   /** The lease was taken over or expired: stop everything and release the sockets. */
   private async handleOwnershipLost(): Promise<void> {
     if (this.stopped) return;
+    this.stopped = true;
     console.error('[room] runtime ownership lost; stopping');
     if (this.watch !== null) {
       clearInterval(this.watch);
@@ -281,10 +266,10 @@ export class RoomRuntime implements RoomRuntimePort {
 }
 
 /**
- * Creates the room runtime for one release: acquires the runtime lease,
- * recovers due rooms and returns the port Main's composition mounts. The
- * generation function is the injected pipeline Main composes — the fixture
- * uses a real one against a fixture model.
+ * Creates the room runtime: acquires the global runtime lease, recovers due
+ * rooms and returns the port Main's composition mounts. The generation
+ * function is the injected pipeline Main composes — the fixture uses a real
+ * one against a fixture model.
  */
 export async function createRoomRuntime(options: RoomRuntimeOptions): Promise<RoomRuntimePort> {
   return RoomRuntime.start(options);

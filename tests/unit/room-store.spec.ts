@@ -13,7 +13,6 @@ import { join } from 'node:path';
 import type { Database, OpenedDatabase } from '../../server/db';
 import { openDatabase } from '../../server/db';
 import { results } from '../../server/db/schema';
-import { ensureDevelopmentRelease } from '../../server/releases/control';
 import { COMBAT_EVENT_RING_SIZE, INITIAL_HEALTH, type CombatEvent } from '../../shared/protocol';
 import { appendEvents, readEvents } from '../../server/rooms/storage/events';
 import { INPUT_POLICY_VERSION } from '../../server/rooms/rules';
@@ -37,7 +36,6 @@ import {
 import { insertResults } from '../../server/rooms/storage/results';
 import { createRoom, getRoom, updateRoom } from '../../server/rooms/storage/room';
 
-const RELEASE_ID = 'a'.repeat(32);
 const ROOM_ID = 'a'.repeat(24);
 const NOW = 1_700_000_000_000;
 const databases: OpenedDatabase[] = [];
@@ -45,11 +43,10 @@ afterEach(async () => {
   await Promise.all(databases.splice(0).map((database) => database.close()));
 });
 
-/** Opens one fresh in-memory database with migrations applied and one release seeded. */
+/** Opens one fresh in-memory database with migrations applied. */
 async function openTestDb(): Promise<Database> {
   const opened = await openDatabase('pglite://:memory:');
   databases.push(opened);
-  await ensureDevelopmentRelease(opened.db, RELEASE_ID);
   return opened.db;
 }
 
@@ -65,7 +62,6 @@ async function createTestRoom(
 ): Promise<void> {
   await createRoom(db, {
     id: init.id ?? ROOM_ID,
-    releaseId: RELEASE_ID,
     host: { id: init.hostId ?? 'host-1', username: init.hostId ?? 'host-1' },
     theme: init.theme ?? '咒文契约',
     mode: init.mode ?? 'private',
@@ -140,7 +136,6 @@ describe('表结构', () => {
     try {
       const first = await openDatabase(`pglite://${dir}`);
       try {
-        await ensureDevelopmentRelease(first.db, RELEASE_ID);
         await createTestRoom(first.db);
       } finally {
         await first.close();

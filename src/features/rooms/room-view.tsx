@@ -165,6 +165,7 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
               snapshot={room()}
               selfId={selfId()}
               reservationRemainingMs={session.reservationRemainingMs()}
+              admissionBlocked={props.ctx.maintenance.admissionBlocked()}
               actions={lobbyActions}
             />
             <BattlePanel
@@ -206,6 +207,7 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
                   snapshot={room()}
                   self={room().players.find((player) => player.id === selfId())}
                   players={room().players}
+                  admissionBlocked={props.ctx.maintenance.admissionBlocked()}
                   onRematch={() => {
                     session.send({ type: 'rematch' }, '再来一局指令未能送达，正在重连…');
                     toast('已申请再来一局：所有人重新准备后，房主再次开始。', 'info');

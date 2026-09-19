@@ -6,6 +6,7 @@ import { listPlayers, updatePlayer } from './storage/players';
 import { getRoom } from './storage/room';
 import { clearVolley, readVolley } from './storage/volley';
 import type { RoomQuery } from './storage/query';
+import { advanceOpponentTx } from './opponents';
 
 // LCM(1, 2, 3): every split in a 2–4 player room is an exact integer.
 const HEALTH_SCALE = 6;
@@ -92,23 +93,41 @@ export async function resolveDueVolleyTx(
 }
 
 /**
- * Shared clock boundary for alarms, inputs and departures: resolves the due
- * batch first, then settles a match that has no unfinished business left —
- * elimination when at most one seat survives, timeout at the original deadline.
- * Final-window casts land before the timeout does. Damage, results, terminal state
- * and intent removal share one fenced transaction; snapshots and timers follow.
+ * Advances the earliest due opponent action or combat batch, then settles elimination
+ * or the original deadline once no earlier work remains. Returns whether it progressed;
+ * input and departure callers drain due work before accepting a newer command.
+ * Final-window casts land before timeout. Damage, results, terminal state and intent
+ * removal share one fenced transaction; snapshots and timers follow.
  */
 export async function advanceCombat(scope: RoomScope, now: number): Promise<boolean> {
   const room = await getRoom(scope.db, scope.roomId);
   if (!room || room.phase !== 'playing') return false;
   const pending = await readVolley(scope.db, scope.roomId);
-  if ((!pending || pending.endsAt > now) && now < room.deadline) return false;
+  const opponentDue =
+    room.opponent_next_at !== null &&
+    room.opponent_next_at < room.deadline &&
+    room.opponent_next_at <= now;
+  if ((!pending || pending.endsAt > now) && !opponentDue && now < room.deadline) return false;
 
   const progressed = await scope.transact(async (tx) => {
     const current = await getRoom(tx, scope.roomId);
     if (!current || current.phase !== 'playing') return false;
     const volley = await readVolley(tx, scope.roomId);
+    // Actions in a window precede its settlement; at its exact end the old batch lands first.
+    if (
+      current.opponent_next_at !== null &&
+      current.opponent_next_at < current.deadline &&
+      current.opponent_next_at <= now &&
+      (!volley || current.opponent_next_at < volley.endsAt)
+    ) {
+      await advanceOpponentTx(tx, current, volley);
+      return true;
+    }
     const resolved = await resolveDueVolleyTx(tx, scope.roomId, now);
+    const moreActionsDue =
+      current.opponent_next_at !== null &&
+      current.opponent_next_at < current.deadline &&
+      current.opponent_next_at <= now;
     const players = await listPlayers(tx, scope.roomId);
     if (
       (!volley || resolved) &&
@@ -122,6 +141,7 @@ export async function advanceCombat(scope: RoomScope, now: number): Promise<bool
       );
       return true;
     }
+    if (resolved && moreActionsDue) return true;
     if (current.deadline > 0 && now >= current.deadline) {
       await finishMatchTx(tx, scope.roomId, 'timeout', current.deadline);
       return true;

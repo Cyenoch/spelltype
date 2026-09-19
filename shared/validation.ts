@@ -1,48 +1,6 @@
 import { z } from 'zod';
-import { releaseIdSchema } from './release';
-import {
-  MAX_PRIVATE_PLAYERS,
-  MAX_QUICK_PLAYERS,
-  MAX_THEME_CHARS,
-  PASSWORD_MAX_CHARS,
-  PASSWORD_MIN_CHARS,
-  USERNAME_MAX_CHARS,
-  USERNAME_MIN_CHARS,
-} from './protocol';
+import { MAX_PRIVATE_PLAYERS, MAX_QUICK_PLAYERS, MAX_THEME_CHARS } from './protocol';
 
-export const usernameSchema = z
-  .string({ error: '请输入用户名。' })
-  .transform((value) => value.normalize('NFKC').trim())
-  .superRefine((value, ctx) => {
-    const length = Array.from(value).length;
-    if (length === 0) ctx.addIssue({ code: 'custom', message: '请输入用户名。' });
-    else if (length < USERNAME_MIN_CHARS)
-      ctx.addIssue({ code: 'custom', message: `用户名至少 ${USERNAME_MIN_CHARS} 个字符。` });
-    else if (length > USERNAME_MAX_CHARS)
-      ctx.addIssue({ code: 'custom', message: `用户名最多 ${USERNAME_MAX_CHARS} 个字符。` });
-    else if (!/^[\p{Script=Han}A-Za-z0-9_]+$/u.test(value))
-      ctx.addIssue({ code: 'custom', message: '用户名只能包含中文、英文字母、数字和下划线。' });
-  });
-
-// Passwords are deliberately never trimmed, normalized or truncated.
-export const passwordSchema = z.string({ error: '请输入密码。' }).superRefine((value, ctx) => {
-  const length = Array.from(value).length;
-  if (length === 0) ctx.addIssue({ code: 'custom', message: '请输入密码。' });
-  else if (length < PASSWORD_MIN_CHARS)
-    ctx.addIssue({ code: 'custom', message: `密码至少 ${PASSWORD_MIN_CHARS} 个字符。` });
-  else if (length > PASSWORD_MAX_CHARS)
-    ctx.addIssue({ code: 'custom', message: `密码最多 ${PASSWORD_MAX_CHARS} 个字符。` });
-});
-export const loginPasswordSchema = z
-  .string({ error: '请输入密码。' })
-  .refine((value) => Array.from(value).length > 0, '请输入密码。')
-  .refine(
-    (value) => Array.from(value).length <= PASSWORD_MAX_CHARS,
-    `密码最多 ${PASSWORD_MAX_CHARS} 个字符。`,
-  );
-
-export const registerSchema = z.object({ username: usernameSchema, password: passwordSchema });
-export const loginSchema = z.object({ username: usernameSchema, password: loginPasswordSchema });
 export const themeSchema = z
   .string({ error: '请输入对战主题。' })
   .trim()
@@ -89,7 +47,6 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 export const roomInitSchema = z
   .object({
     id: roomIdSchema,
-    releaseId: releaseIdSchema,
     host: userSchema,
     // A stored theme is replayed to every seat and into the generation prompt, so the room refuses
     // control characters on top of the shared theme rule.
@@ -118,6 +75,4 @@ export const roomInitSchema = z
     }
   });
 
-export type RegisterInput = z.input<typeof registerSchema>;
-export type LoginInput = z.input<typeof loginSchema>;
 export type CreateRoomInput = z.input<typeof createRoomSchema>;

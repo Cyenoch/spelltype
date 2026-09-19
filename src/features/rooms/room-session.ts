@@ -3,12 +3,9 @@ import { useNavigate } from '@tanstack/solid-router';
 import { parseResponse, DetailedError } from 'hono/client';
 import { WS_PROTOCOL, MATCH_DURATION_MS } from '../../../shared/protocol';
 import type { ClientMessage, Phase, RoomSnapshot } from '../../../shared/protocol';
-import { ReleaseError, type RoomLocation } from '../../../shared/release';
-import { gameClient } from '../../app/client';
-import { releaseCodeOf } from '../../app/releases';
+import { client } from '../../app/client';
 import type { AppContext } from '../../app/context';
 import { profileOptions } from '../../app/queries';
-import { resolveRoomEntry } from './room-entry';
 import { RoomConnection, type ConnectionState } from './room-connection';
 import { isProtocolRejection, type CloseInfo } from './room-wire';
 import { messageOf, toast } from '../../ui/toast';
@@ -39,11 +36,9 @@ const REMINDER_WINDOW_MS = 60_000;
 
 /**
  * The route keeps the previous screen visible until the initial room read settles.
- * `entry` means the room is retained by another release and the document must
- * move to that release's own entry; `error` covers everything this bundle can
- * already prove it cannot enter.
+ * `error` covers everything this bundle can already prove it cannot enter.
  */
-export type RoomLoad = { snapshot: RoomSnapshot } | { entry: RoomLocation } | { error: unknown };
+export type RoomLoad = { snapshot: RoomSnapshot } | { error: unknown };
 
 export interface RoomSession {
   snapshot(): RoomSnapshot | null;
@@ -196,7 +191,7 @@ export function createRoomSession(props: {
   };
 
   /**
-   * Manual leave waits for the server's acknowledgment: `POST /api/releases/:releaseId/rooms/:id/leave`
+   * Manual leave waits for the server's acknowledgment: `POST /api/rooms/:id/leave`
    * is what commits the departure (forfeiting a live match, releasing a seat), so
    * navigation, the success toast and the invite cleanup happen only after it. A
    * lost response is ambiguous: keep the page and offer an idempotent retry.
@@ -227,7 +222,7 @@ export function createRoomSession(props: {
       };
       try {
         await parseResponse(
-          gameClient.rooms[':roomId'].leave.$post({ param: { roomId: props.roomId } }),
+          client.api.rooms[':roomId'].leave.$post({ param: { roomId: props.roomId } }),
         );
       } catch (error) {
         if (closed) return;
@@ -237,44 +232,16 @@ export function createRoomSession(props: {
           props.ctx.handleAuthFailure('登录状态已失效，请重新登录。');
           return;
         }
-        if (
-          error instanceof DetailedError &&
-          error.statusCode === 404 &&
-          releaseCodeOf(error) === null
-        ) {
+        if (error instanceof DetailedError && error.statusCode === 404) {
           // The owner confirms no seat remains; an explicit retry may requeue.
           departed();
           return;
         }
-        // Retirement stops the owning process, so even a transport failure may
-        // need the independent stable locator. The failure itself proves nothing.
-        const entry = await resolveRoomEntry(props.roomId);
-        if (closed) return;
-        const gone =
-          entry.kind === 'gone' &&
-          entry.error instanceof DetailedError &&
-          entry.error.statusCode === 404;
-        if (entry.kind === 'retired' || gone) {
-          props.ctx.notifications.invalidateRoom(props.roomId);
-          props.ctx.setPendingInvite(null);
-          socket?.close();
-          toast(new ReleaseError('release:room_retired').message, 'warn');
-          void navigate({ to: '/', search: {} });
-          return;
-        }
-        // A foreign owner, denied lookup, or outage never acknowledges departure.
+        // A refused or lost departure proves nothing about the seat: the room
+        // keeps it, and an explicit retry remains available.
         setLeaving(false);
         leaveRequest = null;
-        if (entry.kind === 'auth') {
-          props.ctx.handleAuthFailure('登录状态已失效，请重新登录。');
-          return;
-        }
-        toast(
-          releaseCodeOf(error)
-            ? '未能确认离开房间，请重试。'
-            : messageOf(error, '未能确认离开房间，请重试。'),
-          'error',
-        );
+        toast(messageOf(error, '未能确认离开房间，请重试。'), 'error');
         return;
       }
       // The seat is released.
@@ -437,15 +404,6 @@ export function createRoomSession(props: {
       toast(message, 'warn');
       return;
     }
-    if (info.roomRetired) {
-      // The room's release was retired: this room is over for every build, and
-      // no reminder bound to it can be acted on again.
-      props.ctx.notifications.invalidateRoom(props.roomId);
-      const message = new ReleaseError('release:room_retired').message;
-      setProblem({ message, tone: 'error' });
-      toast(message, 'error');
-      return;
-    }
     if (info.roomClosed) {
       props.ctx.notifications.invalidateRoom(props.roomId);
       const message =
@@ -489,9 +447,6 @@ export function createRoomSession(props: {
       onReconnectAttempt: () => renderConnection('reconnecting'),
     });
 
-    // Entries never reach this surface — the route renders its own handover
-    // screen — but the union keeps the session honest about what it can load.
-    if ('entry' in loaded) return;
     if ('error' in loaded) {
       socket.close();
       if (loaded.error instanceof DetailedError && loaded.error.statusCode === 401) {

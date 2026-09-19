@@ -24,7 +24,7 @@ import {
 } from './sockets';
 import { abandonedMatch } from './storage/departures';
 import { getPlayer, insertPlayer, updatePlayer } from './storage/players';
-import { getRoom, readRoomRelease, updateRoom } from './storage/room';
+import { getRoom, updateRoom } from './storage/room';
 import { registerSessionRoom } from './storage/room-sessions';
 import { armRoom } from './timers';
 import { advanceOnce } from './transitions';
@@ -58,28 +58,26 @@ export class RoomEngine {
   ) {
     this.scope = createRoomScope({
       roomId,
-      releaseId: runtime.releaseId,
       db: runtime.database,
       generate: runtime.generate,
       registry: this.registry,
       input: this.input,
-      matchAdmission: runtime.matchAdmission,
       inputPolicyMode: runtime.inputPolicyMode,
       transact: (fn) =>
         this.runtime.database.transaction(async (tx) => {
           // The ownership fence is the first statement of every mutation
-          // transaction, so a late owner cannot write after its lease is lost.
+          // transaction, so a late owner cannot write after its lease is lost:
+          // it locks runtime_control (admission and ownership) before any room
+          // row. The room itself is locked too, so every command's state
+          // changes serialize per room under a held fence.
           await this.runtime.assertOwnership(tx);
-          // The room itself is fenced too: an engine can only mutate a room
-          // whose persisted release matches the release this runtime owns, so
-          // a foreign runtime can never adopt or drive another release's room.
           const owned = await tx
-            .select({ release_id: rooms.release_id })
+            .select({ id: rooms.id })
             .from(rooms)
             .where(eq(rooms.id, roomId))
             .for('update')
             .limit(1);
-          if (owned[0]?.release_id !== this.runtime.releaseId)
+          if (owned[0] === undefined)
             throw new RoomRejection('room:not_found', '房间不存在或已结束。');
           return fn(tx);
         }),
@@ -185,9 +183,9 @@ export class RoomEngine {
         sendTo(socket, { type: 'error', message: '消息格式错误。' });
         return;
       }
-      // A v2-shaped input without the mandatory draft epoch is an old client in
+      // An input without the mandatory draft epoch is an old client in
       // everything but its self-declared version: cut it off like one instead of
-      // answering every packet with a generic schema error. Any other invalid v2
+      // answering every packet with a generic schema error. Any other invalid
       // data stays an ordinary schema rejection below.
       if (
         typeof parsed === 'object' &&
@@ -311,10 +309,7 @@ export class RoomEngine {
         seated: 1,
       });
       await reconcileHost(tx, this.roomId, this.registry);
-      await maybeAutoStartTx(tx, this.roomId, this.registry, room, {
-        matchAdmission: this.scope.matchAdmission,
-        inputPolicyMode: this.scope.inputPolicyMode,
-      });
+      await maybeAutoStartTx(tx, this.roomId, this.registry, room, this.scope.inputPolicyMode);
       return null;
     });
 
@@ -331,9 +326,8 @@ export class RoomEngine {
 
   /**
    * Re-reads the room's committed state and reconciles what the engine cannot
-   * see by itself: a reservation the coordination layer cancelled in the
-   * database, a retirement probe that marked the room draining, a release that
-   * finished retiring, a room row that is gone.
+   * see by itself: a reservation the matchmaker cancelled in the database, a
+   * pairing whose TTL lapsed, a room row that is gone.
    */
   refresh(): Promise<void> {
     return this.enqueue(async () => {
@@ -341,14 +335,6 @@ export class RoomEngine {
       const room = await getRoom(this.scope.db, this.roomId);
       if (!room) {
         closeAllSockets(this.registry, WS_CLOSE.closed, 'room gone');
-        this.setTimer(null);
-        return;
-      }
-      const release = await readRoomRelease(this.scope.db, this.roomId);
-      if (release !== null && release.state === 'retired') {
-        // The release is retired: nothing here is reachable any more, even if
-        // this container is still up. The close is terminal.
-        closeAllSockets(this.registry, WS_CLOSE.closed, 'room retired');
         this.setTimer(null);
         return;
       }

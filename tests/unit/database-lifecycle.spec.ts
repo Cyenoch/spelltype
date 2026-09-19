@@ -52,8 +52,7 @@ async function insertAccount(db: OpenedDatabase['db'], id: string): Promise<void
   await db.insert(accounts).values({
     id,
     username: `user-${id}`,
-    username_key: `user-${id}`,
-    password_hash: 'hash',
+    wechat_identity: `open:${id}`,
     created_at: NOW,
   });
 }

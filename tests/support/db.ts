@@ -1,7 +1,7 @@
 /**
  * Direct database access for the specs — through the owning server's Drizzle instance.
  *
- * The harness opens the PGlite database once and passes the same handle into every server
+ * The harness opens the PGlite database once and passes the same handle into the server
  * instance, so this module hands out exactly the connection the product code uses. Specs that
  * must observe or fault the storage layer (an expired session, a results sink that refuses
  * writes, the rows a settled match left behind) do it through Drizzle against that handle — they

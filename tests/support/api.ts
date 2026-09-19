@@ -3,24 +3,20 @@
  * payload norms they read off it: the viewer's own identity, the row a rendered board keys a player
  * by, and the accuracy figure the protocol carries.
  *
- * Game endpoints are release-scoped (`/api/releases/<id>/…`), and the server requires the client
- * release header on them; the helpers send the release this run is currently testing with. Tests
- * that must prove a stale or missing version is rejected override or omit the header explicitly
- * via `apiJson`'s `headers` — the helper never silently fixes a request that is supposed to fail.
+ * Game endpoints live under the stable `/api` root, and the server requires the current wire
+ * protocol header on every one of them; the helpers send `X-Spelltype-Protocol` automatically.
+ * Tests that must prove a stale or missing protocol is rejected override or omit the header
+ * explicitly via `apiJson`'s `headers` — the helper never silently fixes a request that is
+ * supposed to fail.
  */
 import type { BrowserContext } from '@playwright/test';
-import { gameApiBase } from '../../shared/release';
-import { runtime } from './runtime';
 import { WS_PROTOCOL } from '../../shared/protocol';
+import { runtime } from './runtime';
 
 /**
- * The release id this run's pages are built with. The harness records the initial release in the
- * runtime file, and the A/B scenario switches it after a real activation.
+ * Every request defaults to the app's own origin (the server's same-origin gate demands exactly
+ * that origin on state changes), and every game path carries the current protocol header.
  */
-export function testReleaseId(): string {
-  return runtime().releaseId;
-}
-
 export async function apiJson<T>(
   context: BrowserContext,
   url: string,
@@ -29,23 +25,19 @@ export async function apiJson<T>(
     data?: unknown;
     origin?: string;
     /**
-     * Merged over the defaults (`X-Spelltype-Release`, `Origin`), case-insensitively. A value of
+     * Merged over the defaults (`X-Spelltype-Protocol`, `Origin`), case-insensitively. A value of
      * `undefined` drops that header from the request entirely — the explicit way to omit the
-     * release header — while an empty string sends the header with an empty value.
+     * protocol header — while an empty string sends the header with an empty value.
      */
     headers?: Record<string, string | undefined>;
   },
 ): Promise<{ status: number; body: T }> {
   const absolute = /^https?:/.test(url) ? url : new URL(url, runtime().appUrl).toString();
   const headers: Record<string, string> = {
-    'x-spelltype-release': testReleaseId(),
     // The app rejects state-changing requests without a same-host, same-scheme Origin.
     origin: init?.origin ?? new URL(absolute).origin,
   };
-  if (
-    (init?.method ?? 'GET').toUpperCase() === 'GET' &&
-    /^\/api\/releases\/[0-9a-f]{32}\/rooms\/[0-9a-f]{24}\/?$/.test(new URL(absolute).pathname)
-  ) {
+  if (/^\/api\/(rooms|match)\b/.test(new URL(absolute).pathname)) {
     headers['x-spelltype-protocol'] = WS_PROTOCOL;
   }
   for (const [name, value] of Object.entries(init?.headers ?? {})) {
@@ -62,16 +54,13 @@ export async function apiJson<T>(
   return { status: response.status(), body: (text ? JSON.parse(text) : null) as T };
 }
 
-/**
- * A game API path (`/rooms/…`, `/match`, `/rooms/<id>/leave`) called against the release this
- * run currently identifies with: release-scoped URL plus the required release header.
- */
+/** A game API path (`/rooms/…`, `/match`) called against the stable `/api` root. */
 export async function gameJson<T>(
   context: BrowserContext,
   gamePath: string,
   init?: Parameters<typeof apiJson>[2],
 ): Promise<{ status: number; body: T }> {
-  return apiJson<T>(context, `${gameApiBase(testReleaseId())}${gamePath}`, init);
+  return apiJson<T>(context, `/api${gamePath}`, init);
 }
 
 /** A player identity: display name plus the account id, whichever the DOM reports. */

@@ -23,7 +23,12 @@ import {
   type SortFn,
 } from '@tanstack/solid-table';
 import type { MatchResult } from '../../../shared/protocol';
-import { formatAccuracyPercent, formatAmount, formatTimestamp } from '../../ui/format';
+import {
+  formatAccuracyPercent,
+  formatAmount,
+  formatTimestamp,
+  OPPONENT_KIND_LABELS,
+} from '../../ui/format';
 
 /** The per-row cell attributes the retired table carried alongside the measured text. */
 export interface HistoryCellAttrs {
@@ -91,6 +96,13 @@ export const historyColumns = helper.columns([
     sortFn: sortFn_text,
     cell: (info) => info.getValue(),
     meta: { testid: 'history-theme' },
+  }),
+  helper.accessor((row) => OPPONENT_KIND_LABELS[row.opponent_kind], {
+    id: 'opponent',
+    header: '对手',
+    sortFn: sortFn_text,
+    cell: (info) => info.getValue(),
+    meta: { testid: 'history-opponent' },
   }),
   helper.accessor('rank', {
     header: '名次',

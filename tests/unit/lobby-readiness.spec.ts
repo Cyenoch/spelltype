@@ -1,24 +1,24 @@
 /**
- * 大厅准备状态与开局闸门 — readiness sync during generation, and the immutable
- * match-admission rules every new match passes through.
+ * 大厅准备状态与开局闸门 — readiness sync during generation, and the durable admission rules
+ * every new match passes through.
  *
- * Readiness changes stay visible to both seats while the match is being generated,
- * and are refused once the match has a clock. Draining admission refuses new
- * matches without touching live ones, their rosters or a finished match's rematch
- * reset. Only the transport is substituted; frames, state changes and snapshots
+ * Readiness changes stay visible to both seats while the match is being generated, and are
+ * refused once the match has a clock. Draining is durable maintenance state in the shared
+ * control row: it refuses new matches without touching live ones, their rosters or a finished
+ * match's rematch reset. Only the transport is substituted; frames, state changes and snapshots
  * run the real domain code over real PGlite.
  */
 import { afterEach, expect, it } from 'bun:test';
 import type { OpenedDatabase } from '../../server/db';
-import { openDatabase } from '../../server/db';
-import { ensureDevelopmentRelease } from '../../server/releases/control';
-import type { ServerMessage } from '../../shared/protocol';
+import { openDatabase, runtimeControl } from '../../server/db';
+import { enterMaintenance } from '../../server/maintenance/control';
+import { WS_PROTOCOL, type InputPolicyMode, type ServerMessage } from '../../shared/protocol';
 import type { RoomSocket, RoomSocketData } from '../../server/contracts';
 import { handleClientFrame } from '../../server/rooms/frames';
 import { startMatchTx, maybeAutoStartTx } from '../../server/rooms/match';
 import { INPUT_MIN_MS_PER_CODE_POINT, INPUT_POLICY_VERSION } from '../../server/rooms/rules';
 import { SocketRegistry } from '../../server/rooms/scope';
-import type { RoomMatchPolicy, RoomScope, SocketAuth } from '../../server/rooms/scope';
+import type { RoomScope, SocketAuth } from '../../server/rooms/scope';
 import { createRoomScope } from '../../server/rooms/scope';
 import { snapshotFor } from '../../server/rooms/snapshots';
 import {
@@ -30,12 +30,8 @@ import {
 import { createRoom, getRoom, updateRoom } from '../../server/rooms/storage/room';
 import { advanceOnce } from '../../server/rooms/transitions';
 
-const RELEASE_ID = 'a'.repeat(32);
 const ROOM_ID = 'a'.repeat(24);
-const OPEN_POLICY: RoomMatchPolicy = { matchAdmission: 'open', inputPolicyMode: 'enforce' };
-const DRAINING_POLICY: RoomMatchPolicy = { matchAdmission: 'draining', inputPolicyMode: 'enforce' };
-const INVALID_ADMISSION = 'paused' as 'open' | 'draining';
-const INVALID_POLICY_MODE = 'normal' as 'observe' | 'enforce';
+const INVALID_POLICY_MODE = 'normal' as InputPolicyMode;
 
 const databases: OpenedDatabase[] = [];
 afterEach(async () => {
@@ -57,9 +53,10 @@ function stubSocket(auth: SocketAuth): { socket: RoomSocket; received: ServerMes
     },
     data: {
       roomId: ROOM_ID,
-      protocolVersion: 'spelltype.v2',
+      protocolVersion: WS_PROTOCOL,
       session: {
         user: { id: auth.userId, username: auth.username },
+        role: 'user',
         tokenHash: auth.sessionHash,
         expiresAt: auth.sessionExpires,
       },
@@ -68,20 +65,26 @@ function stubSocket(auth: SocketAuth): { socket: RoomSocket; received: ServerMes
   return { socket, received };
 }
 
-/** Fresh in-memory database with the test release registered: room rows carry its foreign key. */
+/** Fresh in-memory database with migrations applied. */
 async function openSeededDb(): Promise<OpenedDatabase> {
   const opened = await openDatabase('pglite://:memory:');
   databases.push(opened);
-  await ensureDevelopmentRelease(opened.db, RELEASE_ID);
   return opened;
 }
 
+/** Flips the shared control row to draining through the real revision-CAS entry. */
+async function enterDraining(db: OpenedDatabase['db']): Promise<void> {
+  const [control] = await db.select().from(runtimeControl);
+  if (!control) throw new Error('runtime_control has no singleton row');
+  await enterMaintenance(db, control.revision);
+}
+
 it('生成咒文期间准备与取消准备会同步给双方，倒计时开始后拒绝变更', async () => {
-  const db = (await openSeededDb()).db;
+  const opened = await openSeededDb();
+  const db = opened.db;
   const now = Date.now();
   await createRoom(db, {
     id: ROOM_ID,
-    releaseId: RELEASE_ID,
     host: { id: 'host', username: 'host' },
     theme: '咒文契约',
     mode: 'quick',
@@ -96,7 +99,7 @@ it('生成咒文期间准备与取消准备会同步给双方，倒计时开始�
     connId: `${userId}-connection`,
     sessionHash: `${userId}-session`,
     sessionExpires: now + 60_000,
-    protocolVersion: 'spelltype.v2',
+    protocolVersion: WS_PROTOCOL,
   }));
   const registry = new SocketRegistry();
   const stubs = identities.map((identity) => {
@@ -106,13 +109,11 @@ it('生成咒文期间准备与取消准备会同步给双方，倒计时开始�
   });
   const scope: RoomScope = createRoomScope({
     roomId: ROOM_ID,
-    releaseId: RELEASE_ID,
     db,
     generate: async () => {
       throw new Error('generation not expected in this test');
     },
     registry,
-    matchAdmission: 'open',
     inputPolicyMode: 'enforce',
   });
   for (const identity of identities) {
@@ -154,12 +155,12 @@ it('生成咒文期间准备与取消准备会同步给双方，倒计时开始�
 });
 
 it.each(['private', 'quick'] as const)('维护期间不锁定 %s 房间或重置已有座位', async (mode) => {
-  const db = (await openSeededDb()).db;
+  const opened = await openSeededDb();
+  const db = opened.db;
   const now = Date.now();
   const roomId = mode === 'quick' ? 'b'.repeat(24) : 'c'.repeat(24);
   await createRoom(db, {
     id: roomId,
-    releaseId: RELEASE_ID,
     host: { id: 'host', username: 'host' },
     theme: '维护',
     mode,
@@ -179,7 +180,7 @@ it.each(['private', 'quick'] as const)('维护期间不锁定 %s 房间或重置
       connId: `${userId}-conn`,
       sessionHash: `${userId}-session`,
       sessionExpires: now + 60_000,
-      protocolVersion: 'spelltype.v2',
+      protocolVersion: WS_PROTOCOL,
     };
     registry.attach(stubSocket(identity).socket, identity);
     await insertPlayer(db, roomId, { userId, username: userId, slotExpiresAt: null, now });
@@ -190,12 +191,13 @@ it.each(['private', 'quick'] as const)('维护期间不锁定 %s 房间或重置
       ready: 1,
     });
   }
+  await enterDraining(db);
   const before = await listPlayers(db, roomId);
   const room = (await getRoom(db, roomId))!;
   const started = await db.transaction((tx) =>
     mode === 'quick'
-      ? maybeAutoStartTx(tx, roomId, registry, room, DRAINING_POLICY)
-      : startMatchTx(tx, roomId, room, DRAINING_POLICY),
+      ? maybeAutoStartTx(tx, roomId, registry, room, 'enforce')
+      : startMatchTx(tx, roomId, room, 'enforce'),
   );
   expect(started).toBe(false);
   expect(await listPlayers(db, roomId)).toEqual(before);
@@ -205,13 +207,13 @@ it.each(['private', 'quick'] as const)('维护期间不锁定 %s 房间或重置
   });
 });
 
-it('维护期间已结束的局可以重置回大厅，但再次开局仍被拒绝', async () => {
-  const db = (await openSeededDb()).db;
+it('维护期间拒绝再来一局，保留已完成的对局与玩家记录', async () => {
+  const opened = await openSeededDb();
+  const db = opened.db;
   const now = Date.now();
   const roomId = 'd'.repeat(24);
   await createRoom(db, {
     id: roomId,
-    releaseId: RELEASE_ID,
     host: { id: 'host', username: 'host' },
     theme: '重赛契约',
     mode: 'private',
@@ -222,7 +224,7 @@ it('维护期间已结束的局可以重置回大厅，但再次开局仍被拒�
     connId: `${userId}-conn`,
     sessionHash: `${userId}-session`,
     sessionExpires: now + 60_000,
-    protocolVersion: 'spelltype.v2',
+    protocolVersion: WS_PROTOCOL,
   }));
   const registry = new SocketRegistry();
   const stubs = identities.map((identity) => {
@@ -232,13 +234,11 @@ it('维护期间已结束的局可以重置回大厅，但再次开局仍被拒�
   });
   const scope: RoomScope = createRoomScope({
     roomId,
-    releaseId: RELEASE_ID,
     db,
     generate: async () => {
       throw new Error('generation not expected in this test');
     },
     registry,
-    matchAdmission: 'draining',
     inputPolicyMode: 'enforce',
   });
   for (const identity of identities) {
@@ -256,34 +256,21 @@ it('维护期间已结束的局可以重置回大厅，但再次开局仍被拒�
     match_id: 'finished-match',
     end_reason: 'timeout',
   });
-  await handleClientFrame(scope, stubs[0].socket, identities[0], { type: 'rematch' });
-  const lobby = (await getRoom(db, roomId))!;
-  expect(lobby.phase).toBe('lobby');
-  expect(lobby.locked).toBe(0);
-  expect(lobby.match_id).toBeNull();
-
-  // The rematch itself is a lobby reset, not a new match: the next start is what draining blocks.
+  const finished = await getRoom(db, roomId);
   const roster = await listPlayers(db, roomId);
-  expect(
-    await db.transaction(async (tx) =>
-      startMatchTx(tx, roomId, (await getRoom(tx, roomId))!, DRAINING_POLICY),
-    ),
-  ).toBe(false);
+  await enterDraining(db);
+  await handleClientFrame(scope, stubs[0].socket, identities[0], { type: 'rematch' });
+  expect(await getRoom(db, roomId)).toEqual(finished);
   expect(await listPlayers(db, roomId)).toEqual(roster);
-  expect(await getRoom(db, roomId)).toMatchObject({
-    error: '服务器维护中，暂不开始新对局。',
-  });
-  // The refused start must not have consumed the lobby either: phase and seats survive intact.
-  expect(await getRoom(db, roomId)).toMatchObject({ phase: 'lobby' });
 });
 
 it('维护中的对局不受影响：比赛照常进行并按原截止时间自然结算', async () => {
-  const db = (await openSeededDb()).db;
+  const opened = await openSeededDb();
+  const db = opened.db;
   const now = Date.now();
   const roomId = 'e'.repeat(24);
   await createRoom(db, {
     id: roomId,
-    releaseId: RELEASE_ID,
     host: { id: 'host', username: 'host' },
     theme: '排空契约',
     mode: 'private',
@@ -291,13 +278,11 @@ it('维护中的对局不受影响：比赛照常进行并按原截止时间自�
   const registry = new SocketRegistry();
   const scope: RoomScope = createRoomScope({
     roomId,
-    releaseId: RELEASE_ID,
     db,
     generate: async () => {
       throw new Error('generation not expected in this test');
     },
     registry,
-    matchAdmission: 'draining',
     inputPolicyMode: 'enforce',
   });
   for (const userId of ['host', 'guest']) {
@@ -321,26 +306,25 @@ it('维护中的对局不受影响：比赛照常进行并按原截止时间自�
       input_not_before: deadline - 1_000,
     });
   }
+  await enterDraining(db);
 
-  // Draining never touches a live match's clock or seats; the past deadline still settles it.
+  // Maintenance never touches a live match's clock or seats; the past deadline still settles it.
   await advanceOnce(scope);
   const settled = (await getRoom(db, roomId))!;
   expect(settled.phase).toBe('finished');
   expect(settled.end_reason).toBe('timeout');
   expect(settled.ended_at).toBe(deadline);
-  // And the settled match cannot quietly become a new one under draining either.
-  expect(await db.transaction((tx) => startMatchTx(tx, roomId, settled, DRAINING_POLICY))).toBe(
-    false,
-  );
+  // And the settled match cannot quietly become a new one under maintenance either.
+  expect(await db.transaction((tx) => startMatchTx(tx, roomId, settled, 'enforce'))).toBe(false);
 });
 
-it('无法识别的准入或策略配置拒绝开局，绝不默认为开放', async () => {
-  const db = (await openSeededDb()).db;
+it('无法识别的策略配置拒绝开局，绝不默认，也不碰任何座位', async () => {
+  const opened = await openSeededDb();
+  const db = opened.db;
   const now = Date.now();
   const roomId = 'f'.repeat(24);
   await createRoom(db, {
     id: roomId,
-    releaseId: RELEASE_ID,
     host: { id: 'host', username: 'host' },
     theme: '坏配置',
     mode: 'private',
@@ -356,21 +340,9 @@ it('无法识别的准入或策略配置拒绝开局，绝不默认为开放', a
   }
   const room = (await getRoom(db, roomId))!;
 
-  expect(
-    await db.transaction((tx) =>
-      startMatchTx(tx, roomId, room, { ...OPEN_POLICY, matchAdmission: INVALID_ADMISSION }),
-    ),
-  ).toBe(false);
-  expect(await getRoom(db, roomId)).toMatchObject({
-    phase: 'lobby',
-    error: '服务器维护中，暂不开始新对局。',
-  });
-
-  expect(
-    await db.transaction((tx) =>
-      startMatchTx(tx, roomId, room, { ...OPEN_POLICY, inputPolicyMode: INVALID_POLICY_MODE }),
-    ),
-  ).toBe(false);
+  expect(await db.transaction((tx) => startMatchTx(tx, roomId, room, INVALID_POLICY_MODE))).toBe(
+    false,
+  );
   expect(await getRoom(db, roomId)).toMatchObject({
     phase: 'lobby',
     error: '施法规则配置异常，暂不能开始新对局。',

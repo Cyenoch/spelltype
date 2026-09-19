@@ -1,5 +1,5 @@
 /**
- * Shared wire contract for the browser client, stable API and release-scoped game runtimes.
+ * Shared wire contract for the browser client, stable API and the game runtime.
  * Everything that crosses the network boundary is described here.
  *
  * The game is continuous health combat: one generated spell book, one board of players who trade
@@ -25,15 +25,25 @@ export type Difficulty = 'hard';
 export type Element = z.infer<typeof elementSchema>;
 /** How a room came to exist: a host's private table, or a matchmaker pairing. */
 export type RoomMode = z.infer<typeof roomModeSchema>;
+/**
+ * What kind of opponent a seat holds. `human` is an ordinary account; `ghost` is the recorded
+ * replay of a real player that matchmaking seated when no partner arrived in time; `bot` is the
+ * generated rule-following opponent. Synthetic seats never present as offline humans.
+ */
+export type OpponentKind = 'human' | 'ghost' | 'bot';
 export type Phase = 'lobby' | 'generating' | 'countdown' | 'playing' | 'finished';
-/** Why combat ended: at most one survivor remains, or the match deadline passed. */
-export type EndReason = 'elimination' | 'timeout';
+/**
+ * Why combat ended: at most one survivor remains, the match deadline passed, or a synthetic
+ * opponent ended its own match (`bot_concession`: the opponent yielded to an active player;
+ * `inactivity`: nobody landed a cast for the full stall window).
+ */
+export type EndReason = 'elimination' | 'timeout' | 'bot_concession' | 'inactivity';
 /** Persistence of the finished-match result, as seen by the room. */
 export type Persistence = 'idle' | 'saving' | 'saved' | 'error';
 /** Reservation lifecycle of a room seat, used to reconcile matchmaking tickets. */
 export type ReservationState = 'none' | 'reserved' | 'cancelled' | 'expired' | 'locked';
 
-export const WS_PROTOCOL = 'spelltype.v2';
+export const WS_PROTOCOL = 'spelltype.v4';
 export type InputPolicyMode = 'observe' | 'enforce';
 
 export type SelfInputGate = null | {
@@ -75,10 +85,19 @@ export const MAX_QUICK_PLAYERS = 2;
 export const RESERVATION_TTL_MS = 60_000;
 /** Lifetime of a matchmaking queue entry; refreshed by each status poll. */
 export const QUEUE_ENTRY_TTL_MS = 60_000;
-export const USERNAME_MIN_CHARS = 2;
-export const USERNAME_MAX_CHARS = 20;
-export const PASSWORD_MIN_CHARS = 10;
-export const PASSWORD_MAX_CHARS = 128;
+/**
+ * How long a quick match waits for a real partner before matchmaking seats a synthetic opponent.
+ * The server evaluates the threshold against the ticket's `createdAt`; the queue page quotes the
+ * same number so the promised fallback matches the one the server performs.
+ */
+export const QUICK_GHOST_FALLBACK_MS = 10_000;
+/**
+ * How long combat may run without a successful cast before the room stops holding back in a
+ * synthetic match: from then on the opponent's attacks are lethal. The match still ends through
+ * normal damage (reason `bot_concession` when the human had been casting) or the match deadline
+ * (`inactivity` when nobody did). The results panel quotes the same number in its note.
+ */
+export const BOT_IDLE_MS = 45_000;
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
@@ -121,6 +140,8 @@ export interface Spell {
 export interface Player extends User {
   /** Stable presentation seat, 0-based; seats never influence damage allocation. */
   slot: number;
+  /** What this seat is: an ordinary account, a recorded replay, or a generated opponent. */
+  kind: OpponentKind;
   connected: boolean;
   ready: boolean;
   /** Length of the longest accepted prefix of this player's current spell text. */
@@ -181,11 +202,14 @@ export interface CombatEvent {
 export interface RoomSnapshot {
   protocolVersion: string;
   id: string;
-  releaseId: string;
-  draining: boolean;
   matchId: string | null;
   hostId: string;
   mode: RoomMode;
+  /**
+   * The room's opponent arrangement: `human` for ordinary rooms, or the synthetic kind
+   * matchmaking seated when a quick match found no real partner in time.
+   */
+  opponentKind: OpponentKind;
   theme: string;
   difficulty: Difficulty;
   phase: Phase;
@@ -219,7 +243,6 @@ export type ServerMessage =
 export type RoomInit = z.infer<typeof roomInitSchema>;
 
 export interface MatchTicket {
-  releaseId: string;
   state: 'waiting' | 'matched';
   /** Present only when `state` is `matched`. */
   roomId?: string;
@@ -242,6 +265,8 @@ export interface MatchCancelResult {
 export interface MatchResult {
   match_id: string;
   theme: string;
+  /** What kind of opponent this account faced; synthetic matches stay labelled forever. */
+  opponent_kind: OpponentKind;
   damage_dealt: number;
   /** Health left when the match settled; `0` when this account was eliminated. */
   hp_remaining: number;
@@ -278,11 +303,14 @@ export interface ActivitySummary {
   waitingPlayers: number;
 }
 
+export type AccountRole = 'user' | 'admin';
+
 /**
  * `GET /api/session` — never exposes secrets or provider error details.
  */
 export interface SessionInfo {
   user: User | null;
+  role: AccountRole | null;
 }
 
 /**

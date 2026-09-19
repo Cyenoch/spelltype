@@ -24,9 +24,9 @@ async function matchTicket(session: Session) {
   return gameJson<MatchTicket>(session.context, '/match', { method: 'POST' });
 }
 
-/** The exact versioned room routes the page calls; intercepts must not match retired paths. */
-const ROOM_READ = /\/api\/releases\/[0-9a-f]{32}\/rooms\/[0-9a-f]{24}$/;
-const ROOM_LEAVE = /\/api\/releases\/[0-9a-f]{32}\/rooms\/[0-9a-f]{24}\/leave$/;
+/** The exact room routes the page calls; intercepts must not match other paths. */
+const ROOM_READ = /\/api\/rooms\/[0-9a-f]{24}$/;
+const ROOM_LEAVE = /\/api\/rooms\/[0-9a-f]{24}\/leave$/;
 
 test('两名玩家经界面配对进入同一房间并自动开局', async ({ browser }) => {
   const first = await signedInContext(browser, 'ui1');
@@ -137,7 +137,7 @@ test('取消会如实反馈：等待中可重新排队，准备阶段的取消�
   // Leaving during a delayed enqueue must not leave an opponent-matchable orphan ticket.
   const pending = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
-  await first.page.route('**/api/releases/*/match', async (route) => {
+  await first.page.route('**/api/match', async (route) => {
     if (route.request().method() === 'POST') {
       pending.resolve();
       await release.promise;
@@ -153,7 +153,7 @@ test('取消会如实反馈：等待中可重新排队，准备阶段的取消�
   await Promise.race([cancelled, settle(500)]);
   release.resolve();
   await cancelled;
-  await first.page.unroute('**/api/releases/*/match');
+  await first.page.unroute('**/api/match');
   expect((await matchTicket(second)).body.state).toBe('waiting');
   await gameJson(second.context, '/match', { method: 'DELETE' });
 
@@ -201,7 +201,7 @@ test('房间读取失败后返回首页：释放旧席位，重新匹配进入�
   expect((await matchTicket(first)).body.roomId).toBe(roomId);
 
   // A snapshot failure must not turn the reserved seat into a room-entry loop.
-  await first.page.route(`**/api/releases/*/rooms/${roomId}`, (route) =>
+  await first.page.route(`**/api/rooms/${roomId}`, (route) =>
     route.fulfill({ status: 500, json: { error: '房间暂时不可用' } }),
   );
   await first.page.getByTestId('home-quick-start').click();
@@ -210,7 +210,7 @@ test('房间读取失败后返回首页：释放旧席位，重新匹配进入�
 
   // Failed cleanup is not a successful exit; retry keeps the same reservation
   // until the server acknowledges it, even when the original snapshot is absent.
-  const leaveUrl = `**/api/releases/*/rooms/${roomId}/leave`;
+  const leaveUrl = `**/api/rooms/${roomId}/leave`;
   await first.page.route(leaveUrl, (route) => route.abort('connectionfailed'));
   await first.page.getByTestId('room-error-home').click();
   await expect(first.page.locator('[data-testid="toast"] > [data-tone="error"]')).toBeVisible();
@@ -219,30 +219,18 @@ test('房间读取失败后返回首页：释放旧席位，重新匹配进入�
   expect((await matchTicket(first)).body.roomId).toBe(roomId);
   await first.page.unroute(leaveUrl);
 
-  // A foreign-release refusal is not retirement. Neither a live locator nor a
-  // denied locator lookup proves that this reservation was released.
+  // A refused departure (the runtime cannot prove the seat's state) is not a
+  // departure either: the page stays, keeps the reservation and offers a retry.
   await first.page.route(leaveUrl, (route) =>
     route.fulfill({
-      status: 409,
-      json: { code: 'release:room_retired', error: '房间属于另一个版本' },
+      status: 503,
+      json: { code: 'maintenance:unavailable', error: '服务状态暂不可用，请稍后重试。' },
     }),
   );
   await first.page.getByTestId('room-error-home').click();
   await expect(first.page.getByTestId('room-error-home')).toBeEnabled();
   await expect(first.page.getByTestId('view-home')).toBeHidden();
   expect((await matchTicket(first)).body.roomId).toBe(roomId);
-  const locationUrl = `**/api/rooms/${roomId}/location`;
-  await first.page.route(locationUrl, (route) =>
-    route.fulfill({
-      status: 403,
-      json: { error: '暂时无法读取房间位置' },
-    }),
-  );
-  await first.page.getByTestId('room-error-home').click();
-  await expect(first.page.getByTestId('room-error-home')).toBeEnabled();
-  await expect(first.page.getByTestId('view-home')).toBeHidden();
-  expect((await matchTicket(first)).body.roomId).toBe(roomId);
-  await first.page.unroute(locationUrl);
   await first.page.unroute(leaveUrl);
 
   const leaveArrived = Promise.withResolvers<void>();

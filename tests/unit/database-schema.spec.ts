@@ -1,17 +1,18 @@
 /**
  * The schema itself, exercised through the real migrated database — the constraints are the
  * multi-process safety net now that one PostgreSQL (PGlite here) database serves api and game
- * processes concurrently. Pinned here: release/room id formats, room state vocabularies, seat
- * slot uniqueness, result-write idempotency, the one-ticket-per-account rule, session seat
- * cascades, the singleton admission pointer, and the integer-millisecond timestamp convention
- * surviving a round trip. Transactions get their own proof: a coordinator's pairing flow (room +
- * seats + ticket in one transaction, committed or rolled back whole) runs through code typed
- * against `QueryDatabase`, the union every storage function accepts.
+ * processes concurrently. Pinned here: room/ticket id formats, room state vocabularies, the
+ * singleton runtime control row (mode vocabulary, one row only), seat slot uniqueness,
+ * result-write idempotency, the one-ticket-per-account rule, session seat cascades, and the
+ * integer-millisecond timestamp convention surviving a round trip. Transactions get their own
+ * proof: a coordinator's pairing flow (room + seats + ticket in one transaction, committed or
+ * rolled back whole) runs through code typed against `QueryDatabase`, the union every storage
+ * function accepts.
  */
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import type { Difficulty, Phase, RoomMode } from '../../shared/protocol';
-import type { ReleaseState } from '../../shared/release';
+import type { MaintenanceMode } from '../../shared/maintenance';
 import type { MatchTicketState } from '../../server/db/schema';
 import {
   accounts,
@@ -19,11 +20,10 @@ import {
   matchTickets,
   openDatabase,
   players,
-  releaseControl,
-  releaseVersions,
   results,
   roomSessions,
   rooms,
+  runtimeControl,
   sessions,
   type OpenedDatabase,
   type QueryDatabase,
@@ -33,7 +33,6 @@ const NOW = 1_700_000_000_000;
 const TIMEOUT = 120_000;
 
 const hex24 = (n: number) => n.toString(16).padStart(24, '0');
-const hex32 = (n: number) => n.toString(16).padStart(32, '0');
 
 let db: OpenedDatabase['db'];
 let opened: OpenedDatabase;
@@ -53,26 +52,11 @@ const nextRoomId = () => hex24(1000 + ++seq);
 const nextMatchId = () => `match-${++seq}`;
 const nextTokenHash = () => `token-${++seq}`;
 
-async function seedRelease(
-  id: string,
-  state: 'staged' | 'active' | 'retiring' | 'retired' = 'active',
-) {
-  await db.insert(releaseVersions).values({
-    id,
-    state,
-    artifact_digest: `digest-${id}`,
-    operation_id: `op-${id}`,
-    created_at: NOW,
-    updated_at: NOW,
-  });
-}
-
 async function seedAccount(id: string) {
   await db.insert(accounts).values({
     id,
     username: id,
-    username_key: id,
-    password_hash: 'hash',
+    wechat_identity: `union:${id}`,
     created_at: NOW,
   });
 }
@@ -84,9 +68,11 @@ async function insertRoom(
 ) {
   await store.insert(rooms).values({
     id,
-    release_id: hex32(1),
     host_id: 'host',
     mode: 'private',
+    opponent_kind: 'human',
+    ghost_id: null,
+    opponent_next_at: null,
     theme: 'theme',
     difficulty: 'hard',
     phase: 'lobby',
@@ -157,62 +143,46 @@ async function rejectsWithSqlState(
   throw new Error(`expected the write to fail with SQLSTATE ${SQLSTATE[category]} (${category})`);
 }
 
-beforeAll(async () => {
-  await seedRelease(hex32(1), 'active');
-  await seedRelease(hex32(2), 'retired');
-}, TIMEOUT);
+describe('runtime control', () => {
+  it('is a singleton in maintenance-mode vocabulary, never two rows', async () => {
+    const [row] = await db.select().from(runtimeControl);
+    expect(row).toBeDefined();
+    expect(row?.singleton).toBe(1);
+    expect(['open', 'draining']).toContain(row?.mode);
+    expect(typeof row?.revision).toBe('number');
+    expect(typeof row?.updated_at).toBe('number');
+    // The fresh development install starts open, with no runtime claiming the writer lease yet.
+    expect(row?.mode).toBe('open');
+    expect(row?.runtime_id).toBeNull();
+    expect(row?.runtime_epoch).toBe(0);
+    expect(row?.lease_until).toBeNull();
 
-describe('release identity tables', () => {
-  it('enforces the 32-hex release id format and the state vocabulary', async () => {
-    const base = { artifact_digest: 'd', operation_id: 'op', created_at: NOW, updated_at: NOW };
-    const badState: string = 'deploying';
+    // A second control row is a deployment split waiting to happen: the singleton refuses it.
+    const badMode: string = 'paused';
     await rejectsWithSqlState(
-      () => db.insert(releaseVersions).values({ ...base, id: 'NOT-HEX', state: 'active' as never }),
+      () =>
+        db
+          .insert(runtimeControl)
+          .values({ singleton: 1, mode: badMode as MaintenanceMode, revision: 0, updated_at: NOW }),
       'check',
     );
     await rejectsWithSqlState(
       () =>
-        db.insert(releaseVersions).values({
-          ...base,
-          id: hex32(500),
-          state: badState as ReleaseState,
-        }),
+        db
+          .insert(runtimeControl)
+          .values({ singleton: 2, mode: 'open', revision: 0, updated_at: NOW }),
       'check',
-    );
-  });
-
-  it('keeps the admission pointer a singleton pointing at real releases', async () => {
-    await rejectsWithSqlState(
-      () =>
-        db
-          .insert(releaseControl)
-          .values({ singleton: 1, active_release_id: hex32(999), updated_at: NOW }),
-      'foreignKey',
-    );
-    await db
-      .insert(releaseControl)
-      .values({ singleton: 1, active_release_id: hex32(1), updated_at: NOW });
-    await rejectsWithSqlState(
-      () =>
-        db
-          .insert(releaseControl)
-          .values({ singleton: 1, active_release_id: null, updated_at: NOW }),
-      'unique',
     );
   });
 });
 
 describe('rooms and seats', () => {
-  it('requires a known release and the room state vocabulary', async () => {
+  it('enforces the room state vocabulary and the 24-hex room id', async () => {
     // The drizzle $type() annotations reject these at compile time; the casts simulate any
     // untyped writer (raw SQL, another process) so the database CHECK constraints prove out.
     const badPhase: string = 'paused';
     const badMode: string = 'duel';
     const badDifficulty: string = 'easy';
-    await rejectsWithSqlState(
-      () => insertRoom(db, nextRoomId(), { release_id: hex32(998) }),
-      'foreignKey',
-    );
     await rejectsWithSqlState(
       () => insertRoom(db, nextRoomId(), { phase: badPhase as Phase }),
       'check',
@@ -225,6 +195,7 @@ describe('rooms and seats', () => {
       () => insertRoom(db, nextRoomId(), { difficulty: badDifficulty as Difficulty }),
       'check',
     );
+    await rejectsWithSqlState(() => insertRoom(db, 'NOT-HEX'), 'check');
   });
 
   it('carries the domain defaults the port expects and round-trips integer milliseconds', async () => {
@@ -237,10 +208,12 @@ describe('rooms and seats', () => {
       event_seq: 0,
       generation_seq: 0,
       reservation_state: 'none',
+      opponent_kind: 'human',
+      ghost_id: null,
+      opponent_next_at: null,
       locked: 0,
       persistence: 'idle',
       persist_attempts: 0,
-      draining: false,
       next_alarm_at: null,
     });
     expect(row?.created_at).toBe(NOW);
@@ -336,7 +309,6 @@ describe('match tickets', () => {
       db.insert(matchTickets).values({
         user_id: userId,
         request_id: requestId,
-        release_id: hex32(1),
         username: userId,
         state: 'waiting',
         expires_at: NOW + 60_000,
@@ -364,7 +336,6 @@ describe('match tickets', () => {
         db.insert(matchTickets).values({
           user_id: 'no-such-account',
           request_id: `req-${++seq}`,
-          release_id: hex32(1),
           username: 'ghost',
           state: 'waiting',
           expires_at: NOW,
@@ -385,7 +356,6 @@ describe('match tickets', () => {
     await db.insert(matchTickets).values({
       user_id: waitingUser,
       request_id: `req-${++seq}`,
-      release_id: hex32(1),
       username: waitingUser,
       state: 'waiting',
       room_id: null,
@@ -396,7 +366,6 @@ describe('match tickets', () => {
     await db.insert(matchTickets).values({
       user_id: matchedUser,
       request_id: `req-${++seq}`,
-      release_id: hex32(1),
       username: matchedUser,
       state: 'matched',
       room_id: roomId,

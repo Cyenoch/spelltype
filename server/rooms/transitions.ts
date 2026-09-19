@@ -12,6 +12,7 @@ import { expireSeats, listPlayers, updatePlayer } from './storage/players';
 import { getRoom, updateRoom } from './storage/room';
 import { readSpellBook } from './storage/spell-book';
 import { advanceCombat } from './volleys';
+import { initializeOpponentTx } from './opponents';
 
 /** What one due-transition pass did. */
 export interface AdvanceOutcome {
@@ -114,6 +115,12 @@ export async function advanceOnce(scope: RoomScope): Promise<AdvanceOutcome> {
           });
         }
         await updateRoom(tx, scope.roomId, {
+          phase: 'playing',
+          started_at: room.deadline,
+          deadline: room.deadline + MATCH_DURATION_MS,
+        });
+        await initializeOpponentTx(tx, {
+          ...current,
           phase: 'playing',
           started_at: room.deadline,
           deadline: room.deadline + MATCH_DURATION_MS,

@@ -1,12 +1,11 @@
 import type { Element } from '../../shared/protocol';
 
 /**
- * Static assets are served from this build's own base (`import.meta.env.BASE_URL`:
- * `/` in development, `/_releases/<releaseId>/` in production). Vite rewrites
- * `url()` in real CSS and links in index.html, but TypeScript string constants
- * bypass that pipeline — so every URL here is explicitly based. One build must
- * never load another release's art. The literal's leading slash is stripped so
- * the junction with the base (which always ends in `/`) never doubles.
+ * Static assets are served from the app base (`import.meta.env.BASE_URL`, always
+ * `/` for this single-origin app). Vite rewrites `url()` in real CSS and links
+ * in index.html, but TypeScript string constants bypass that pipeline — so
+ * every URL here is explicitly based. The literal's leading slash is stripped
+ * so the junction with the base (which always ends in `/`) never doubles.
  */
 const BASE_URL = import.meta.env.BASE_URL;
 const asset = (path: string): string => `${BASE_URL}${path.replace(/^\/+/, '')}`;

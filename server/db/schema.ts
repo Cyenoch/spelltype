@@ -1,7 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
   bigint,
-  boolean,
   check,
   doublePrecision,
   index,
@@ -14,21 +13,25 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type {
+  AccountRole,
   Difficulty,
   Element,
   InputPolicyMode,
   EndReason,
+  OpponentKind,
   Persistence,
   Phase,
   ReservationState,
   RoomMode,
   Spell,
 } from '../../shared/protocol';
-import type { ReleaseState } from '../../shared/release';
+import type { MaintenanceMode } from '../../shared/maintenance';
 import { INITIAL_HEALTH } from '../../shared/protocol';
 
 /**
- * The whole long-term database: accounts, sessions, releases, rooms, seats and match tickets.
+ * The whole long-term database: WeChat-auth accounts and login state, sessions, rooms, seats and
+ * match tickets — plus the one `runtime_control` row that owns maintenance mode and the global
+ * runtime lease.
  *
  * PostgreSQL and development PGlite share this Drizzle schema and generated migrations. Rooms,
  * players and global queue tickets share a database so pairing and seat creation commit together.
@@ -41,8 +44,7 @@ import { INITIAL_HEALTH } from '../../shared/protocol';
  *   double.
  * - Small state vocabularies (phases, modes, ticket states) are `text` with `CHECK` constraints and
  *   typed in TypeScript, matching how the domain already treated them; no PostgreSQL enum types.
- * - `locked`/`seated`/`ready` keep the historical 0/1 integer convention instead of booleans; the
- *   new `draining` column uses `boolean` because it never had an old shape.
+ * - `locked`/`seated`/`ready` keep the historical 0/1 integer convention instead of booleans.
  * - Serialized domain JSON (`spell_book`, `events_json`) stays in `text` columns; no second
  *   database or outbox exists to emulate the old object storage.
  */
@@ -52,13 +54,23 @@ const ms = (name: string) => bigint(name, { mode: 'number' });
 
 export type MatchTicketState = 'waiting' | 'matched';
 
-export const accounts = pgTable('accounts', {
-  id: text('id').primaryKey(),
-  username: text('username').notNull(),
-  username_key: text('username_key').notNull().unique(),
-  password_hash: text('password_hash').notNull(),
-  created_at: ms('created_at').notNull(),
-});
+/**
+ * One WeChat identity's account. `username` is the display nickname from the bridge profile and is
+ * deliberately non-unique; `wechat_identity` (`union:<unionid>` or `open:<openid>`/`mp:<openid>`)
+ * is the one stable, unique credential.
+ */
+export const accounts = pgTable(
+  'accounts',
+  {
+    id: text('id').primaryKey(),
+    username: text('username').notNull(),
+    wechat_identity: text('wechat_identity').notNull().unique(),
+    /** Management role (`user` by default; `admin` may use the maintenance tooling). Game-wire data never carries it. */
+    role: text('role').$type<AccountRole>().notNull().default('user'),
+    created_at: ms('created_at').notNull(),
+  },
+  (t) => [check('accounts_role', sql`${t.role} in ('user','admin')`)],
+);
 
 /** Only the digest of a session token is stored, never the token itself. */
 export const sessions = pgTable(
@@ -73,51 +85,60 @@ export const sessions = pgTable(
   (t) => [index('sessions_user_id_idx').on(t.user_id)],
 );
 
-export const releaseVersions = pgTable(
-  'release_versions',
+/**
+ * One outbound WeChat OAuth attempt. The SHA-256 of the `state` parameter (also stored raw in the
+ * `spelltype_wechat_state` cookie) is the single-use key, so a callback only completes when its
+ * state was issued here, is unexpired, and the row is deleted in the same transaction. `room_id`
+ * carries the optional invite the login started from.
+ */
+export const wechatLoginAttempts = pgTable('wechat_login_attempts', {
+  state_hash: text('state_hash').primaryKey(),
+  room_id: text('room_id'),
+  expires_at: ms('expires_at').notNull(),
+});
+
+/**
+ * Bridge relay-token `jti`s already redeemed at the callback. Storing them until the token's own
+ * expiry makes a replayed callback token provably single-use even if the login attempt row is
+ * already gone.
+ */
+export const wechatRelayTokens = pgTable('wechat_relay_tokens', {
+  jti: text('jti').primaryKey(),
+  expires_at: ms('expires_at').notNull(),
+});
+
+/**
+ * The one global control row: maintenance mode, its CAS revision, and the single runtime
+ * ownership lease. Every admission decision, every state transition and every write fence in the
+ * game serializes through this row, so it is deliberately tiny — one row, locked in one of two
+ * modes (`FOR SHARE` for readers/admission, `FOR UPDATE` for transitions).
+ */
+export const runtimeControl = pgTable(
+  'runtime_control',
   {
-    id: text('id').primaryKey(),
-    state: text('state').$type<ReleaseState>().notNull(),
-    artifact_digest: text('artifact_digest').notNull(),
-    /** The (single) deploy operation this version currently participates in. */
-    operation_id: text('operation_id').notNull(),
-    /** Bumped on every activation/reactivation so stale proofs cannot admit old rooms. */
-    admission_epoch: integer('admission_epoch').notNull().default(0),
-    runtime_id: text('runtime_id'),
-    runtime_epoch: integer('runtime_epoch').notNull().default(0),
-    lease_until: ms('lease_until'),
-    checked_epoch: integer('checked_epoch'),
-    created_at: ms('created_at').notNull(),
+    singleton: integer('singleton').primaryKey().default(1),
+    mode: text('mode').$type<MaintenanceMode>().notNull(),
+    /** CAS token for maintenance transitions; bumped on every committed change. */
+    revision: integer('revision').notNull().default(0),
     updated_at: ms('updated_at').notNull(),
-    retired_at: ms('retired_at'),
+    /** The current runtime owner's token; `null` when no runtime holds the lease. */
+    runtime_id: text('runtime_id'),
+    /** Monotonic ownership generation, bumped on every fresh claim or takeover. */
+    runtime_epoch: integer('runtime_epoch').notNull().default(0),
+    /** Database-clock deadline after which the lease is considered lapsed. */
+    lease_until: ms('lease_until'),
   },
   (t) => [
-    check('release_versions_id_hex', sql`${t.id} ~ '^[0-9a-f]{32}$'`),
-    check('release_versions_state', sql`${t.state} in ('staged','active','retiring','retired')`),
+    check('runtime_control_singleton', sql`${t.singleton} = 1`),
+    check('runtime_control_mode', sql`${t.mode} in ('open','draining')`),
   ],
 );
 
-/** The singleton admission pointer: which release may create new resources right now. */
-export const releaseControl = pgTable(
-  'release_control',
-  {
-    singleton: integer('singleton').primaryKey().default(1),
-    active_release_id: text('active_release_id').references(() => releaseVersions.id),
-    revision: integer('revision').notNull().default(0),
-    updated_at: ms('updated_at').notNull(),
-  },
-  (t) => [check('release_control_singleton', sql`${t.singleton} = 1`)],
-);
-
-/** One room: live match state plus its release registration. */
+/** One room: live match state. Maintenance is global, so rooms carry no flag of their own. */
 export const rooms = pgTable(
   'rooms',
   {
     id: text('id').primaryKey(),
-    release_id: text('release_id')
-      .notNull()
-      .references(() => releaseVersions.id),
-    draining: boolean('draining').notNull().default(false),
     host_id: text('host_id').notNull(),
     mode: text('mode').$type<RoomMode>().notNull(),
     theme: text('theme').notNull(),
@@ -129,6 +150,12 @@ export const rooms = pgTable(
     ended_at: ms('ended_at'),
     end_reason: text('end_reason').$type<EndReason>(),
     match_id: text('match_id'),
+    /** What the non-host seat holds: a human, a replayed recorded ghost, or a generated bot. */
+    opponent_kind: text('opponent_kind').$type<OpponentKind>().notNull().default('human'),
+    /** The replayed ghost row when `opponent_kind` is `ghost`; `null` for every other room. */
+    ghost_id: text('ghost_id'),
+    /** Durable ms deadline of the opponent's next scheduled cast; `null` when none is due. */
+    opponent_next_at: ms('opponent_next_at'),
     /** The match's generated, ordered spell book, shared by every seat. */
     spell_book: text('spell_book'),
     /** Bounded recent-damage ring, oldest first, as JSON. */
@@ -159,6 +186,7 @@ export const rooms = pgTable(
   (t) => [
     check('rooms_id_hex', sql`${t.id} ~ '^[0-9a-f]{24}$'`),
     check('rooms_mode', sql`${t.mode} in ('private','quick')`),
+    check('rooms_opponent_kind', sql`${t.opponent_kind} in ('human','ghost','bot')`),
     check('rooms_difficulty', sql`${t.difficulty} = 'hard'`),
     check(
       'rooms_phase',
@@ -166,14 +194,13 @@ export const rooms = pgTable(
     ),
     check(
       'rooms_end_reason',
-      sql`${t.end_reason} is null or ${t.end_reason} in ('elimination','timeout')`,
+      sql`${t.end_reason} is null or ${t.end_reason} in ('elimination','timeout','bot_concession','inactivity')`,
     ),
     check(
       'rooms_reservation_state',
       sql`${t.reservation_state} in ('none','reserved','cancelled','expired','locked')`,
     ),
     check('rooms_persistence', sql`${t.persistence} in ('idle','saving','saved','error')`),
-    index('rooms_release_id_idx').on(t.release_id),
     index('rooms_next_alarm_idx')
       .on(t.next_alarm_at)
       .where(sql`${t.next_alarm_at} is not null`),
@@ -241,6 +268,8 @@ export const results = pgTable(
       .notNull()
       .references(() => rooms.id),
     theme: text('theme').notNull(),
+    /** The kind of opponent this account faced; rows from before ghosts existed are `human`. */
+    opponent_kind: text('opponent_kind').$type<OpponentKind>().notNull().default('human'),
     /** Damage this account dealt to opponents over the match. */
     damage_dealt: doublePrecision('damage_dealt').notNull(),
     /** Health left when the match settled (0 when this account was eliminated). */
@@ -266,6 +295,7 @@ export const results = pgTable(
   (t) => [
     // The primary key makes a retried write idempotent.
     primaryKey({ columns: [t.match_id, t.user_id] }),
+    check('results_opponent_kind', sql`${t.opponent_kind} in ('human','ghost','bot')`),
     index('results_user_recent_idx').on(t.user_id, t.created_at.desc()),
   ],
 );
@@ -320,9 +350,6 @@ export const matchTickets = pgTable(
       .primaryKey()
       .references(() => accounts.id),
     request_id: text('request_id').notNull().unique(),
-    release_id: text('release_id')
-      .notNull()
-      .references(() => releaseVersions.id),
     username: text('username').notNull(),
     state: text('state').$type<MatchTicketState>().notNull(),
     room_id: text('room_id').references(() => rooms.id),
@@ -332,8 +359,8 @@ export const matchTickets = pgTable(
   },
   (t) => [
     check('match_tickets_state', sql`${t.state} in ('waiting','matched')`),
-    // Release-scoped cleanup scans and per-account TTL refreshes are the hot paths.
-    index('match_tickets_release_state_idx').on(t.release_id, t.state),
+    // Waiting-ticket sweeps (maintenance entry) and per-account TTL refreshes are the hot paths.
+    index('match_tickets_state_idx').on(t.state),
     index('match_tickets_expires_at_idx').on(t.expires_at),
   ],
 );
@@ -365,12 +392,79 @@ export const spellBookCache = pgTable('spell_book_cache', {
   lease_expires_at: ms('lease_expires_at'),
 });
 
+/**
+ * One replayed cast of a recorded opponent trace. `at` is the completion's offset in ms from the
+ * match's `started_at` (the raw absolute wall clock is never kept), and `spellIndex` is the cast's
+ * own cursor into the shared book — the shape `Runtime` replays one due cast from.
+ */
+export interface ReplayCast {
+  at: number;
+  spellIndex: number;
+}
+
+/**
+ * One recorded opponent: a human seat's complete accepted-cast trace from one finished human
+ * match, archived immutably the moment that match settles. `rules_version` fingerprints every
+ * rule the trace replays under, so selection serves only current-compatible rows and a protocol
+ * or rules change invalidates old ghosts without touching them.
+ */
+export const ghosts = pgTable(
+  'ghosts',
+  {
+    id: text('id').primaryKey(),
+    /** The account whose play was recorded; selection never serves a source their own ghost. */
+    source_user_id: text('source_user_id')
+      .notNull()
+      .references(() => accounts.id),
+    theme: text('theme').notNull(),
+    /** The match's complete generated book; the trace only replays against exactly it. */
+    book: jsonb('book').$type<Spell[]>().notNull(),
+    /** The accepted casts, ordered by `spellIndex` from 0 with no gaps. */
+    casts: jsonb('casts').$type<ReplayCast[]>().notNull(),
+    /** The rule fingerprint the trace was recorded under. */
+    rules_version: text('rules_version').notNull(),
+    created_at: ms('created_at').notNull(),
+  },
+  (t) => [
+    index('ghosts_source_idx').on(t.source_user_id),
+    // Selection scans one version's rows newest-first and stops at a bounded pool.
+    index('ghosts_selection_idx').on(t.rules_version, t.created_at),
+  ],
+);
+
+/**
+ * One accepted cast of a live human match, kept until that match settles: publication turns a
+ * qualifying trace into a `ghosts` row and deletes the room's rows in the same transaction, so
+ * nothing non-qualifying lingers. An abandoned room loses its rows through the room cascade.
+ */
+export const ghostCasts = pgTable(
+  'ghost_casts',
+  {
+    room_id: text('room_id')
+      .notNull()
+      .references(() => rooms.id, { onDelete: 'cascade' }),
+    match_id: text('match_id').notNull(),
+    user_id: text('user_id').notNull(),
+    /** Zero-based cursor of the cast's spell in the shared book. */
+    spell_index: integer('spell_index').notNull(),
+    /** Cast completion, in ms since the match's `started_at`. */
+    at: ms('at').notNull(),
+  },
+  (t) => [
+    // One row per accepted cast; a replayed accepted-cast transaction is absorbed, not doubled.
+    primaryKey({ columns: [t.match_id, t.user_id, t.spell_index] }),
+    // Publication and cleanup always read or delete one room's trace whole.
+    index('ghost_casts_room_idx').on(t.room_id),
+  ],
+);
+
 /** The drizzle schema object every driver instance is bound to. */
 export const schema = {
   accounts,
   sessions,
-  releaseVersions,
-  releaseControl,
+  wechatLoginAttempts,
+  wechatRelayTokens,
+  runtimeControl,
   rooms,
   players,
   departures,
@@ -379,6 +473,8 @@ export const schema = {
   matchTickets,
   combatVolleys,
   spellBookCache,
+  ghosts,
+  ghostCasts,
 };
 
 export type DatabaseSchema = typeof schema;
@@ -388,10 +484,12 @@ export type AccountRow = typeof accounts.$inferSelect;
 export type AccountInsert = typeof accounts.$inferInsert;
 export type SessionRow = typeof sessions.$inferSelect;
 export type SessionInsert = typeof sessions.$inferInsert;
-export type ReleaseVersionRow = typeof releaseVersions.$inferSelect;
-export type ReleaseVersionInsert = typeof releaseVersions.$inferInsert;
-export type ReleaseControlRow = typeof releaseControl.$inferSelect;
-export type ReleaseControlInsert = typeof releaseControl.$inferInsert;
+export type WechatLoginAttemptRow = typeof wechatLoginAttempts.$inferSelect;
+export type WechatLoginAttemptInsert = typeof wechatLoginAttempts.$inferInsert;
+export type WechatRelayTokenRow = typeof wechatRelayTokens.$inferSelect;
+export type WechatRelayTokenInsert = typeof wechatRelayTokens.$inferInsert;
+export type RuntimeControlRow = typeof runtimeControl.$inferSelect;
+export type RuntimeControlInsert = typeof runtimeControl.$inferInsert;
 export type RoomRow = typeof rooms.$inferSelect;
 export type RoomInsert = typeof rooms.$inferInsert;
 export type PlayerRow = typeof players.$inferSelect;
@@ -404,3 +502,7 @@ export type RoomSessionRow = typeof roomSessions.$inferSelect;
 export type RoomSessionInsert = typeof roomSessions.$inferInsert;
 export type TicketRow = typeof matchTickets.$inferSelect;
 export type TicketInsert = typeof matchTickets.$inferInsert;
+export type GhostRow = typeof ghosts.$inferSelect;
+export type GhostInsert = typeof ghosts.$inferInsert;
+export type GhostCastRow = typeof ghostCasts.$inferSelect;
+export type GhostCastInsert = typeof ghostCasts.$inferInsert;

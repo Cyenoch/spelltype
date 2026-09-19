@@ -1,8 +1,8 @@
-import { MAX_QUICK_PLAYERS } from '../../shared/protocol';
-import type { EndReason } from '../../shared/protocol';
+import { MAX_QUICK_PLAYERS, OPENING_COUNTDOWN_MS } from '../../shared/protocol';
+import type { EndReason, InputPolicyMode } from '../../shared/protocol';
 import type { Transaction } from '../db';
-import type { RoomMatchPolicy } from './scope';
-import { accuracyOf, cpmOf, survivalRanks } from '../scoring';
+import { readMaintenance } from '../maintenance/control';
+import { accuracyOf, cpmOf } from '../scoring';
 import {
   MIN_PLAYERS,
   reservationIsLive,
@@ -23,31 +23,35 @@ import { getRoom, updateRoom } from './storage/room';
 import type { ResultInsert, RoomRow } from '../db/schema';
 import { clearVolley, readVolley } from './storage/volley';
 import { reportGateStateInvalid, roomPolicyValid } from './input-gate';
+import { getGhost, publishGhostsTx } from '../ghosts';
+import { matchRanks, participantKind, terminalReason } from './opponents';
 
 /**
- * Locks the roster and opens one generation attempt for a fresh match. Runs
+ * Locks the roster and prepares a fresh match, reusing the source book for a Ghost. Runs
  * inside the caller's transaction, so the room can never be observed half-
  * started; the answers a refused start writes are the room's own error field.
  *
- * Two immutable admission rules gate the opening: the runtime's global
- * admission (maintenance pauses new matches; a running match and its published
- * quick reservation keep their own clocks) and the input-time mode, which is
- * validated here and locked onto the room row for the whole life of the match.
+ * Two admission rules gate the opening, both read durably from the same
+ * transaction that commits the start: global maintenance admission from
+ * `runtime_control` (draining pauses new matches while a running match and its
+ * published quick reservation keep their own clocks), and the input-time mode,
+ * which is validated here and locked onto the room row for the whole life of
+ * the match. Both refusals are answers, never throws: a caller that carries
+ * other committed work — a join, a seat reconciliation — keeps it.
  */
 export async function startMatchTx(
   tx: Transaction,
   roomId: string,
   room: RoomRow,
-  policy: RoomMatchPolicy,
+  inputPolicyMode: InputPolicyMode,
 ): Promise<boolean> {
-  if (policy.matchAdmission !== 'open') {
-    if (policy.matchAdmission !== 'draining') {
-      console.error({ event: 'match_admission_invalid', roomId });
-    }
+  // Unavailable state is an error, not a maintenance answer; never conceal a failed transaction.
+  const maintenance = await readMaintenance(tx);
+  if (maintenance.mode !== 'open') {
     await updateRoom(tx, roomId, { error: '服务器维护中，暂不开始新对局。' });
     return false;
   }
-  const inputMode = policy.inputPolicyMode;
+  const inputMode = inputPolicyMode;
   if (inputMode !== 'observe' && inputMode !== 'enforce') {
     console.error({ event: 'input_policy_config_invalid', roomId });
     await updateRoom(tx, roomId, { error: '施法规则配置异常，暂不能开始新对局。' });
@@ -61,24 +65,30 @@ export async function startMatchTx(
     await updateRoom(tx, roomId, { error: '至少需要 2 名已连接玩家才能开始。' });
     return false;
   }
+  const ghost =
+    room.opponent_kind === 'ghost' && room.ghost_id !== null
+      ? await getGhost(tx, room.ghost_id)
+      : null;
+  if (room.opponent_kind === 'ghost' && ghost === null) throw new Error('room:missing_ghost');
   await resetPlayersForMatch(tx, roomId);
   await clearVolley(tx, roomId);
   const generationSeq = room.generation_seq + 1;
   const matchId = crypto.randomUUID();
   await updateRoom(tx, roomId, {
-    phase: 'generating',
-    deadline: 0,
+    phase: ghost ? 'countdown' : 'generating',
+    deadline: ghost ? Date.now() + OPENING_COUNTDOWN_MS : 0,
     started_at: null,
     ended_at: null,
     end_reason: null,
     match_id: matchId,
-    spell_book: null,
+    spell_book: ghost ? JSON.stringify(ghost.book) : null,
+    opponent_next_at: null,
     events_json: '[]',
     event_seq: 0,
     error: null,
     locked: 1,
     generation_seq: generationSeq,
-    generation_token: `${matchId}:${generationSeq}`,
+    generation_token: ghost ? null : `${matchId}:${generationSeq}`,
     generation_claim: null,
     reservation_state: 'locked',
     reservation_expires_at: null,
@@ -90,25 +100,26 @@ export async function startMatchTx(
 }
 
 /**
- * A quick match needs no host action: both reserved seats online is the whole readiness rule.
- * A published reservation keeps its own clock — even after the room's release has been
- * superseded, the posted reservation may still start until its TTL passes while global
- * admission is open.
+ * A quick match starts when every human seat is online; synthetic seats need no socket.
+ * A published reservation keeps its own clock — even while the server is draining, the posted
+ * reservation may still be joined and read, and it starts the moment global admission reopens,
+ * until its TTL passes.
  */
 export async function maybeAutoStartTx(
   tx: Transaction,
   roomId: string,
   registry: SocketRegistry,
   room: RoomRow,
-  policy: RoomMatchPolicy,
+  inputPolicyMode: InputPolicyMode,
 ): Promise<boolean> {
   if (room.mode !== 'quick' || room.phase !== 'lobby' || room.locked !== 0) return false;
   if (!reservationIsLive(room, Date.now())) return false;
   const players = await listPlayers(tx, roomId);
   if (players.length !== MAX_QUICK_PLAYERS) return false;
   const online = onlineUserIds(players, await currentConns(tx, roomId, registry));
-  if (!players.every((row) => online.has(row.user_id))) return false;
-  return startMatchTx(tx, roomId, room, policy);
+  if (!players.every((row) => participantKind(room, row) !== 'human' || online.has(row.user_id)))
+    return false;
+  return startMatchTx(tx, roomId, room, inputPolicyMode);
 }
 
 /**
@@ -154,37 +165,36 @@ export async function finishMatchTx(
     await updatePlayer(tx, roomId, row.user_id, { cpm: speed.get(row.user_id) ?? 0 });
   }
 
-  const ranks = survivalRanks(
-    players.map((row) => ({
-      userId: row.user_id,
-      hp: row.hp,
-      eliminatedAt: row.eliminated_at,
-    })),
-  );
-  const rows: ResultInsert[] = players.map((row) => ({
-    match_id: matchId,
-    user_id: row.user_id,
-    room_id: roomId,
-    theme: room.theme,
-    damage_dealt: row.damage_dealt,
-    hp_remaining: row.hp,
-    spells_cast: row.spells_cast,
-    correct_chars: row.correct_chars,
-    duration_ms: durationMs,
-    rank: ranks.get(row.user_id) ?? players.length,
-    cpm: speed.get(row.user_id) ?? 0,
-    accuracy: accuracyOf(row.attempt_total, row.error_total),
-    input_policy_version: room.input_policy_version!,
-    input_policy_mode: room.input_policy_mode,
-    input_gate_hits: row.input_gate_hits,
-    input_recoveries: row.input_recoveries,
-    input_min_completion_ratio: row.input_min_completion_ratio,
-    input_overloads: row.input_overloads,
-    input_recovered_completions: row.input_recovered_completions,
-    input_recovery_departures: row.input_recovery_departures,
-    created_at: Date.now(),
-  }));
+  const endReason = terminalReason(room, players, reason, endedAt);
+  const ranks = matchRanks({ ...room, end_reason: endReason }, players);
+  const rows: ResultInsert[] = players
+    .filter((row) => participantKind(room, row) === 'human')
+    .map((row) => ({
+      match_id: matchId,
+      user_id: row.user_id,
+      room_id: roomId,
+      theme: room.theme,
+      opponent_kind: room.opponent_kind,
+      damage_dealt: row.damage_dealt,
+      hp_remaining: row.hp,
+      spells_cast: row.spells_cast,
+      correct_chars: row.correct_chars,
+      duration_ms: durationMs,
+      rank: ranks.get(row.user_id) ?? players.length,
+      cpm: speed.get(row.user_id) ?? 0,
+      accuracy: accuracyOf(row.attempt_total, row.error_total),
+      input_policy_version: room.input_policy_version!,
+      input_policy_mode: room.input_policy_mode,
+      input_gate_hits: row.input_gate_hits,
+      input_recoveries: row.input_recoveries,
+      input_min_completion_ratio: row.input_min_completion_ratio,
+      input_overloads: row.input_overloads,
+      input_recovered_completions: row.input_recovered_completions,
+      input_recovery_departures: row.input_recovery_departures,
+      created_at: Date.now(),
+    }));
   await insertResults(tx, rows);
+  await publishGhostsTx(tx, room, players);
 
   // The allocation is consumed by the finished match: a queue ticket can be
   // dropped instead of waiting on a room that will never be playable again.
@@ -194,7 +204,8 @@ export async function finishMatchTx(
     phase: 'finished',
     deadline: 0,
     ended_at: endedAt,
-    end_reason: reason,
+    end_reason: endReason,
+    opponent_next_at: null,
     reservation_state: 'none',
     reservation_expires_at: null,
     persistence: 'saved',

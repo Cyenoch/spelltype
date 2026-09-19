@@ -1,10 +1,11 @@
-import { ReleaseError } from '../../shared/release';
-import type { ClientMessage } from '../../shared/protocol';
-import { getRoom, readRoomRelease } from './storage/room';
+import type { ClientMessage, InputPolicyMode } from '../../shared/protocol';
+import { MaintenanceError } from '../../shared/maintenance';
+import { getRoom } from './storage/room';
+import { assertAdmission } from '../maintenance/control';
 import { startMatchTx } from './match';
 import { manualLeave } from './leave';
 import { MIN_PLAYERS, SEAT_TTL_MS } from './rules';
-import type { RoomMatchPolicy, RoomScope, SocketAuth } from './scope';
+import type { RoomScope, SocketAuth } from './scope';
 import { pushSnapshots } from './snapshots';
 import { currentConns, onlineUserIds, reconcileHost, sendTo } from './sockets';
 import {
@@ -18,28 +19,19 @@ import { updateRoom } from './storage/room';
 import type { RoomRow } from '../db/schema';
 import type { RoomSocket } from '../contracts';
 import type { Transaction } from '../db';
+import { participantKind } from './opponents';
 
 /** The frames whose only actor is the lobby: readiness, the host's start, a rematch and a leave. */
 export type LobbyFrame = Extract<ClientMessage, { type: 'ready' | 'start' | 'rematch' | 'leave' }>;
 
 /**
- * The release gate for every action that would open a new match. A room whose
- * release is draining, retiring — or already replaced by the activation
- * barrier — never starts or rematches, while its running match and its
- * published quick reservation keep their own clocks. The read happens inside
- * the caller's transaction, so the check and the state it guards commit
- * together.
+ * Tells a socket about a refused new match. Maintenance admission is read
+ * inside the caller's transaction, so the refusal and the state it guards
+ * commit (or refuse) together — and nothing else in the branch was durable
+ * yet, so the rollback carries no loss.
  */
-async function assertRoomOpen(tx: Transaction, roomId: string): Promise<void> {
-  const release = await readRoomRelease(tx, roomId);
-  if (release === null) throw new ReleaseError('release:unavailable');
-  if (release.draining || release.state !== 'active') {
-    throw new ReleaseError('release:room_retired', release.activeReleaseId);
-  }
-}
-
-function sendReleaseRefusal(socket: RoomSocket, error: unknown): boolean {
-  if (!(error instanceof ReleaseError)) return false;
+function sendAdmissionRefusal(socket: RoomSocket, error: unknown): boolean {
+  if (!(error instanceof MaintenanceError)) return false;
   sendTo(socket, { type: 'error', message: error.message });
   return true;
 }
@@ -55,10 +47,6 @@ export async function handleLobbyFrame(
   meta: SocketAuth,
   message: LobbyFrame,
 ): Promise<void> {
-  const policy: RoomMatchPolicy = {
-    matchAdmission: scope.matchAdmission,
-    inputPolicyMode: scope.inputPolicyMode,
-  };
   switch (message.type) {
     case 'ready': {
       if (room.phase !== 'lobby' && room.phase !== 'generating') {
@@ -74,16 +62,18 @@ export async function handleLobbyFrame(
     case 'start': {
       try {
         await scope.transact(async (tx) => {
-          await assertRoomOpen(tx, scope.roomId);
+          // Admission first: a draining server starts no new match, and the
+          // refusal leaves the room exactly as it was.
+          await assertAdmission(tx);
           const fresh = await getRoom(tx, scope.roomId);
           if (!fresh) {
             sendTo(socket, { type: 'error', message: '房间不存在或已结束。' });
             return;
           }
-          await hostStartTx(tx, scope, socket, meta, fresh, policy);
+          await hostStartTx(tx, scope, socket, meta, fresh, scope.inputPolicyMode);
         });
       } catch (error) {
-        if (sendReleaseRefusal(socket, error)) return;
+        if (sendAdmissionRefusal(socket, error)) return;
         throw error;
       }
       await pushSnapshots(scope);
@@ -92,7 +82,8 @@ export async function handleLobbyFrame(
     case 'rematch': {
       try {
         await scope.transact(async (tx) => {
-          await assertRoomOpen(tx, scope.roomId);
+          // Same gate as a first start: a rematch is a new match.
+          await assertAdmission(tx);
           const fresh = await getRoom(tx, scope.roomId);
           if (!fresh) {
             sendTo(socket, { type: 'error', message: '房间不存在或已结束。' });
@@ -105,7 +96,7 @@ export async function handleLobbyFrame(
           await rematchTx(tx, scope);
         });
       } catch (error) {
-        if (sendReleaseRefusal(socket, error)) return;
+        if (sendAdmissionRefusal(socket, error)) return;
         throw error;
       }
       await pushSnapshots(scope);
@@ -125,7 +116,7 @@ async function hostStartTx(
   socket: RoomSocket,
   meta: SocketAuth,
   room: RoomRow,
-  policy: RoomMatchPolicy,
+  inputPolicyMode: InputPolicyMode,
 ): Promise<void> {
   if (room.phase === 'generating') {
     sendTo(socket, { type: 'error', message: '正在出题，请稍候。' });
@@ -145,6 +136,7 @@ async function hostStartTx(
   }
   const roster = await listPlayers(tx, scope.roomId);
   const online = onlineUserIds(roster, await currentConns(tx, scope.roomId, scope.registry));
+  for (const row of roster) if (participantKind(room, row) !== 'human') online.add(row.user_id);
   // Reserved invitees that never connected are released at lock time; a
   // player who actually joined is never dropped silently.
   const missing = roster.filter((row) => row.seated === 1 && !online.has(row.user_id));
@@ -160,13 +152,13 @@ async function hostStartTx(
     return;
   }
   const others = roster.filter((row) => row.user_id !== meta.userId && row.seated === 1);
-  if (others.some((row) => row.ready !== 1)) {
+  if (others.some((row) => participantKind(room, row) === 'human' && row.ready !== 1)) {
     sendTo(socket, { type: 'error', message: '还有玩家尚未准备。' });
     return;
   }
   // A refused start records its reason on the room row, and the snapshot
   // below carries it to every seat either way.
-  await startMatchTx(tx, scope.roomId, room, policy);
+  await startMatchTx(tx, scope.roomId, room, inputPolicyMode);
 }
 
 /** Returns a settled room to an open lobby for the next match. */
@@ -187,15 +179,15 @@ async function rematchTx(tx: Transaction, scope: RoomScope): Promise<void> {
     locked: 0,
     generation_token: null,
     generation_claim: null,
+    opponent_next_at: null,
   });
   // Seats that were held through the match expire again, so an absent
   // player cannot block the next start; the connected ones keep theirs.
   const roster = await listPlayers(tx, scope.roomId);
-  await armLobbySeatExpiry(
-    tx,
-    scope.roomId,
-    [...onlineUserIds(roster, await currentConns(tx, scope.roomId, scope.registry))],
-    Date.now() + SEAT_TTL_MS,
-  );
+  const room = await getRoom(tx, scope.roomId);
+  if (!room) throw new Error('room:not_found');
+  const present = onlineUserIds(roster, await currentConns(tx, scope.roomId, scope.registry));
+  for (const row of roster) if (participantKind(room, row) !== 'human') present.add(row.user_id);
+  await armLobbySeatExpiry(tx, scope.roomId, [...present], Date.now() + SEAT_TTL_MS);
   await reconcileHost(tx, scope.roomId, scope.registry);
 }

@@ -1,4 +1,5 @@
 import { For, Show, createMemo, onMount } from 'solid-js';
+import { BOT_IDLE_MS } from '../../../../shared/protocol';
 import type { Player, RoomSnapshot } from '../../../../shared/protocol';
 import {
   END_REASON_LABELS,
@@ -6,6 +7,7 @@ import {
   formatAmount,
   formatHealth,
   formatSeconds,
+  OPPONENT_KIND_LABELS,
 } from '../../../ui/format';
 import { ui } from '../../../ui/primitives';
 import * as stylex from '@stylexjs/stylex';
@@ -38,6 +40,8 @@ export function BattleResults(props: {
   snapshot: RoomSnapshot;
   self: Player | undefined;
   players: Player[];
+  /** A maintenance window (or unknown service status) blocks the next match. */
+  admissionBlocked: boolean;
   onRematch(): void;
   onLeave(): void;
 }) {
@@ -122,12 +126,22 @@ export function BattleResults(props: {
             : ''}
         </p>
       </div>
+      <Show when={props.snapshot.opponentKind !== 'human'}>
+        <p
+          class={stylex.props(ui.smallText, ui.muted).className}
+          data-testid="result-training-note"
+        >
+          本局为训练对局：对手（{OPPONENT_KIND_LABELS[props.snapshot.opponentKind]}
+          ）由系统自动安排，战绩照常记录；连续 {BOT_IDLE_MS / 1000}{' '}
+          秒无成功施法，训练对手将不再让胜。
+        </p>
+      </Show>
       <div class={stylex.props(ui.buttonRow, styles.resultActions).className}>
         <button
           type="button"
           class={stylex.props(ui.button, ui.primary).className}
           data-testid="rematch"
-          disabled={props.snapshot.draining}
+          disabled={props.admissionBlocked}
           onClick={() => props.onRematch()}
         >
           再来一局
@@ -141,9 +155,11 @@ export function BattleResults(props: {
           返回首页
         </button>
       </div>
-      <Show when={props.snapshot.draining}>
+      <Show when={props.admissionBlocked}>
         <p class={stylex.props(styles.resultDetail).className}>
-          此版本已停止接受新对局，请返回首页后更新。
+          {props.snapshot.mode === 'quick'
+            ? '系统维护中：暂时无法开始下一局，维护结束后可重新匹配。'
+            : '系统维护中：暂时无法开始下一局，维护结束后即可再来一局。'}
         </p>
       </Show>
 
@@ -204,6 +220,7 @@ export function BattleResults(props: {
                   <tr
                     data-testid="final-row"
                     data-user={row().id}
+                    data-kind={row().kind}
                     data-rank={row().rank ?? ''}
                     data-self={String(isSelf())}
                     data-eliminated={String(eliminated())}
@@ -236,7 +253,9 @@ export function BattleResults(props: {
                         ).className
                       }
                     >
-                      {`${row().username}${isSelf() ? '（你）' : ''}${eliminated() ? ' · 出局' : ''}`}
+                      {`${row().username}${isSelf() ? '（你）' : ''}${
+                        row().kind !== 'human' ? ` · ${OPPONENT_KIND_LABELS[row().kind]}` : ''
+                      }${eliminated() ? ' · 出局' : ''}`}
                     </td>
                     <td
                       class={

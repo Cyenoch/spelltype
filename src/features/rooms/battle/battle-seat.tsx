@@ -1,6 +1,6 @@
 import { createMemo } from 'solid-js';
 import type { Player } from '../../../../shared/protocol';
-import { formatAmount, formatHealth, percentOf } from '../../../ui/format';
+import { formatAmount, formatHealth, percentOf, OPPONENT_KIND_LABELS } from '../../../ui/format';
 import { ui } from '../../../ui/primitives';
 import * as stylex from '@stylexjs/stylex';
 import { styles } from './battle.styles';
@@ -69,6 +69,7 @@ export function SeatLabel(props: {
       class={stylex.props(styles.seatLabel, eliminated() && styles.seatLabelDown).className}
       data-testid="arena-seat"
       data-user={props.player.id}
+      data-kind={props.player.kind}
       data-self={String(props.isSelf)}
       data-slot={props.player.slot}
       data-connected={String(props.player.connected)}
@@ -102,6 +103,13 @@ export function SeatLabel(props: {
         </span>
         <span
           class={stylex.props(styles.mark, styles.markDown).className}
+          data-testid="arena-kind-mark"
+          hidden={props.player.kind === 'human'}
+        >
+          {OPPONENT_KIND_LABELS[props.player.kind]}
+        </span>
+        <span
+          class={stylex.props(styles.mark, styles.markDown).className}
           data-testid="arena-down-mark"
           hidden={!eliminated()}
         >
@@ -110,7 +118,7 @@ export function SeatLabel(props: {
         <span
           class={stylex.props(styles.mark, styles.markOffline).className}
           data-testid="arena-offline-mark"
-          hidden={props.player.connected}
+          hidden={props.player.connected || props.player.kind !== 'human'}
         >
           离线
         </span>

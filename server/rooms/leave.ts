@@ -47,7 +47,9 @@ export async function manualLeave(scope: RoomScope, userId: string): Promise<voi
     // The clock or an accepted batch beat the leave: settle it at its persisted
     // boundary first, so the departure can neither extend the match past its
     // single deadline nor reorder the ranking the batch already decided.
-    await advanceCombat(scope, now);
+    while (await advanceCombat(scope, now)) {
+      // Drain earlier synthetic actions and their batches before committing the departure.
+    }
     room = (await getRoom(scope.db, scope.roomId))!;
   }
   if (room.mode === 'quick' && room.phase === 'lobby' && room.locked === 0) {

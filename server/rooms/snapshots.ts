@@ -8,7 +8,7 @@ import type {
   Spell,
   User,
 } from '../../shared/protocol';
-import { accuracyOf, charCount, cpmOf, spellAt, survivalRanks } from '../scoring';
+import { accuracyOf, charCount, cpmOf, spellAt } from '../scoring';
 import type { RoomSocket } from '../contracts';
 import { INPUT_GATE_ERROR_MESSAGE, inputGateState } from './input-gate';
 import { RoomRejection } from './rejection';
@@ -22,6 +22,7 @@ import { getRoom } from './storage/room';
 import type { RoomQuery } from './storage/query';
 import { readSpellBook } from './storage/spell-book';
 import type { PlayerRow, RoomRow } from '../db/schema';
+import { matchRanks, participantKind } from './opponents';
 
 type SnapshotContext = {
   room: RoomRow;
@@ -74,15 +75,7 @@ async function snapshotContext(
 ): Promise<SnapshotContext> {
   const players = await listPlayers(db, roomId);
   const ranks =
-    room.phase === 'finished' && room.match_id !== null
-      ? survivalRanks(
-          players.map((row) => ({
-            userId: row.user_id,
-            hp: row.hp,
-            eliminatedAt: row.eliminated_at,
-          })),
-        )
-      : null;
+    room.phase === 'finished' && room.match_id !== null ? matchRanks(room, players) : null;
   return {
     room,
     players,
@@ -114,14 +107,31 @@ function buildSnapshot(context: SnapshotContext, viewerId: string): RoomSnapshot
   const book = context.book;
   const players: Player[] = context.players.map((row) => {
     const spell = spellAt(book, row.spell_index);
+    const kind = participantKind(room, row);
+    const spellLength = spell ? charCount(spell.text) : 0;
+    const openedAt = row.input_opened_at;
+    const nextAt = room.opponent_next_at;
+    const progress =
+      kind === 'bot' &&
+      room.phase === 'playing' &&
+      row.eliminated_at === null &&
+      openedAt !== null &&
+      nextAt !== null &&
+      nextAt > openedAt
+        ? Math.floor(
+            spellLength *
+              Math.max(0, Math.min(0.9, (context.serverNow - openedAt) / (nextAt - openedAt))),
+          )
+        : row.progress;
     return {
       id: row.user_id,
       username: row.username,
+      kind,
       slot: row.slot,
-      connected: row.conn_id !== null && context.conns.has(row.conn_id),
-      ready: row.ready === 1,
-      progress: row.progress,
-      spellLength: spell ? charCount(spell.text) : 0,
+      connected: kind !== 'human' || (row.conn_id !== null && context.conns.has(row.conn_id)),
+      ready: kind !== 'human' || row.ready === 1,
+      progress,
+      spellLength,
       spellIndex: row.spell_index,
       spellsCast: row.spells_cast,
       hp: row.hp,
@@ -174,11 +184,10 @@ function buildSnapshot(context: SnapshotContext, viewerId: string): RoomSnapshot
   }
   return {
     id: room.id,
-    releaseId: room.release_id,
-    draining: room.draining,
     matchId: room.match_id,
     hostId: room.host_id,
     mode: room.mode,
+    opponentKind: room.opponent_kind,
     theme: room.theme,
     difficulty: room.difficulty,
     phase: room.phase,

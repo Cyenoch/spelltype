@@ -1,6 +1,6 @@
 /**
  * 手动离场 — the explicit-departure contract shared by the `leave` lobby frame and the
- * authenticated `POST /api/releases/:releaseId/rooms/:id/leave` endpoint.
+ * authenticated `POST /api/rooms/:id/leave` endpoint.
  *
  * What is pinned here is the room's own decision, against real PGlite storage:
  * an explicit departure forfeits the live match (duel settles immediately,
@@ -12,8 +12,7 @@
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { Database, OpenedDatabase } from '../../server/db';
 import { openDatabase } from '../../server/db';
-import { ensureDevelopmentRelease } from '../../server/releases/control';
-import { INITIAL_HEALTH } from '../../shared/protocol';
+import { INITIAL_HEALTH, WS_PROTOCOL } from '../../shared/protocol';
 import type { Phase, ReservationState, User } from '../../shared/protocol';
 import type { RoomSocket } from '../../server/contracts';
 import { handleClientFrame } from '../../server/rooms/frames';
@@ -31,11 +30,10 @@ import {
   updatePlayer,
 } from '../../server/rooms/storage/players';
 import { getRoom, updateRoom } from '../../server/rooms/storage/room';
-import { createRoom, readRoomRelease } from '../../server/rooms/storage/room';
+import { createRoom } from '../../server/rooms/storage/room';
 import { advanceOnce } from '../../server/rooms/transitions';
 import { results } from '../../server/db/schema';
 
-const RELEASE_ID = 'a'.repeat(32);
 const ROOM_ID = 'a'.repeat(24);
 const NOW = 1_700_000_000_000;
 const databases: OpenedDatabase[] = [];
@@ -63,7 +61,7 @@ function stubSocket(userId: string): StubSocket {
       connId: `${userId}-conn`,
       sessionHash: `${userId}-session`,
       sessionExpires: Date.now() + 60_000,
-      protocolVersion: 'spelltype.v2',
+      protocolVersion: WS_PROTOCOL,
     },
     sent: [],
     closed: [],
@@ -118,10 +116,8 @@ async function setup(
   const opened = await openDatabase('pglite://:memory:');
   databases.push(opened);
   const { db } = opened;
-  await ensureDevelopmentRelease(db, RELEASE_ID);
   await createRoom(db, {
     id: ROOM_ID,
-    releaseId: RELEASE_ID,
     host: { id: userIds[0], username: userIds[0] },
     theme: '咒文契约',
     mode: room.mode ?? 'private',
@@ -146,13 +142,11 @@ async function setup(
   }
   const scope = createRoomScope({
     roomId: ROOM_ID,
-    releaseId: RELEASE_ID,
     db,
     generate: async () => {
       throw new Error('generation not expected in this test');
     },
     registry,
-    matchAdmission: 'open',
     inputPolicyMode: 'enforce',
   });
   // A live match under the new rules carries its locked policy; a settled or
@@ -367,14 +361,5 @@ describe('已结束的对局与匹配资格', () => {
     const hostSnapshot = await snapshotFor(db, ROOM_ID, scope.registry, user('host'));
     expect(hostSnapshot.phase).toBe('finished');
     expect(hostSnapshot.players.find((player) => player.id === 'guest')?.hp).toBe(300);
-  });
-
-  it('readRoomRelease 回传房间的发布归属与当前指针，供开局闸门判定', async () => {
-    const { db } = await setup(['host', 'guest'], { phase: 'lobby' });
-    expect(await readRoomRelease(db, ROOM_ID)).toMatchObject({
-      state: 'active',
-      activeReleaseId: RELEASE_ID,
-      draining: false,
-    });
   });
 });

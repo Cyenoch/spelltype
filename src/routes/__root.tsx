@@ -15,19 +15,20 @@ import { parseResponse, DetailedError } from 'hono/client';
 import { client } from '../app/client';
 import { createBackgroundScene, type BackgroundScene } from '../pixi/background';
 import { messageOf, toast } from '../ui/toast';
-import type { AppContext, AppRouterContext, AuthMode, RoomLinkState } from '../app/context';
+import type { AppContext, AppRouterContext, RoomLinkState, WechatLoginError } from '../app/context';
 import { ui } from '../ui/primitives';
 import { ASSETS } from '../pixi/assets';
 
 interface Search {
   room?: string;
-  mode?: AuthMode;
+  error?: WechatLoginError;
 }
 
 export const Route = createRootRouteWithContext<AppRouterContext>()({
   validateSearch: (raw: Record<string, unknown>): Search => ({
     room: typeof raw.room === 'string' ? raw.room : undefined,
-    mode: raw.mode === 'register' ? 'register' : undefined,
+    error:
+      raw.error === 'wechat_failed' || raw.error === 'wechat_unavailable' ? raw.error : undefined,
   }),
   beforeLoad: ({ search, context }) => {
     if (search.room && !/^[0-9a-f]{24}$/.test(search.room)) {
@@ -53,9 +54,9 @@ function RootLayout() {
   const context = Route.useRouteContext();
   const search = Route.useSearch();
   const location = useLocation();
-  // Where the player is decides how the release banner may act: a running
-  // match or a live queue is never reloaded out from under them.
-  const zone = (): ReleaseZone => {
+  // Where the player is decides how the banners may act: a running match or a
+  // live queue is never refreshed out from under them.
+  const zone = (): Zone => {
     if (location().pathname === '/' && search().room) return 'room';
     if (location().pathname === '/match') return 'queue';
     return 'free';
@@ -72,13 +73,13 @@ function RootLayout() {
   );
 }
 
-/** Where the player is, as far as update safety is concerned. */
-type ReleaseZone = 'room' | 'queue' | 'free';
+/** Where the player is, as far as refresh safety is concerned. */
+type Zone = 'room' | 'queue' | 'free';
 
 function RouteError(props: ErrorComponentProps) {
   const router = useRouter();
   const location = useLocation();
-  // Same rule as the banner: the explicit update happens outside rooms and queues.
+  // Same rule as the banners: an explicit refresh happens outside rooms and queues.
   const inRoom = () => location().pathname === '/' && Boolean(location().search.room);
   const inQueue = () => location().pathname === '/match';
   const blocked = () => inRoom() || inQueue();
@@ -95,17 +96,17 @@ function RouteError(props: ErrorComponentProps) {
           fallback={
             <p class={stylex.props(ui.muted).className}>
               {inRoom()
-                ? '离开房间后再更新页面，避免打断对局。'
-                : '取消排队并返回首页后再更新页面。'}
+                ? '离开房间后再刷新页面，避免打断对局。'
+                : '取消排队并返回首页后再刷新页面。'}
             </p>
           }
         >
           <button
             class={stylex.props(ui.button, ui.primary).className}
-            data-testid="release-error-update"
+            data-testid="app-error-refresh"
             onClick={() => window.location.reload()}
           >
-            更新页面
+            刷新页面
           </button>
         </Show>
       </div>
@@ -123,7 +124,7 @@ function Shell(props: {
   ctx: AppContext;
   connection: RoomLinkState;
   graphicsFailed: boolean;
-  zone: ReleaseZone;
+  zone: Zone;
   children: JSX.Element;
 }) {
   let fxLayer!: HTMLDivElement;
@@ -180,27 +181,45 @@ function Shell(props: {
         class={stylex.props(styles.fx).className}
       />
       <div id="banner-slot" class={stylex.props(styles.banners).className}>
-        <Show when={props.ctx.release.updateRequired()}>
+        <Show when={props.ctx.maintenance.draining()}>
           <div
-            data-testid="release-banner"
+            data-testid="maintenance-banner"
             role="status"
-            class={stylex.props(styles.banner, styles.releaseBanner).className}
+            class={stylex.props(styles.banner, styles.maintenanceBanner).className}
+          >
+            系统维护中：进行中的对局不受影响，暂时无法开始新的对局；维护结束后即可重新匹配。
+          </div>
+        </Show>
+        <Show when={!props.ctx.maintenance.draining() && props.ctx.maintenance.unavailable()}>
+          <div
+            data-testid="status-unavailable-banner"
+            role="status"
+            class={stylex.props(styles.banner, styles.maintenanceBanner).className}
+          >
+            暂时无法获取服务状态：为保护进行中的对局，已暂停开始新的对局，恢复后可正常匹配。
+          </div>
+        </Show>
+        <Show when={props.ctx.maintenance.assetFailed()}>
+          <div
+            data-testid="stale-bundle-banner"
+            role="status"
+            class={stylex.props(styles.banner, styles.maintenanceBanner).className}
           >
             <span>
               {props.zone === 'room'
-                ? '新版本已上线，离开房间后更新。'
+                ? '页面已有更新，离开房间后再刷新，不影响当前对局。'
                 : props.zone === 'queue'
-                  ? '新版本已上线，可取消排队后更新。'
-                  : '新版本已上线，请更新后开始下一局。'}
+                  ? '页面已有更新，取消排队返回首页后再刷新。'
+                  : '页面已有更新，请刷新后继续。'}
             </span>
             <Show when={props.zone === 'free'}>
               <button
                 type="button"
-                data-testid="release-update"
+                data-testid="stale-bundle-refresh"
                 class={stylex.props(ui.button, ui.small).className}
                 onClick={() => window.location.reload()}
               >
-                更新页面
+                刷新页面
               </button>
             </Show>
           </div>
@@ -253,6 +272,16 @@ function Shell(props: {
           >
             玩法指南
           </Link>
+          <Show when={props.ctx.session.role === 'admin'}>
+            <Link
+              to="/admin/maintenance"
+              search={{}}
+              data-testid="nav-admin"
+              class={stylex.props(styles.guide).className}
+            >
+              维护
+            </Link>
+          </Show>
           <div class={stylex.props(styles.user).className}>
             <Show
               when={props.ctx.session.user}
@@ -263,11 +292,11 @@ function Shell(props: {
                   onClick={() =>
                     void navigate({
                       to: '/auth',
-                      search: { mode: 'login', room: props.ctx.pendingInvite() ?? undefined },
+                      search: { room: props.ctx.pendingInvite() ?? undefined },
                     })
                   }
                 >
-                  登录 / 注册
+                  微信登录
                 </button>
               }
             >
@@ -328,7 +357,7 @@ const styles = stylex.create({
     borderBottom: '1px solid rgba(255,107,125,.4)',
   },
   narrowBanner: { display: { default: 'none', '@media (max-width: 880px)': 'block' } },
-  releaseBanner: {
+  maintenanceBanner: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',

@@ -1,99 +1,118 @@
-# Base stack: edge (Caddy), stable API and PostgreSQL — exactly one per host.
-# Per-release game runtimes live in their own compose projects created from
-# compose.release.yaml by scripts/release.mjs; they join the shared
-# spelltype_runtime network with the deterministic alias game-<releaseId>.
+# Single-runtime production stack: one immutable spelltype image (app plus
+# one-shot migration and maintenance entries, all from the same image) and
+# PostgreSQL. There is no edge, no per-release containers, no admin listener
+# and no Docker socket: exactly one app container runs at any time, and
+# scripts/deploy.ts serializes every deploy, rollback and bootstrap against
+# the durable maintenance state in PostgreSQL.
 #
-# Public surface: edge 80/443 only. The stable API admin listener is
-# published on loopback (127.0.0.1:3001) for the host-side release CLI.
-# Credentials are supplied at runtime through file secrets; nothing is baked
-# into images and no variable here has a default password.
+# Public surface: Dokploy (or any reverse proxy on the compose network) routes
+# its domain to app:3000; the plain-Compose loopback port mapping exists for
+# the host-side CLI's public /health and /api/status probes. Maintenance
+# operations use host Docker privilege (`docker compose exec -T app bun
+# dist/server/maintenance.js ...`). Optional compose.ops.yaml enables the
+# maintenance-only CI bearer API. Credentials reach containers as file secrets
+# under SPELLTYPE_STATE_DIR/secrets; no variable has a default password.
 #
-# Operator setup: copy deploy/compose.env.example to deploy/compose.env,
-# create the state directories, run `bun run deploy secrets`, then
-#   docker compose --env-file deploy/compose.env -p ${SPELLTYPE_BASE_PROJECT:-spelltype} up -d
-# The release CLI passes the same names programmatically; SPELLTYPE_BASE_PROJECT,
-# SPELLTYPE_RUNTIME_NETWORK and the host ports exist so an isolated acceptance
-# stack can run beside a live deployment.
-name: ${SPELLTYPE_BASE_PROJECT:-spelltype}
-
-networks:
-  runtime:
-    name: ${SPELLTYPE_RUNTIME_NETWORK:-spelltype_runtime}
+# Operator runbook: deploy/compose.env.example. The deploy CLI always passes
+# SPELLTYPE_APP_IMAGE (an exact image ID) via the process environment, which
+# overrides deploy/compose.env — an operator running docker compose directly
+# must set SPELLTYPE_APP_IMAGE themselves (image IDs, never mutable tags).
+name: ${SPELLTYPE_PROJECT:-spelltype}
 
 volumes:
-  caddy_data:
-  caddy_config:
   postgres_data:
 
 secrets:
   database_url:
     file: ${SPELLTYPE_STATE_DIR}/secrets/database_url
-  release_admin_token:
-    file: ${SPELLTYPE_STATE_DIR}/secrets/release_admin_token
   postgres_password:
     file: ${SPELLTYPE_STATE_DIR}/secrets/postgres_password
+  wechat_bridge_app_key:
+    file: ${SPELLTYPE_STATE_DIR}/secrets/wechat_bridge_app_key
+  deepseek_api_key:
+    file: ${SPELLTYPE_STATE_DIR}/secrets/deepseek_api_key
 
 services:
-  edge:
-    image: caddy:2
-    restart: unless-stopped
-    depends_on:
-      - api
-    ports:
-      - '${SPELLTYPE_HTTP_PORT:-80}:80'
-      - '${SPELLTYPE_HTTPS_PORT:-443}:443'
-    environment:
-      SPELLTYPE_DOMAIN: ${SPELLTYPE_DOMAIN:-}
-    volumes:
-      # TLS variant (deploy/Caddyfile) needs SPELLTYPE_DOMAIN; plain-HTTP
-      # hosts (local smoke) set SPELLTYPE_CADDYFILE=Caddyfile.http. The
-      # config is static for the life of the host — deploys never reload it.
-      - ./deploy/${SPELLTYPE_CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - runtime
-
-  api:
-    # Promoted from a staged release snapshot by `scripts/release.mjs api`.
-    # The image carries its own dist/release.json, which pins the API
-    # release identity; SPELLTYPE_RELEASE_ID must not override it.
-    image: ${SPELLTYPE_API_IMAGE:-spelltype/api:stable}
+  app:
+    # Pinned by scripts/deploy.ts to the exact image ID it verified; a bare
+    # `docker compose up` must export SPELLTYPE_APP_IMAGE=<sha256:...> itself.
+    image: ${SPELLTYPE_APP_IMAGE:?set SPELLTYPE_APP_IMAGE to an exact image ID (scripts/deploy.ts deploy does this automatically)}
     restart: unless-stopped
     init: true
-    # File secrets preserve host uid/mode; running as the same uid the CLI
-    # used to create them keeps 0600 secrets readable without loosening
-    # permissions. Match SPELLTYPE_UID/GID in deploy/compose.env to the
-    # deploy user (Linux default 1000; e.g. 501:20 for a macOS host).
+    # Same uid/gid the deploy CLI used to create the 0600 secret files, so
+    # they stay owner-only and remain readable inside the container.
     user: '${SPELLTYPE_UID:-1000}:${SPELLTYPE_GID:-1000}'
     environment:
       HOME: /tmp
-      SERVER_ROLE: api
+      NODE_ENV: production
       DATABASE_URL_FILE: /run/secrets/database_url
       HOST: 0.0.0.0
       PORT: '3000'
-      ADMIN_PORT: '3001'
       PUBLIC_ORIGIN: ${SPELLTYPE_PUBLIC_ORIGIN:?set SPELLTYPE_PUBLIC_ORIGIN in deploy/compose.env}
-      RELEASE_ADMIN_TOKEN_FILE: /run/secrets/release_admin_token
-      ASSETS_ROOT: /srv/releases
-      # The api is only ever reached through our private edge; trust the
-      # edge-set X-Forwarded-For for rate limiting. Game runtimes are not
-      # edge-fronted and keep spoofable XFF ignored.
-      TRUST_FORWARDED_FOR: 'true'
+      WECHAT_BRIDGE_BASE_URL: ${WECHAT_BRIDGE_BASE_URL:?set WECHAT_BRIDGE_BASE_URL in deploy/compose.env}
+      # Public per-App identifier from the xsg-website /developers portal; the
+      # App Key itself never passes through compose interpolation or the env.
+      WECHAT_BRIDGE_APP_ID: ${WECHAT_BRIDGE_APP_ID:?set WECHAT_BRIDGE_APP_ID in deploy/compose.env}
+      WECHAT_BRIDGE_APP_KEY_FILE: /run/secrets/wechat_bridge_app_key
+      DEEPSEEK_API_KEY_FILE: /run/secrets/deepseek_api_key
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+      INPUT_POLICY_MODE: ${INPUT_POLICY_MODE:-observe}
+      # Empty/false uses the connection IP; true trusts X-Forwarded-For;
+      # a header name (e.g. EO-Client-IP) trusts that ingress-controlled header.
+      TRUST_FORWARDED_FOR: ${TRUST_FORWARDED_FOR:-true}
     depends_on:
       database:
         condition: service_healthy
     secrets:
       - database_url
-      - release_admin_token
-    volumes:
-      # Shared immutable assets collection: /srv/releases/<releaseId>/...
-      # corresponds to /_releases/<releaseId>/... on the public origin.
-      - ${SPELLTYPE_STATE_DIR}/assets:/srv/releases:ro
+      - wechat_bridge_app_key
+      - deepseek_api_key
     ports:
-      - '127.0.0.1:${SPELLTYPE_ADMIN_HOST_PORT:-3001}:3001'
-    networks:
-      - runtime
+      # Loopback only: the deploy CLI's public /health and /api/status probes.
+      # Dokploy domain routing reaches app:3000 over the internal network and
+      # never uses this; move it if the host port is taken. There is no admin
+      # listener: maintenance runs one-shot inside the app container via
+      # `docker compose exec` using host Docker privilege (see
+      # scripts/deploy.ts), and in-app administration is the WeChat admin
+      # role on /api/admin/maintenance.
+      - '127.0.0.1:${SPELLTYPE_APP_HOST_PORT:-3000}:3000'
+    # /health is 200 only while the live runtime lease and the database are
+    # reachable — including during maintenance draining — so this healthcheck
+    # never lies while games are still finishing.
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'bun',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 36
+      start_period: 30s
+
+  # One-shot forward migration; same immutable image as app, so the schema is
+  # never moved by different code than the app that starts afterwards. Run via
+  # scripts/deploy.ts (docker compose run --rm migrate); it is never running
+  # at the same time as an app container in a healthy deployment. The entry
+  # applies migrations and guarantees durable draining maintenance; it can
+  # never reopen maintenance or touch game data.
+  migrate:
+    image: ${SPELLTYPE_APP_IMAGE:?set SPELLTYPE_APP_IMAGE to an exact image ID (scripts/deploy.ts deploy does this automatically)}
+    profiles: [migrate]
+    init: true
+    user: '${SPELLTYPE_UID:-1000}:${SPELLTYPE_GID:-1000}'
+    environment:
+      HOME: /tmp
+      NODE_ENV: production
+      DATABASE_URL_FILE: /run/secrets/database_url
+    command: ['bun', 'dist/server/migrate.js']
+    secrets:
+      - database_url
+    depends_on:
+      database:
+        condition: service_healthy
 
   database:
     image: postgres:18-alpine
@@ -112,5 +131,3 @@ services:
       timeout: 3s
       retries: 30
       start_period: 10s
-    networks:
-      - runtime

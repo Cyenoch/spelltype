@@ -1,10 +1,9 @@
 import { resolve } from 'node:path';
 import { z } from 'zod';
-import { DEV_RELEASE_ID, releaseIdSchema } from '../shared/release';
 import type { InputPolicyMode } from '../shared/protocol';
 import { DEFAULT_DEEPSEEK_MODEL } from './generation/provider';
 
-declare const __SPELLTYPE_RELEASE_ID__: string;
+declare const __SPELLTYPE_BUILD_ID__: string;
 
 export interface AiConfig {
   apiKey: string | null;
@@ -17,19 +16,20 @@ export interface AuthRateLimit {
 }
 
 export interface ServerConfig {
-  role: 'all' | 'api' | 'game';
-  releaseId: string;
+  /** Informational identity only; never a room owner, route or admission rule. */
+  buildId: string;
+  autoMigrate: boolean;
   databaseUrl: string;
   hostname: string;
   port: number;
-  adminPort: number | null;
   publicOrigin: string;
-  adminToken: string | null;
+  /** Optional machine credential; never authenticates an administrator session. */
+  maintenanceToken: string | null;
   assetsRoot: string | null;
   authLimits: AuthRateLimit;
-  /** Enable only when this listener is reachable through the trusted reverse proxy. */
-  trustForwardedFor: boolean;
-  matchAdmission: 'open' | 'draining';
+  wechatBridge: { baseUrl: string; appId: string; appKey: string } | null;
+  /** Trusted client IP header, or false to use the connection's peer address. */
+  trustForwardedFor: string | false;
   inputPolicyMode: InputPolicyMode;
   ai: AiConfig;
 }
@@ -40,17 +40,11 @@ const portSchema = z
   .regex(/^\d+$/)
   .transform(Number)
   .pipe(z.number().int().min(0).max(65535));
-const roleSchema = z.enum(['all', 'api', 'game']);
-const manifestSchema = z.object({ releaseId: releaseIdSchema });
 const authLimitsSchema = z.object({
   attempts: z.coerce.number().int().min(1).max(10_000),
   windowMs: z.coerce.number().int().min(1_000).max(3_600_000),
 });
-const booleanSchema = z.enum(['true', 'false']).transform((value) => value === 'true');
-const gamePolicySchema = z.object({
-  MATCH_ADMISSION: z.enum(['open', 'draining']),
-  INPUT_POLICY_MODE: z.enum(['observe', 'enforce']),
-});
+const inputPolicySchema = z.enum(['observe', 'enforce']);
 
 /** File-backed secrets and environment secrets are mutually exclusive. */
 async function secret(environment: Environment, name: string): Promise<string | undefined> {
@@ -62,61 +56,30 @@ async function secret(environment: Environment, name: string): Promise<string | 
   return filename === undefined ? inline?.trim() : (await Bun.file(filename).text()).trim();
 }
 
-/** CLI reports and service startup use the same secret handling and database selection. */
+/** CLI reports, migrations and startup share the database selection and secret handling. */
 export async function readDatabaseUrl(environment: Environment = Bun.env): Promise<string> {
   const production = environment.NODE_ENV === 'production';
   const url =
     (await secret(environment, 'DATABASE_URL')) ?? (production ? '' : 'pglite://./.data/spelltype');
   if (!url) throw new Error('DATABASE_URL is required.');
   if (production && !/^postgres(?:ql)?:\/\//.test(url)) {
-    throw new Error(
-      'Production release processes require PostgreSQL, not a shared PGlite directory.',
-    );
+    throw new Error('Production requires PostgreSQL, not a shared PGlite directory.');
   }
   return url;
 }
 
 export async function readServerConfig(environment: Environment = Bun.env): Promise<ServerConfig> {
   const production = environment.NODE_ENV === 'production';
-  const role = roleSchema.parse(environment.SERVER_ROLE ?? 'all');
-  const policy = gamePolicySchema.parse({
-    MATCH_ADMISSION: environment.MATCH_ADMISSION ?? 'open',
-    INPUT_POLICY_MODE: environment.INPUT_POLICY_MODE ?? 'observe',
-  });
-  if (production && role === 'all') {
-    throw new Error('Production requires SERVER_ROLE=api or SERVER_ROLE=game.');
-  }
-  const compiledRelease =
-    typeof __SPELLTYPE_RELEASE_ID__ === 'undefined'
-      ? undefined
-      : releaseIdSchema.parse(__SPELLTYPE_RELEASE_ID__);
-  if (production && !compiledRelease) {
-    throw new Error('Production requires a release build with a compiled release identity.');
-  }
-
-  let manifestRelease: string | undefined;
-  if (compiledRelease || production || environment.RELEASE_MANIFEST) {
-    const filename = environment.RELEASE_MANIFEST
-      ? resolve(environment.RELEASE_MANIFEST)
-      : resolve(import.meta.dir, '../release.json');
-    manifestRelease = manifestSchema.parse(await Bun.file(filename).json()).releaseId;
-  }
-  if (compiledRelease && manifestRelease !== compiledRelease) {
-    throw new Error('The release manifest does not match this server build.');
-  }
-  const configuredRelease = environment.SPELLTYPE_RELEASE_ID;
-  if (manifestRelease && configuredRelease && manifestRelease !== configuredRelease) {
-    throw new Error('SPELLTYPE_RELEASE_ID does not match the immutable build manifest.');
-  }
-  const releaseId = releaseIdSchema.parse(
-    compiledRelease ?? configuredRelease ?? manifestRelease ?? DEV_RELEASE_ID,
-  );
-  const [databaseUrl, configuredToken, apiKey] = await Promise.all([
+  const [databaseUrl, apiKey, bridgeAppKey, configuredMaintenanceToken] = await Promise.all([
     readDatabaseUrl(environment),
-    secret(environment, 'RELEASE_ADMIN_TOKEN'),
     secret(environment, 'DEEPSEEK_API_KEY'),
+    secret(environment, 'WECHAT_BRIDGE_APP_KEY'),
+    secret(environment, 'MAINTENANCE_TOKEN'),
   ]);
-
+  const maintenanceToken = configuredMaintenanceToken ?? null;
+  if (maintenanceToken !== null && !/^[0-9a-f]{64}$/.test(maintenanceToken)) {
+    throw new Error('MAINTENANCE_TOKEN must contain 64 lowercase hexadecimal characters.');
+  }
   const originText = environment.PUBLIC_ORIGIN ?? (production ? '' : 'http://127.0.0.1:5173');
   if (!originText) throw new Error('PUBLIC_ORIGIN is required in production.');
   const origin = new URL(originText);
@@ -132,32 +95,59 @@ export async function readServerConfig(environment: Environment = Bun.env): Prom
       'PUBLIC_ORIGIN must be an HTTP(S) origin without credentials, path, query or fragment.',
     );
   }
-  const adminToken = configuredToken || null;
-  if (adminToken !== null && !/^[0-9a-f]{64}$/.test(adminToken)) {
-    throw new Error('RELEASE_ADMIN_TOKEN must contain 64 lowercase hexadecimal characters.');
+  const bridgeBaseUrl = environment.WECHAT_BRIDGE_BASE_URL?.trim();
+  const bridgeAppId = environment.WECHAT_BRIDGE_APP_ID?.trim();
+  let wechatBridge: ServerConfig['wechatBridge'] = null;
+  if (bridgeBaseUrl || bridgeAppId || bridgeAppKey) {
+    if (!bridgeBaseUrl || !bridgeAppId || !bridgeAppKey || bridgeAppKey.length < 16) {
+      throw new Error(
+        'WeChat login requires WECHAT_BRIDGE_BASE_URL, WECHAT_BRIDGE_APP_ID and WECHAT_BRIDGE_APP_KEY (at least 16 characters).',
+      );
+    }
+    const bridgeUrl = new URL(bridgeBaseUrl);
+    if (
+      !['http:', 'https:'].includes(bridgeUrl.protocol) ||
+      bridgeUrl.username ||
+      bridgeUrl.password ||
+      bridgeUrl.pathname !== '/' ||
+      bridgeUrl.search ||
+      bridgeUrl.hash ||
+      (production && bridgeUrl.protocol !== 'https:')
+    ) {
+      throw new Error(
+        'WECHAT_BRIDGE_BASE_URL must be an HTTP(S) origin without credentials, path, query or fragment; production requires HTTPS.',
+      );
+    }
+    wechatBridge = { baseUrl: bridgeUrl.origin, appId: bridgeAppId, appKey: bridgeAppKey };
   }
-  if (production && !adminToken) throw new Error('RELEASE_ADMIN_TOKEN is required in production.');
-  if (!adminToken && environment.ADMIN_PORT !== undefined) {
-    throw new Error('ADMIN_PORT requires RELEASE_ADMIN_TOKEN.');
-  }
-
+  if (production && !wechatBridge)
+    throw new Error('WeChat bridge configuration is required in production.');
+  const forwardedHeader = environment.TRUST_FORWARDED_FOR?.trim().toLowerCase();
   return {
-    role,
-    releaseId,
+    buildId: typeof __SPELLTYPE_BUILD_ID__ === 'undefined' ? 'development' : __SPELLTYPE_BUILD_ID__,
+    autoMigrate: !production,
     databaseUrl,
     hostname: environment.HOST ?? '127.0.0.1',
     port: portSchema.parse(environment.PORT ?? '3000'),
-    adminPort: adminToken ? portSchema.parse(environment.ADMIN_PORT ?? '3001') : null,
     publicOrigin: origin.origin,
-    adminToken,
-    assetsRoot: environment.ASSETS_ROOT ? resolve(environment.ASSETS_ROOT) : null,
+    maintenanceToken,
+    wechatBridge,
+    assetsRoot: environment.ASSETS_ROOT
+      ? resolve(environment.ASSETS_ROOT)
+      : production
+        ? resolve('dist/client')
+        : null,
     authLimits: authLimitsSchema.parse({
       attempts: environment.AUTH_RATE_LIMIT_ATTEMPTS ?? '10',
       windowMs: environment.AUTH_RATE_LIMIT_WINDOW_MS ?? '60000',
     }),
-    trustForwardedFor: booleanSchema.parse(environment.TRUST_FORWARDED_FOR ?? 'false'),
-    matchAdmission: policy.MATCH_ADMISSION,
-    inputPolicyMode: policy.INPUT_POLICY_MODE,
+    trustForwardedFor:
+      !forwardedHeader || forwardedHeader === 'false'
+        ? false
+        : forwardedHeader === 'true'
+          ? 'x-forwarded-for'
+          : forwardedHeader,
+    inputPolicyMode: inputPolicySchema.parse(environment.INPUT_POLICY_MODE ?? 'observe'),
     ai: {
       apiKey: apiKey || null,
       model: environment.DEEPSEEK_MODEL?.trim() || DEFAULT_DEEPSEEK_MODEL,

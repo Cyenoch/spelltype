@@ -137,9 +137,7 @@ async function instrumentedRoom(browser: Browser, theme: string): Promise<Instru
       constructor(...args: ConstructorParameters<typeof WebSocket>) {
         super(...args);
         if (
-          !/^\/api\/releases\/[0-9a-f]{32}\/rooms\/[0-9a-f]{24}\/ws$/.test(
-            new URL(String(args[0]), location.href).pathname,
-          )
+          !/^\/api\/rooms\/[0-9a-f]{24}\/ws$/.test(new URL(String(args[0]), location.href).pathname)
         )
           return;
         sockets.push(this);
