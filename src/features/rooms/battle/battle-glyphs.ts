@@ -7,7 +7,7 @@ import { createGlyphStamp } from './glyph-stamp';
 
 export type CharTone = 'plain' | 'done' | 'ok' | 'cur' | 'err';
 
-/** Classify every confirmed input position, not just the first broken prefix. */
+/** 对每个已确认的输入位置分类，而不只是第一个出错的前缀。 */
 export function charTones(chars: string[], typedChars: string[], settled: boolean): CharTone[] {
   return chars.map((char, index) => {
     if (settled) return 'done';
@@ -18,10 +18,10 @@ export function charTones(chars: string[], typedChars: string[], settled: boolea
 }
 
 /**
- * The classified character carries its state as a stable hook as well as a
- * StyleX class: `ch--ok` / `ch--cur` / `ch--err` / `ch--done` are the names a
- * reader (and the accessibility tooling) has always used to describe a
- * character, and they stay meaningful whatever the styling does.
+ * 分类后的字符既以稳定的钩子（hook）也以 StyleX 类来携带其状态：
+ * `ch--ok` / `ch--cur` / `ch--err` / `ch--done` 是读者
+ * （以及无障碍工具）一直用来描述字符的名称，
+ * 无论样式如何变化，它们都保持有意义。
  */
 export function charHook(tone: CharTone | undefined): string {
   if (tone === 'done') return 'ch ch--ok ch--done';
@@ -44,22 +44,22 @@ export function charTitle(
 }
 
 export interface GlyphFeedback {
-  /** True while the victim's spell wraps past one line, which costs a line of height. */
+  /** 当受害者的咒文换行超过一行时为 true，这会占用一行高度。 */
   longTarget(): boolean;
-  /** A different spell is bound: nothing is celebrated for it yet. */
+  /** 绑定了另一道咒文：尚无任何内容为它庆祝。 */
   arm(index: number): void;
-  /** Field adoptions move the confirmed prefix without anyone typing. */
+  /** 输入框的采用会在无人打字的情况下移动已确认前缀。 */
   adopt(action: () => void): void;
-  /** One burst per inserted character, including mistakes; never provisional IME text. */
+  /** 每插入一个字符触发一次爆发，包含错误字符；绝不针对临时的 IME 文本。 */
   emit(state: TypingLocalState, index: number): void;
   resize(): void;
 }
 
 /**
- * The glyph column: the characters drawn over the effect canvas, their wrap
- * measurement and the particle bursts on confirmed characters. The layer is
- * purely decorative — a missing, failed or reduced-motion layer changes nothing
- * about what is judged, only what is drawn.
+ * 字形列：绘制在效果画布之上的字符、其换行测量，
+ * 以及已确认字符上的粒子爆发。
+ * 该图层纯属装饰 —— 缺失、失败或处于减弱动效的图层，
+ * 只会改变绘制内容，不会改变任何判定结果。
  */
 export function createGlyphFeedback(props: {
   snapshot: Accessor<RoomSnapshot>;
@@ -86,7 +86,7 @@ export function createGlyphFeedback(props: {
     unsubscribeMotion();
     clearKicks();
   });
-  /** Set while a field is being adopted from the server, never for typing. */
+  /** 正在从服务端采用输入框内容时置位，绝不用于打字。 */
   let adopting = false;
 
   const measure = () => {
@@ -96,8 +96,8 @@ export function createGlyphFeedback(props: {
     if (!(first instanceof HTMLElement)) return;
     const line = first.getBoundingClientRect().height;
     if (line <= 0) return;
-    // A hard 39-50 character spell wraps to two lines, and the arena gives that
-    // height back so the input and the self bar stay on a 900px screen.
+    // 一道 39-50 字的硬性咒文会换行为两行，
+    // 竞技场会把这一行高度还回去，使输入框与自身状态栏在 900px 屏幕上依然可见。
     longTarget = column.getBoundingClientRect().height > line * 1.5;
   };
 
@@ -106,7 +106,7 @@ export function createGlyphFeedback(props: {
     return node instanceof HTMLElement ? node : undefined;
   };
 
-  /** The target font is viewport-relative, so a resize can change the wrap. */
+  /** 目标字号随视口变化，因此一次尺寸变化可能改变换行。 */
   const resize = () => {
     props.layer()?.resize();
     measure();
@@ -144,7 +144,7 @@ export function createGlyphFeedback(props: {
       const inserted = state.attempts - observedAttempts;
       observedText = state.text;
       observedAttempts = state.attempts;
-      // Deletions, server adoptions and repeated snapshots are not keystrokes.
+      // 删除、服务端采用与重复快照都不是击键。
       if (inserted <= 0 || adopting || motion.reduced) return;
       const snapshot = props.snapshot();
       const self = snapshot.players.find((player) => player.id === props.selfId());
@@ -176,7 +176,7 @@ export function createGlyphFeedback(props: {
           stampGlyph(glyph);
           continue;
         }
-        // Only wrong characters shake; correct characters receive a separate imprint.
+        // 只有出错的字符会抖动；正确字符获得另一种独立的印记。
         kicks.get(glyph)?.cancel();
         const kick = glyph.animate(
           [{ translate: '-2px 0' }, { translate: '2px 0' }, { translate: '0 0' }],

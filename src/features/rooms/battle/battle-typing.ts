@@ -28,10 +28,10 @@ export interface BattleHosts {
 export interface BattleTypingProps {
   snapshot: RoomSnapshot;
   selfId: string;
-  /** Bumped only by a real reconnect; the next snapshot then reconciles once. */
+  /** 仅由真正的重连递增；随后到达的那份快照会对账一次。 */
   reconnectedMarker: number;
   clock: ServerClock;
-  /** Room-level repaint tick: drives the one global clock while a tab is visible. */
+  /** 房间级重绘心跳：在标签页可见时驱动那个唯一的全局时钟。 */
   tick: number;
   stage: BattleStage | null;
   typingFx: TypingEffects | null;
@@ -49,25 +49,24 @@ export interface BattleTyping {
   target(): string;
   targetChars(): string[];
   local(): TypingLocalState;
-  /** Exactly what the field holds: the composed value while an IME is open. */
+  /** 输入框的确切内容：IME 打开时为正在拼写的值。 */
   fieldText(): string;
   remainingMs(): number | null;
   /**
-   * Time until the current spell's input gate opens, from the same room tick
-   * that repaints the combat clock: `0` once ready, `null` with no gate. The
-   * client never computes the rule itself — it only renders the server's
-   * `notBefore`.
+   * 距离当前咒文输入门槛开启的剩余时间，取自绘制战斗时钟的同一个房间心跳：
+   * 就绪后为 `0`，无门槛时为 `null`。
+   * 客户端绝不自行计算该规则 —— 它只渲染服务端的 `notBefore`。
    */
   gateRemainingMs(): number | null;
   castState(): 'idle' | 'pending' | 'done';
   castElement(): Element | null;
   tip(): string;
   pasteMessage(): string;
-  /** The decorative effect layer's own state, shown over the spell glyphs. */
+  /** 装饰性效果图层自身的状态，显示在咒文字形之上。 */
   fxState(): CanvasState;
   artFailed(): boolean;
   onArtFailed(): void;
-  /** The characters over the effect canvas and their particle bursts. */
+  /** 效果画布之上的字符及其粒子爆发。 */
   readonly glyphs: GlyphFeedback;
   attachTextarea(el: HTMLTextAreaElement): void;
   attachColumn(el: HTMLElement): void;
@@ -76,10 +75,8 @@ export interface BattleTyping {
 }
 
 /**
- * Owns the combat input station: the field bound to the player's current spell,
- * the cast banner, and the two optional renderer hosts. Every number it exposes
- * comes from the authoritative snapshot or the local field — never from a
- * pending write.
+ * 掌管战斗输入站：绑定到玩家当前咒文的输入框、施法横幅，以及两个可选的渲染器宿主。
+ * 它暴露的每个数字都来自权威快照或本地输入框 —— 绝不来自待定的写入。
  */
 export function createBattleTyping(props: BattleTypingProps): BattleTyping {
   let textarea: HTMLTextAreaElement | null = null;
@@ -120,7 +117,7 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
 
   const remainingMs = createMemo(() => {
     const snapshot = props.snapshot;
-    // The room's tick is the repaint heartbeat; reading it here re-evaluates the clock.
+    // 房间的心跳即是重绘节拍；在此读取它会重新求值时钟。
     void props.tick;
     const active =
       (snapshot.phase === 'playing' || snapshot.phase === 'countdown') && snapshot.deadline > 0;
@@ -128,8 +125,8 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
   });
 
   const gateRemainingMs = createMemo(() => {
-    // Derived from the same tick and the same clock as the combat deadline, so
-    // both countdowns move together without a second interval.
+    // 与战斗截止时间源自同一个心跳、同一个时钟，
+    // 因此两个倒计时一起走动，无需第二个定时器。
     void props.tick;
     const gate = props.snapshot.selfInputGate;
     if (!gate) return null;
@@ -141,7 +138,7 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
     setCastState(state);
   };
 
-  /** Focus the field unless the player is already on an interactive control. */
+  /** 聚焦输入框，除非玩家已经停留在某个可交互控件上。 */
   const focusInput = () => {
     const active = document.activeElement;
     const interactive =
@@ -154,8 +151,8 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
   };
 
   /**
-   * Applies the binding's decisions for one authoritative snapshot, in order.
-   * The decisions themselves are the state machine in `SpellBinding`.
+   * 按顺序应用绑定针对单份权威快照所做的各项决定。
+   * 决定本身即 `SpellBinding` 中的状态机。
    */
   function applyBinding(
     snapshot: RoomSnapshot,
@@ -201,7 +198,7 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
     }
   }
 
-  /** Both renderer hosts must exist before the room is told to build them. */
+  /** 必须两个渲染器宿主都存在，才通知房间去构建它们。 */
   const notifyHosts = () => {
     if (canvasHost && fxHost) props.onHosts({ canvas: canvasHost, fx: fxHost });
   };
@@ -225,7 +222,7 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
     typing = null;
   });
 
-  /* ---- reactive work --------------------------------------------------- */
+  /* ---- 响应式工作 ------------------------------------------------------ */
 
   createEffect(() => {
     const snapshot = props.snapshot;
@@ -248,13 +245,13 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
           if (state.pending) {
             setCast(element, 'pending');
           } else if (state.progress > 0 && castState() === 'done') {
-            // The first keystroke of the next spell clears the previous cast banner.
+            // 下一道咒文的第一次击键会清除上一次的施法横幅。
             setCast(element, 'idle');
           } else if (!state.composing && castState() === 'pending') {
             setCast(element, 'idle');
           }
-          // Only a confirmed, non-composing value reaches the renderer: the
-          // stage's aim glyph must never follow provisional composition text.
+          // 只有已确认且非拼写中的值才会到达渲染器：
+          // 舞台的瞄准字形绝不能跟随临时的拼写文本。
           if (!state.composing && snapshot.spell) {
             props.stage?.typing(state.progress, snapshot.spell.element);
           }
@@ -267,8 +264,8 @@ export function createBattleTyping(props: BattleTypingProps): BattleTyping {
 
   createEffect(() => {
     if (!target()) return;
-    // A wrapped target changes the box the effect canvas covers, and it costs a
-    // line of height that the arena has to give back.
+    // 目标换行会改变效果画布所覆盖的区域，
+    // 并占用一行高度，竞技场必须把这行高度还回去。
     glyphs.resize();
   });
 

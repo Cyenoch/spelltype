@@ -7,7 +7,7 @@ import type { StageAssets } from './assets';
 import type { Element } from '../../../shared/protocol';
 
 const GLYPH_SLOTS = 4;
-/** How long a rising glyph spark lives before it hides itself. */
+/** 上升的字形火花在被隐藏之前的存活时长。 */
 const GLYPH_LIFE_MS = 520;
 
 interface GlyphSlot {
@@ -17,11 +17,11 @@ interface GlyphSlot {
   drift: number;
 }
 
-/** The element glyph sparks a confirmed keystroke throws off. */
+/** 一次确认击键所抛出的元素字形火花。 */
 export interface GlyphLayer {
-  /** Emits `amount` glyph sparks at a host coordinate. */
+  /** 在某个宿主坐标处抛出 `amount` 个字形火花。 */
   emit(element: Element, x: number, y: number, amount: number): void;
-  /** Advances the sparks; a finished spark retires its slot. */
+  /** 推进这些火花；一个结束的火花会归还其槽位。 */
   update(deltaMS: number): void;
 }
 

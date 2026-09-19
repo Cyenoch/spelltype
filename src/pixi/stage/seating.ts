@@ -1,14 +1,14 @@
 import type { Fighter } from '../fighter/fighter';
 
 /**
- * Canvas-local y below which arena art may draw. The DOM overhead labels (name,
- * tags, progress readout) float over roughly the top 82–94px of the canvas, so
- * the fighters, their charge runes and the damage-float ascent all start below
- * this band. One constant: the label stack is sized in px, not in canvas %.
+ * 竞技场美术可绘制区域的画布局部下边界。DOM 顶部标签（名称、标记、进度读数）
+ * 悬浮在画布顶部约 82–94px 范围内，
+ * 因此斗士、其蓄力符文以及伤害飘字的上升都从该条带之下开始。
+ * 采用单一常量：标签堆栈按像素定尺寸，而不是按画布百分比。
  */
 export const TOP_RESERVED_PX = 96;
 
-/** Where one seat sits and how much room its fighter actually took, in host pixels. */
+/** 某个席位的落点以及其斗士实际占用的空间，单位宿主像素。 */
 export interface SeatGeometry {
   x: number;
   feetY: number;
@@ -19,19 +19,18 @@ export interface SeatGeometry {
 
 export interface Seating {
   /**
-   * The reserved top band in canvas-local px: everything drawn by the arena —
-   * bodies, charge runes, damage floats — stays at or below this y.
+   * 画布局部坐标下的保留顶部条带：竞技场绘制的一切 ——
+   * 身体、蓄力符文、伤害飘字 —— 都停留在该 y 值或其下方。
    */
   readonly topBand: number;
-  /** One entry per seat, in slot order. */
+  /** 每个席位一项，按席位顺序排列。 */
   readonly geometry: SeatGeometry[];
   /**
-   * Lays the present seats out in equal columns and fits each fighter's art.
-   * False when nobody is seated, so the caller can skip everything that anchors
-   * to a fighter.
+   * 将当前在场的席位排布为等宽列，并适配每个斗士的立绘。
+   * 无人入座时返回 false，使调用方能跳过一切以斗士为锚点的内容。
    */
   layout(width: number, height: number, present: readonly number[]): boolean;
-  /** The fighter's chest anchor: where tethers, glyphs and impacts aim. */
+  /** 斗士的胸口锚点：连接光束、字形与命中效果的瞄准位置。 */
   chest(slot: number, out: { x: number; y: number }): void;
 }
 
@@ -57,11 +56,11 @@ export function createSeating(fighters: readonly Fighter[]): Seating {
       const inset = width * 0.06;
       const span = Math.max(1, width - inset * 2);
       const columnWidth = span / present.length;
-      // Leave the raised damage segment visible on both sides of the feet bar.
+      // 让抬升的伤害区段在脚部进度条两侧都保持可见。
       const feetY = height - Math.max(32, height * 0.08);
-      // The body starts below the reserved label band, not at a canvas fraction:
-      // a proportional margin is what let the old above-head dial and the
-      // damage floats climb into — and past — the top edge on short canvases.
+      // 身体从保留的标签条带之下开始，而不是从某个画布比例开始：
+      // 正是按比例留出的边距，让过去那种头顶刻度盘与伤害飘字在矮画布上
+      // 爬进了顶部边缘、甚至越出边缘。
       const bodyHeight = Math.max(1, feetY - this.topBand);
       const barOffsetY = Math.max(14, Math.min(26, height * 0.04));
 
@@ -76,8 +75,8 @@ export function createSeating(fighters: readonly Fighter[]): Seating {
           barOffsetY,
           baselineSpace: Math.max(18, height - feetY),
         });
-        // The drawn box, not the nominal one: a width-limited column would
-        // otherwise leave every anchor above the character's head.
+        // 采用实际绘制的包围盒，而非标称值：
+        // 否则一个受宽度限制的列会让所有锚点都跑到角色头顶之上。
         seat.x = x;
         seat.feetY = feetY;
         seat.height = box.height;

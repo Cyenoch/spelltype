@@ -20,9 +20,9 @@ const CONNECTION_LABELS: Record<'connecting' | 'reconnecting', string> = {
 };
 
 /**
- * Authoritative snapshots select the lobby, combat or dedicated results screen.
- * Lobby and combat stay mounted so typing and renderer hosts survive phase changes;
- * settlement replaces their visible surface without destroying rematch resources.
+ * 权威快照决定显示大厅、战斗还是专门的结算界面。
+ * 大厅与战斗始终保持挂载，使打字逻辑与渲染器宿主能跨阶段存活；
+ * 结算会替换它们的可见界面，而不销毁重赛所需的资源。
  */
 export function RoomView(props: { roomId: string; ctx: AppContext; initial: RoomLoad }) {
   const session = createRoomSession(props);
@@ -63,8 +63,8 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
   };
 
   /**
-   * The canvas is created once per room, and only when a combat phase actually
-   * needs it. A failed renderer is reported and the DOM product keeps working.
+   * 画布按房间创建一次，且仅在某个战斗阶段确实需要时才创建。
+   * 渲染器失败会被上报，DOM 版本的产品功能继续可用。
    */
   function ensureStage(): void {
     if (stagePromise || !hosts) return;
@@ -86,9 +86,8 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
   }
 
   /**
-   * The glyph particle layer is purely decorative and independent of the arena:
-   * it is created once per room, and a failure switches it off without touching
-   * the canvas, the spell text or the input.
+   * 字形粒子层纯粹是装饰性的，与竞技场相互独立：
+   * 它按房间创建一次，失败时会被关闭，而不影响画布、咒文文本或输入框。
    */
   function ensureTypingEffects(): void {
     if (fxPromise || !hosts) return;
@@ -114,7 +113,7 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
     typingFx()?.destroy();
   });
 
-  // The two renderers are created lazily, once, when combat first needs them.
+  // 两个渲染器在战斗首次需要时惰性创建一次。
   createEffect(() => {
     if (inCombat() && hosts) {
       ensureStage();
@@ -157,9 +156,9 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
       <Show when={session.snapshot()}>
         {(room) => (
           <>
-            {/* Both surfaces stay mounted for the whole room and are toggled with
-                `hidden`: a rematch (finished → lobby → countdown) must keep the same
-                canvas hosts, the same renderers and the same typing field. */}
+            {/* 两个界面在整个房间生命周期内保持挂载，并通过 `hidden` 切换：
+                一次重赛（finished → lobby → countdown）必须保持相同的画布宿主、
+                相同的渲染器与相同的输入框。 */}
             <LobbyPanel
               hidden={inCombat() || finished() || generating()}
               snapshot={room()}

@@ -11,53 +11,53 @@ import { isProtocolRejection, type CloseInfo } from './room-wire';
 import { messageOf, toast } from '../../ui/toast';
 import type { TypingCommit } from './battle/typing';
 
-/** What the combat panel says while the socket is down. */
+/** Socket 断开时战斗面板展示的连接状态提示。 */
 const CONNECTION_NOTICES: Record<'connecting' | 'reconnecting' | 'closed', string> = {
   connecting: '正在连接房间…',
   reconnecting: '连接中断，正在重连…对战计时不会暂停。',
   closed: '连接已关闭。',
 };
 
-/** The one terminal message when the server no longer speaks this page's protocol. */
+/** 当服务端不再支持当前页面的协议版本时的唯一终态提示。 */
 const UPDATE_REQUIRED = '客户端版本已更新，请刷新页面后继续。';
 
 export interface RoomProblem {
   message: string;
   tone: 'warn' | 'error';
-  /** Terminal version mismatch: the only fix is a full page reload. */
+  /** 终态版本不匹配：唯一的修复办法是整页重新加载。 */
   reload?: boolean;
 }
 
 /**
- * How long a generation-failure or finish reminder stays deliverable: long enough
- * for the player to come back to the page, short enough to be about "now".
+ * 生成失败或结算提醒的有效送达期限：
+ * 长到足以让玩家回到页面，短到足以代表「当下」。
  */
 const REMINDER_WINDOW_MS = 60_000;
 
 /**
- * The route keeps the previous screen visible until the initial room read settles.
- * `error` covers everything this bundle can already prove it cannot enter.
+ * 路由会保持上一个界面可见，直到初始房间读取结算完成。
+ * `error` 涵盖当前构建已能证明无法进入的所有情况。
  */
 export type RoomLoad = { snapshot: RoomSnapshot } | { error: unknown };
 
 export interface RoomSession {
   snapshot(): RoomSnapshot | null;
   connection(): ConnectionState;
-  /** A local failure outranks the room's own error; both live in one notice. */
+  /** 本地故障优先级高于房间自身的错误；两者共用同一条提示。 */
   problem(): RoomProblem | null;
-  /** The one line the combat panel shows while an input or the socket failed. */
+  /** 当输入异常或 Socket 故障时，战斗面板展示的那一行提示。 */
   battleNotice(): string | null;
-  /** Room-level repaint heartbeat; the clock keeps running while a tab is hidden. */
+  /** 房间级界面重绘心跳；标签页隐藏时时钟仍继续运行。 */
   tick(): number;
   reconnectedMarker(): number;
   reservationRemainingMs(): number | null;
   send(message: ClientMessage, failureHint: string): void;
   commitInput(commit: TypingCommit): boolean;
   /**
-   * Manual leave over an authenticated HTTP call. Navigates only after the server
-   * committed departure or confirmed the seat is gone. Failures stay in the room
-   * for retry; duplicate clicks share one request. A replaced window only detaches
-   * locally, never releasing the seat now controlled by its replacement.
+   * 通过已鉴权的 HTTP 调用手动离场。仅在服务端提交离场、
+   * 或确认席位已不存在之后才执行导航。失败时留在房间内以便重试；
+   * 重复点击共用同一次请求。被顶替的窗口只做本地脱离，
+   * 绝不释放此时已由其接替者控制的席位。
    */
   leaveRoom(destination?: '/' | '/match' | '/create'): Promise<void>;
   leavePending(): boolean;
@@ -65,9 +65,9 @@ export interface RoomSession {
 }
 
 /**
- * One room's live state: authoritative snapshots in, one socket, one clock, one
- * problem line. Nothing here renders; the surfaces stay mounted per room so a
- * snapshot can never destroy the field a player is typing into.
+ * 单个房间的实时状态：权威快照输入，一条 Socket、一个时钟、一行故障提示。
+ * 这里不负责渲染；各界面按房间保持挂载，
+ * 因此快照绝不会销毁玩家正在输入的输入框。
  */
 export function createRoomSession(props: {
   roomId: string;
@@ -86,32 +86,32 @@ export function createRoomSession(props: {
 
   let socket: RoomConnection | null = null;
   let closed = false;
-  /** True from the moment a manual leave starts until it succeeds or fails. */
+  /** 自手动离场开始起为 true，直到其成功或失败。 */
   const [leaving, setLeaving] = createSignal(false);
   let replaced = false;
-  /** In-flight manual leave; duplicate clicks share it, a failure releases it. */
+  /** 进行中的手动离场；重复点击共用它，失败即释放它。 */
   let leaveRequest: Promise<void> | null = null;
   let lastServerNow = 0;
   let persistenceWarned = false;
   let profileInvalidated = false;
   let timerId: number | null = null;
   /**
-   * Matches this route has already left during its lifetime (a rematch replaced
-   * them). A late snapshot from one of them is dropped below no matter what its
-   * clock says, so an old match can never switch the display back.
+   * 本路由在其生命周期内已经离开过的对局（一次重赛替换了它们）。
+   * 来自其中任何一场的迟到快照都会在下方被丢弃，
+   * 无论其时钟说什么，因此旧对局绝不可能把显示切回去。
    */
   const exitedMatches = new Set<string>();
 
   const navigate = useNavigate();
   const selfId = () => props.ctx.session.user?.id ?? '';
 
-  /** The terminal, reload-only state shared by the 4003 close and both protocol rejections. */
+  /** 由 4003 关闭与两种协议拒绝所共用的终态、只能刷新的状态。 */
   const setProtocolProblem = (): void => {
     setProblem({ message: UPDATE_REQUIRED, tone: 'error', reload: true });
     toast(UPDATE_REQUIRED, 'error');
   };
 
-  /** The panel shows an input failure first, then whatever the socket is doing. */
+  /** 面板优先展示输入故障，其次才是 Socket 当前的状态。 */
   const battleNotice = createMemo(() => {
     const failedInput = inputNotice();
     if (failedInput) return failedInput;
@@ -119,7 +119,7 @@ export function createRoomSession(props: {
     return state === 'open' || state === 'idle' ? null : CONNECTION_NOTICES[state];
   });
 
-  /** A local failure outranks the room's own error; both live in one notice. */
+  /** 本地故障优先级高于房间自身的错误；两者共用同一条提示。 */
   const activeProblem = createMemo<RoomProblem | null>(() => {
     const local = problem();
     if (local) return local;
@@ -128,8 +128,8 @@ export function createRoomSession(props: {
   });
 
   /**
-   * The reservation countdown is repainted by the room's own tick, so an
-   * abandoned quick match is an explained situation rather than a dead end.
+   * 预留倒计时由房间自身的 tick 驱动重绘，
+   * 使一次被放弃的快速匹配成为有解释的局面，而不是死路。
    */
   const reservationRemainingMs = createMemo(() => {
     void tick();
@@ -146,12 +146,12 @@ export function createRoomSession(props: {
   };
 
   /**
-   * Input is only ever forwarded for the spell identity the field is bound to:
-   * an older index (a late keystroke after a cast was accepted) is dropped here,
-   * and a commit whose draft epoch the current gate does not carry is stale by
-   * construction (a rejection or restore moved the draft forward) — dropped
-   * silently instead of faking a network failure. The epoch travels from the
-   * controller's captured binding, never re-read from the latest snapshot.
+   * 输入只会为输入框所绑定的那个咒文身份转发：
+   * 较旧的索引（某次施法被接受之后迟到的击键）会在此处被丢弃，
+   * 而草稿代际与当前门槛所携带的值不一致的提交，按构造即为陈旧
+   * （一次拒绝或恢复已经把草稿推进了）—— 会被静默丢弃，
+   * 而不是伪造一次网络故障。代际来自控制器捕获的绑定，
+   * 绝不从最新快照重新读取。
    */
   const commitInput = (commit: TypingCommit): boolean => {
     if (leaving()) return false;
@@ -191,12 +191,12 @@ export function createRoomSession(props: {
   };
 
   /**
-   * Manual leave waits for the server's acknowledgment: `POST /api/rooms/:id/leave`
-   * is what commits the departure (forfeiting a live match, releasing a seat), so
-   * navigation, the success toast and the invite cleanup happen only after it. A
-   * lost response is ambiguous: keep the page and offer an idempotent retry.
-   * The server may legitimately close this socket while committing departure,
-   * so suppress only that close notification, not authoritative snapshots.
+   * 手动离场会等待服务端确认：正是 `POST /api/rooms/:id/leave`
+   * 提交了这次离场（弃掉进行中的对局、释放席位），
+   * 因此导航、成功提示与邀请清理都在它之后才发生。
+   * 响应丢失属于歧义状态：保留页面并提供幂等重试。
+   * 服务端在提交离场时确实可能关闭这条 Socket，
+   * 因此只抑制那一类关闭通知，而不抑制权威快照。
    */
   const leaveRoom = (destination: '/' | '/match' | '/create' = '/'): Promise<void> => {
     if (leaveRequest) return leaveRequest;
@@ -206,13 +206,12 @@ export function createRoomSession(props: {
     }
     const request = (async () => {
       setLeaving(true);
-      // The departure is committed — or proven moot because the server holds
-      // no seat to commit. Detach and move to the requested destination.
+      // 离场已提交 —— 或已被证明无需提交，因为服务端本就不持有可提交的席位。
+      // 随即脱离并前往所请求的目标位置。
       const departed = (): void => {
-        // The route may already be disposed (the player left some other way
-        // mid-request): never navigate a dead route.
+        // 路由可能已被销毁（玩家在请求进行中从别的途径离开了）：绝不导航一条已死的路由。
         if (closed) return;
-        // The seat is gone: no reminder bound to this room may outlive it.
+        // 席位已不存在：任何绑定到该房间的提醒都不得比它存活更久。
         props.ctx.notifications.invalidateRoom(props.roomId);
         props.ctx.setPendingInvite(null);
         socket?.close();
@@ -233,18 +232,18 @@ export function createRoomSession(props: {
           return;
         }
         if (error instanceof DetailedError && error.statusCode === 404) {
-          // The owner confirms no seat remains; an explicit retry may requeue.
+          // 房主确认已无席位留存；显式重试可以重新排队。
           departed();
           return;
         }
-        // A refused or lost departure proves nothing about the seat: the room
-        // keeps it, and an explicit retry remains available.
+        // 一次被拒绝或丢失的离场请求并不能证明席位状态：房间保留该席位，
+        // 显式重试仍然可用。
         setLeaving(false);
         leaveRequest = null;
         toast(messageOf(error, '未能确认离开房间，请重试。'), 'error');
         return;
       }
-      // The seat is released.
+      // 席位已释放。
       departed();
     })();
     leaveRequest = request;
@@ -253,16 +252,15 @@ export function createRoomSession(props: {
 
   function handleSnapshot(next: RoomSnapshot, reconnected: boolean, initial = false): void {
     if (closed) return;
-    // A snapshot that names another wire protocol means this page is stale even
-    // if the socket still works: enter the terminal update-required state and
-    // stop the connection — no trigger may reopen it.
+    // 声明了另一种线协议的快照意味着当前页面已陈旧，即便 Socket 仍可用：
+    // 进入终态的「需要更新」状态并停止连接 —— 任何触发器都不得将其重新打开。
     if (next.protocolVersion !== WS_PROTOCOL) {
       setProtocolProblem();
       socket?.close();
       return;
     }
-    // A snapshot older than the last one applied (a stale HTTP read racing a
-    // live socket) must never move the display backwards.
+    // 早于上一次已应用快照的旧快照（一次陈旧 HTTP 读取与实时 Socket 竞争）
+    // 绝不能让显示倒退。
     const current = snapshot();
     if (
       !initial &&
@@ -301,19 +299,19 @@ export function createRoomSession(props: {
       props.ctx.setPendingInvite(next.id);
     }
     if (!initial && !reconnected) {
-      // `current` was read before the batch: it is the phase the last live snapshot showed.
+      // `current` 在批处理之前读取：它就是上一次实时快照所显示的阶段。
       notifyTransition(current?.phase ?? null, current?.matchId ?? null, next);
     }
 
     if (next.phase !== 'finished') {
-      // A new match (or a rematch) arms both one-shot effects again.
+      // 一场新对局（或重赛）会让两个一次性效果重新武装。
       persistenceWarned = false;
       profileInvalidated = false;
     } else if (next.persistence === 'error' && !persistenceWarned) {
       persistenceWarned = true;
       toast('战绩暂未保存，正在自动重试。本场结果不受影响。', 'warn');
     } else if (next.persistence === 'saved' && !profileInvalidated) {
-      // The settled record now exists: the profile's own query must refetch.
+      // 已结算的记录现在存在：资料页自身的查询必须重新拉取。
       profileInvalidated = true;
       const userId = selfId();
       if (userId) {
@@ -331,10 +329,9 @@ export function createRoomSession(props: {
   }
 
   /**
-   * Real phase transitions between two live snapshots are the only notification
-   * source. The initial read and reconnect replays never reach this: history must
-   * not become a reminder. Fire-and-forget — never awaited, never blocking the
-   * snapshot this state derives from.
+   * 两份实时快照之间真实的阶段跃迁是唯一的通知来源。
+   * 初始读取与重连回放绝不会走到这里：历史不得变成提醒。
+   * 发射后即忘 —— 绝不 await，也绝不阻塞派生本状态的快照。
    */
   function notifyTransition(
     prevPhase: Phase | null,
@@ -359,7 +356,7 @@ export function createRoomSession(props: {
       return;
     }
     if (prevPhase === 'generating' && next.phase === 'lobby' && next.error !== null) {
-      // The match this attempt belonged to is identified by the previous snapshot.
+      // 本次尝试所属的对局由上一份快照确定。
       void props.ctx.notifications
         .notify({
           kind: 'generation-failed',
@@ -388,8 +385,8 @@ export function createRoomSession(props: {
   }
 
   function handleClosed(info: CloseInfo): void {
-    // A manual leave owns this socket's end: the server tears the seat down as
-    // the request commits, and none of that is a connection failure to report.
+    // 手动离场拥有这条 Socket 的结束过程：服务端在请求提交时拆除席位，
+    // 这一切都不是需要上报的连接故障。
     if (closed || leaving()) return;
     if (info.authExpired) {
       props.ctx.handleAuthFailure('登录状态已失效，请重新登录。');
@@ -397,7 +394,7 @@ export function createRoomSession(props: {
     }
     if (info.replaced) {
       replaced = true;
-      // Another window owns the seat now; this page's reminders are stale.
+      // 另一个窗口现在拥有该席位；本页面的提醒已陈旧。
       props.ctx.notifications.invalidateRoom(props.roomId);
       const message = '这个账号的房间连接已被另一个窗口接管，本窗口不再操作该席位。';
       setProblem({ message, tone: 'warn' });
@@ -413,14 +410,14 @@ export function createRoomSession(props: {
       return;
     }
     if (info.protocolMismatch) {
-      // The connection itself is already dead and will never reopen: make the
-      // one available fix unmistakable.
+      // 连接本身已经死亡且绝不会重新打开：
+      // 把唯一可用的修复办法表达得一目了然。
       setProtocolProblem();
       return;
     }
     if (info.inputOverload) {
-      // Not a permanent problem: the saved input comes back with the reconnect,
-      // and `renderConnection` clears this notice once the socket is open again.
+      // 这不是永久性问题：已保存的输入会随重连恢复，
+      // 而 `renderConnection` 会在 Socket 重新打开后清除这条提示。
       setInputNotice('输入消息过于密集，连接已重置；正在恢复已保存的输入。');
       return;
     }
@@ -463,7 +460,7 @@ export function createRoomSession(props: {
     handleSnapshot(loaded.snapshot, false, true);
     socket.open();
     timerId = window.setInterval(() => {
-      // The clock keeps running while a tab is hidden; only the repaint is skipped.
+      // 标签页隐藏时时钟仍继续运行；只有重绘被跳过。
       if (closed || document.visibilityState === 'hidden') return;
       setTick((value) => value + 1);
     }, 100);

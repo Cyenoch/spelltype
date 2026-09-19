@@ -12,7 +12,7 @@ import type { Element, Player, RoomSnapshot } from '../../../shared/protocol';
 const FINAL_SECONDS_MS = 10_000;
 const GLYPH_MIN_GAP_MS = 70;
 
-/** Everything the match projection reads and writes. */
+/** 对局投影所读取和写入的全部内容。 */
 export interface MatchWiring {
   host: HTMLElement;
   fighters: readonly Fighter[];
@@ -24,38 +24,36 @@ export interface MatchWiring {
   glyphs: GlyphLayer;
   fx: FxLayer;
   choreography: Choreography;
-  /** Drops every live effect and particle: a new match starts from an empty arena. */
+  /** 丢弃所有存活中的效果与粒子：新对局从空竞技场开始。 */
   clearEffects: () => void;
-  /** Lays the arena out again after the seating changed. */
+  /** 席位变化后重新布局竞技场。 */
   relayout: () => void;
-  /** Renders one frame and counts it as a paint. */
+  /** 渲染一帧，并将其计入按需绘制次数。 */
   paint: () => void;
-  /** Frame clock in ms, shared with the ticker. */
+  /** 帧时钟，单位毫秒，与帧循环共享。 */
   clock: () => number;
-  /** True while the arena runs in reduced motion. */
+  /** 竞技场运行在减弱动效模式时为 true。 */
   reduced: () => boolean;
 }
 
 /**
- * The match on screen: who sits where, how far the local caster has typed and
- * what the arena is showing. Everything here is projected from the authoritative
- * snapshot; nothing decides damage.
+ * 屏幕上的对局：谁坐在哪里、本地施法者打了多远、竞技场正在展示什么。
+ * 这里的一切都从权威快照投影而来；没有任何内容决定伤害。
  */
 export interface Match {
   /**
-   * Projects one snapshot onto the seats, the fighters, the arena readout and the
-   * aim. Hits are only drawn from `CombatEvent`s, deduplicated by `(matchId, seq)`,
-   * so a reconnect that re-delivers the room's event ring never replays an old
-   * attack.
+   * 把一份快照投影到席位、斗士、竞技场读数与瞄准层上。
+   * 命中只依据 `CombatEvent` 绘制，并按 `(matchId, seq)` 去重，
+   * 因此重新下发房间事件环的重连绝不会重放旧攻击。
    */
   update(snapshot: RoomSnapshot, selfId: string): void;
-  /** The confirmed local prefix: charge plus the feedback one keystroke draws. */
+  /** 本地已确认的前缀：蓄力加上一次击键所绘制的反馈。 */
   typing(progress: number, element: Element): void;
-  /** Redraws the tether and the emblem from the current cursor, after a relayout. */
+  /** 重新布局后，依据当前游标重绘连接光束与徽记。 */
   relayoutAim(): void;
-  /** The seat the current snapshot put this user in, if it seated them at all. */
+  /** 当前快照为该用户安排的席位，若未安排则为 undefined。 */
   slotOf(userId: string): number | undefined;
-  /** The local viewer's slot, or -1 when they are not seated. */
+  /** 本地观察者的席位，未入座时为 -1。 */
   readonly selfSlot: number;
   readonly phase: RoomSnapshot['phase'];
   readonly occupancy: readonly (Player | null)[];
@@ -106,8 +104,8 @@ export function createMatch(wiring: MatchWiring): Match {
   };
 
   /**
-   * On-demand art lands after the frame that asked for it: put it on the caster's
-   * emblem and repaint, so the cast stops showing its procedural stand-in.
+   * 按需美术会在请求它的那一帧之后到达：把它装到施法者的徽记上并重绘，
+   * 使这次施法不再显示过程化替身。
    */
   assets.onArtArrived = () => {
     drawEmblem();
@@ -117,8 +115,8 @@ export function createMatch(wiring: MatchWiring): Match {
   const ingestEvents = (snapshot: RoomSnapshot): void => {
     const events = snapshot.events ?? [];
     if (!primed) {
-      // The first snapshot of a match never replays its ring, even on a reconnect
-      // that mounts this stage in the middle of a fight.
+      // 一场对局的首个快照绝不重放其事件环，
+      // 即使是在战斗中途挂载本舞台的重连场景下也是如此。
       primed = true;
       let highest = lastSeq;
       for (const event of events) {
@@ -139,8 +137,8 @@ export function createMatch(wiring: MatchWiring): Match {
     lastSeq = 0;
     primed = false;
     lastSeating = '';
-    // A new match must not inherit the previous one's charge: until the first
-    // keystroke lands, the local caster shows an empty orbit.
+    // 新对局不得继承上一局的蓄力：在第一次击键落地之前，
+    // 本地施法者显示空轨道。
     selfProgress = 0;
     choreography.reset();
     combat.reset();
@@ -220,26 +218,24 @@ export function createMatch(wiring: MatchWiring): Match {
           !instant &&
           player.eliminatedAt !== null &&
           !fighter.isDown &&
-          // Either the killing bolt is already in flight, or the event that will
-          // launch it is in this very snapshot and has not been ingested yet.
+          // 要么致命弹道已经在飞行中，要么将发射它的那个事件就在这份快照里、
+          // 尚未被摄取。
           (pendingKill || combat.incoming(player.id));
         fighter.applyState(state, instant, deferElimination);
         combat.defer(slot, fighter.eliminationPending, clock());
         if (player.id === selfId) {
           fighter.setCharge(selfSpellLength > 0 ? selfProgress / selfSpellLength : 0);
         } else {
-          // Opponents charge from the authoritative snapshot. Their runes use
-          // the fighter's own element: the protocol carries no remote spell
-          // element, and none is needed for a charge read.
+          // 对手的蓄力来自权威快照。他们的符文使用斗士自身的元素：
+          // 协议不携带远端咒文元素，而读取蓄力也不需要它。
           fighter.setCharge(
             player.spellLength > 0 ? Math.min(1, player.progress / player.spellLength) : 0,
           );
         }
       }
 
-      // The column layout also depends on who is looking: the viewer always
-      // stands in the leftmost column, so a rejoin that changes their slot must
-      // relayout even when the set of occupied seats did not move.
+      // 列布局还取决于观看者是谁：观察者始终站在最左列，
+      // 因此改变其席位的重新加入即便已占用席位集合没有变化，也必须重新布局。
       const seatingKey = `${selfSlot}|${seated.map((player) => player.slot).join(',')}`;
       if (seatingKey !== lastSeating) {
         lastSeating = seatingKey;
@@ -271,11 +267,10 @@ export function createMatch(wiring: MatchWiring): Match {
           glyphs.emit(element, seat.x + 18, seat.feetY - seat.height * 0.62, Math.min(3, gained));
           fx.typingSpark(seat.x + 18, seat.feetY - seat.height * 0.6, element, Math.min(3, gained));
         }
-        // Feedback anchored to the readout strip as well: motes fall from under
-        // the text into the caster, so a confirmed keystroke is legible at both
-        // ends of the arena without anything being drawn over the text.
+        // 反馈同时锚定在读数条上：微尘从文字下方落入施法者，
+        // 使一次确认击键在竞技场两端都可感知，且不在文字之上绘制任何内容。
         fx.textMotes(seat.x, element, Math.min(4, gained));
-        // Observable proof that a typing effect was drawn, for the visual specs.
+        // 可供观察的证据，证明绘制过一次打字效果，供视觉测试使用。
         typingCount += 1;
         host.dataset.typingSeq = String(typingCount);
         host.dataset.typingFx = element;

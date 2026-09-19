@@ -1,16 +1,16 @@
 import { MAX_INPUT_CHARS } from '../../../../shared/protocol';
 
-/** Longest client message the server accepts, in code points. */
+/** 服务端可接受的最长客户端消息，以码点计。 */
 const MAX_INPUT_CODE_POINTS = MAX_INPUT_CHARS;
 
-/** Refuses input a spell can never contain: a pasted block, a drop, and Enter. */
+/** 拒绝咒文绝不可能包含的输入：整段粘贴、拖放，以及回车。 */
 export function attachInputGuards(
   textarea: HTMLTextAreaElement,
   handlers: { onRefused(): void; isComposing(): boolean },
 ): () => void {
   const handleKeyDown = (event: KeyboardEvent) => {
     if (event.key === 'Enter' && !event.isComposing && !handlers.isComposing()) {
-      // Spells never contain newlines; Enter must not damage the field.
+      // 咒文绝不包含换行；回车不得破坏输入框内容。
       event.preventDefault();
     }
   };
@@ -36,7 +36,7 @@ export function attachInputGuards(
   };
 }
 
-/** The field's own cap, applied to a confirmed value before anything else sees it. */
+/** 输入框自身的上限，在其它任何环节看到该值之前应用于已确认的值。 */
 export function clampInput(value: string): { text: string; truncated: boolean } {
   const points = Array.from(value);
   if (points.length <= MAX_INPUT_CODE_POINTS) return { text: value, truncated: false };
@@ -44,9 +44,8 @@ export function clampInput(value: string): { text: string; truncated: boolean } 
 }
 
 /**
- * What one confirmed change costs: insertions count as attempts and the ones
- * that disagree with the target count as errors, so a retracted mistake stays
- * counted and a pure deletion costs nothing.
+ * 一次确认变化的代价：插入计为尝试，其中与目标不一致的计为错误，
+ * 因此被撤回的错误仍被计入，而纯粹的删除不计任何代价。
  */
 export function countEdit(
   previous: string,

@@ -247,8 +247,8 @@ export class RoomConnection {
       return;
     }
     if (diagnosis === 'protocol') {
-      // The server answered the room read with its update-required verdict:
-      // same terminal state as a 4003 close, never a reconnect.
+      // 服务端对房间读取给出了「需要更新」的判定：
+      // 这与 4003 关闭是同一个终态，绝不重连。
       this.stopped = true;
       this.generation += 1;
       this.teardownTimers();
@@ -259,7 +259,7 @@ export class RoomConnection {
     this.scheduleReconnect();
   }
 
-  /** After an unexplained close, is the session still valid and the room still open? */
+  /** 在一次原因不明的关闭之后：会话是否仍有效，房间是否仍开放？ */
   private async diagnose(): Promise<Diagnosis> {
     try {
       const session = await parseResponse(client.api.session.$get());

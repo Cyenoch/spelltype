@@ -1,16 +1,15 @@
 import * as stylex from '@stylexjs/stylex';
 
 /**
- * Combat-surface styles moved out of the global sheet with the same values and
- * tokens, now scoped to the battle components. Backgrounds and borders are
- * written with longhands only: a shorthand declaration that another style
- * partially overrides through `stylex.props` can drop the shorthand's remaining
- * parts, which would silently lose a border width or a background image.
+ * 战斗界面样式由全局样式表迁出，数值与设计令牌保持一致，
+ * 现在作用域限定在战斗组件内。背景与边框只使用展开写法：
+ * 一个简写声明若被另一条样式通过 `stylex.props` 部分覆盖，
+ * 简写中剩余的部分会丢失，从而悄无声息地丢掉一档边框宽度或一张背景图。
  */
 /**
- * Completed glyphs drift while an elemental gradient sweeps through the strokes.
- * Current and untyped glyphs stay still; per-glyph custom properties vary the
- * completed glyphs' phase and amplitude without layout or per-frame script.
+ * 已完成字形会漂移，同时一道元素渐变扫过其笔画。
+ * 当前字形与未输入字形保持静止；逐字形的自定义属性负责改变
+ * 已完成字形的相位与幅度，既不触发布局，也不依赖逐帧脚本。
  */
 const glyphDriftFlow = stylex.keyframes({
   '0%, 100%': { transform: 'translate3d(0, 0, 0)', backgroundPosition: '0% 50%' },
@@ -35,19 +34,19 @@ export const styles = stylex.create({
     backgroundPosition: 'left bottom',
   },
 
-  /* ---------------------------------------------------------------- notices */
+  /* ------------------------------------------------------------------ 提示 */
 
   notices: { display: 'block' },
   noticeTight: { marginBottom: 0 },
 
-  /* ------------------------------------------------------------------ arena */
+  /* ------------------------------------------------------------------ 竞技场 */
 
   arena: {
     position: 'relative',
     display: 'flex',
     flexDirection: 'column',
     minHeight: 'clamp(300px, 44vh, 520px)',
-    /* Reserve a safe content inset; the scene itself remains full bleed. */
+    /* 预留一段安全的内容内缩；场景本身仍保持满幅。 */
     padding: 26,
     borderRadius: 0,
     borderWidth: 1,
@@ -78,8 +77,8 @@ export const styles = stylex.create({
     '@media (max-width: 880px)': { minHeight: 'clamp(260px, 40vh, 420px)' },
   },
 
-  /* A wrapped target hands its extra line back so the input stays above the
-     fold; the long variant is chosen instead of the base, never on top of it. */
+  /* 换行的目标会把多出的那一行还回去，使输入框仍留在首屏之内；
+     此处是选择长版本而不是在基础版本上叠加。 */
   arenaLong: {
     minHeight: 'calc(clamp(300px, 44vh, 520px) * .86)',
     '@media (max-height: 860px)': { minHeight: 'calc(clamp(240px, 36vh, 380px) * .94)' },
@@ -87,7 +86,7 @@ export const styles = stylex.create({
     '@media (max-width: 880px)': { minHeight: 'calc(clamp(300px, 44vh, 520px) * .86)' },
   },
 
-  /* Low-health atmosphere: a red vignette that only appears when it matters. */
+  /* 低血量氛围：一道只在关键时刻才出现的红色暗角。 */
   vignette: {
     position: 'absolute',
     inset: 0,
@@ -108,9 +107,8 @@ export const styles = stylex.create({
       'radial-gradient(120% 100% at 50% 46%, transparent 34%, rgba(30, 26, 52, .6) 100%)',
   },
 
-  /* The seat labels float over the canvas top, one column per fighter: the same
-     6% inset and equal-column split the canvas seating uses, so each name sits
-     directly above its character's head. */
+  /* 席位标签悬浮在画布顶部，每名斗士一列：采用与画布座位相同的
+     6% 内缩与等宽列切分，因此每个名字都正好位于其角色头顶之上。 */
   arenaSeats: {
     position: 'absolute',
     top: 6,
@@ -127,8 +125,7 @@ export const styles = stylex.create({
     '@media (max-width: 880px)': { gap: 6 },
   },
 
-  /* Wraps the canvas and the seat overlay so the labels anchor to the fighters,
-     not to the HUD row above them. */
+  /* 包裹画布与席位叠加层，使标签锚定到斗士，而不是其上方那一行 HUD。 */
   arenaField: {
     position: 'relative',
     zIndex: 1,
@@ -200,7 +197,7 @@ export const styles = stylex.create({
   },
   arenaLeave: { justifySelf: 'end', minHeight: 40, color: 'var(--ink-dim)' },
 
-  /* ------------------------------------------------------ overhead labels */
+  /* ------------------------------------------------------ 顶部悬浮标签 */
 
   seatLabel: {
     display: 'flex',
@@ -232,8 +229,8 @@ export const styles = stylex.create({
     gap: 4,
     minWidth: 0,
   },
-  /* Canvas mode keeps this readout for assistive tech only; pure-DOM mode draws
-     it as the fallback health and progress display. */
+  /* 画布模式只为无障碍技术保留此读数；纯 DOM 模式则将其绘制为
+     兜底的生命值与进度展示。 */
   seatReadout: {
     display: 'flex',
     flexDirection: 'column',
@@ -337,7 +334,7 @@ export const styles = stylex.create({
   markDown: { color: 'var(--ink-faint)' },
   markOffline: { color: 'var(--gold)' },
 
-  /* ------------------------------------------------------------------ clock */
+  /* ------------------------------------------------------------------ 时钟 */
 
   timer: {
     display: 'flex',
@@ -360,8 +357,8 @@ export const styles = stylex.create({
     backgroundSize: 'auto, 256px 256px',
     backgroundRepeat: 'no-repeat, repeat',
   },
-  /* Urgency restates the full material stack so the red wash survives above
-     the stone texture instead of being painted over by it. */
+  /* 紧迫状态会重述完整的材质叠加栈，
+     使红色渲染能覆盖在石材纹理之上，而不是被其盖住。 */
   timerUrgent: {
     backgroundImage:
       'linear-gradient(rgba(255, 107, 125, .12), rgba(255, 107, 125, .12)), var(--surface-stone)',
@@ -405,7 +402,7 @@ export const styles = stylex.create({
   },
   countdownHint: { color: 'var(--ink)', fontSize: '.92rem' },
 
-  /* -------------------------------------------------------- typing station */
+  /* -------------------------------------------------------------- 打字站 */
 
   station: {
     display: 'flex',
@@ -439,8 +436,8 @@ export const styles = stylex.create({
     flex: 'none',
     width: 52,
     height: 52,
-    /* Content starts exactly at the 10px frame's inner edge so the spell art
-       never paints over the slot's metalwork. */
+    /* 内容正好从 10px 画框的内边缘开始，
+       使咒文美术绝不覆盖到槽位的金属纹饰上。 */
     paddingTop: 9,
     paddingRight: 9,
     paddingBottom: 9,
@@ -515,16 +512,15 @@ export const styles = stylex.create({
     color: 'var(--ink-dim)',
   },
 
-  /* The target readout, the invisible native field and the decorative particle
-     layer share one box. */
+  /* 目标读数、不可见的原生输入框与装饰性粒子层共用同一个盒子。 */
   stationTarget: {
     position: 'relative',
     overflow: 'visible',
     minHeight: 'calc(clamp(1.5rem, 2.05vw, 1.85rem) * 1.6 + 26px)',
   },
-  /* Wraps exactly the spell text box so the field can float over it and the
-     focus ring can hug it: the ring appears whenever the hidden field inside
-     has focus, which is the "you can type here" affordance. */
+  /* 正好包裹咒文文本框，使输入框能悬浮其上、焦点环能紧贴它：
+     只要内部隐藏的输入框获得焦点，这个环就会出现，
+     这正是「你可以在这里打字」的提示。 */
   spellSurface: {
     position: 'relative',
     borderRadius: 0,
@@ -571,7 +567,7 @@ export const styles = stylex.create({
     userSelect: 'none',
   },
   spellTextCompact: { lineHeight: 1.5 },
-  /* The subdued Chinese meaning line under the English spell text. */
+  /* 英文咒文文本下方那行颜色较淡的中文释义。 */
   spellTranslation: {
     margin: '6px 0 0',
     fontSize: '.85rem',
@@ -579,10 +575,8 @@ export const styles = stylex.create({
     color: 'var(--ink-dim)',
   },
 
-  /*
-   * Inline blocks let completed glyphs drift without touching layout. Current
-   * and untyped glyphs have no animation; only chFlow enables the motion.
-   */
+  /* 行内块让已完成字形在不影响布局的情况下漂移。
+     当前字形与未输入字形没有动画；只有 chFlow 会启用该动效。 */
   ch: {
     display: 'inline-block',
     color: '#85858f',
@@ -606,13 +600,10 @@ export const styles = stylex.create({
   },
   chDone: { color: 'var(--good)', textShadow: '0 0 14px rgba(100, 230, 176, .4)' },
 
-  /*
-   * Flowing elemental fill for completed glyphs: the gradient is clipped to the
-   * stroke shapes and sweeps with the drift, and the glow stays restrained.
-   * `chFlow` carries the shared mechanics and must always be paired with one
-   * element class — alone it would leave transparent text without a fill. The
-   * neutral `chOk`/`chDone` tones above remain the between-spells fallback.
-   */
+  /* 已完成字形的流动元素填充：渐变被裁切到笔画形状内并随漂移扫过，
+     光晕保持克制。`chFlow` 承载共享机制，必须始终与某一个元素类配对使用 ——
+     单独使用时只会留下没有填充的透明文字。
+     上方中性的 `chOk`/`chDone` 色调仍是咒文之间的兜底表现。 */
   chFlow: {
     color: 'transparent',
     textShadow: 'none',
@@ -644,13 +635,10 @@ export const styles = stylex.create({
   },
 
   typeArea: { display: 'flex', flexDirection: 'column', gap: 6 },
-  /*
-   * The native field floats invisibly over the glyphs it drives: same metrics
-   * as `spellText` (size, leading, tracking, padding) so the IME candidate
-   * window anchors where the player is actually typing. Everything visible —
-   * caret included — is drawn by the glyph run underneath; the selection is
-   * kept transparent so edits never paint a stray box over the spell.
-   */
+  /* 原生输入框不可见地悬浮在它所驱动的字形之上：与 `spellText` 相同的度量
+     （字号、行高、字距、内边距），使 IME 候选窗口锚定在玩家实际打字的位置。
+     所有可见内容 —— 包括光标 —— 都由下方的字形串绘制；
+     选区保持透明，因此编辑操作绝不会在咒文上留下多余的方块。 */
   typeField: {
     position: 'absolute',
     top: 0,
@@ -695,11 +683,9 @@ export const styles = stylex.create({
     fontSize: '.85rem',
     color: 'var(--ink-dim)',
   },
-  /*
-   * The input gate line: one quiet row that renders the server's rule state.
-   * The countdown text updates on the room tick without any live region; only
-   * the rejection explanation below is announced.
-   */
+  /* 输入门槛提示行：单独一行安静地呈现服务端的规则状态。
+     倒计时文本随房间心跳更新，且不使用实时播报区域（live region）；
+     只有下方的拒绝说明会被播报。 */
   inputGate: {
     display: 'flex',
     flexWrap: 'wrap',

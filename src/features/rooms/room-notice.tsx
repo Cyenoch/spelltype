@@ -6,13 +6,13 @@ import type { RoomProblem, RoomSession } from './room-session';
 import { styles } from './room-view.styles';
 
 /**
- * The room's one failure notice. A quick match offers the queue again, a private
- * room a fresh one; both keep a way home, so a dead room is never a dead end.
- * Both exits use the session's acknowledged departure; navigating alone leaves
- * a matched ticket pointing back to the room whose snapshot just failed.
- * A version mismatch is the exception: the only fix is reloading the page, so
- * the notice swaps its room-creating action for a reload button instead of
- * sending the player to create a room this stale page still cannot join.
+ * 房间唯一的失败提示。快速匹配会再给一次排队入口，私人房则给一次新建入口；
+ * 两者都保留一条回家路径，因此一个死掉的房间绝不会成为死胡同。
+ * 两条出口都走会话中已确认的离场流程；仅靠导航离开会让一张已配对的票据
+ * 继续指向那个快照刚刚失败了的房间。
+ * 版本不匹配是例外：唯一的修复办法是重新加载页面，
+ * 因此提示会把「创建房间」动作换成刷新按钮，
+ * 而不是把玩家送去创建一个这个陈旧页面依然加入不了的新房间。
  */
 export function RoomNotice(props: {
   problem: RoomProblem;

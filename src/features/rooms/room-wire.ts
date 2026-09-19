@@ -5,24 +5,24 @@ import type { ServerMessage } from '../../../shared/protocol';
 export interface CloseInfo {
   code: number;
   reason: string;
-  /** The session was rejected: re-authentication is required. */
+  /** 会话被拒绝：需要重新鉴权。 */
   authExpired: boolean;
-  /** Another connection for the same account took over this seat. */
+  /** 同一账号的另一条连接顶替了本席位。 */
   replaced: boolean;
-  /** The room is gone or no longer admits this player. */
+  /** 房间已不存在，或不再接纳该玩家。 */
   roomClosed: boolean;
-  /** The server runs a different wire protocol: the page must be reloaded. */
+  /** 服务端运行着不同的通信协议：页面必须重新加载。 */
   protocolMismatch: boolean;
-  /** The server reset this connection because input messages were too dense. */
+  /** 服务端因输入消息过于密集而重置了这条连接。 */
   inputOverload: boolean;
 }
 
 const AUTH_CLOSE_CODES: Record<number, true> = { 1008: true, 4401: true, 4403: true };
 
 /**
- * Decodes one server frame: the discriminant is checked, the frame itself is the
- * room's own snapshot (which every consumer reads through authoritative fields).
- * An unknown or malformed frame is dropped, never guessed at.
+ * 解码一个服务端帧：先校验判别字段，帧本身即房间自己的快照
+ * （每个消费者都通过权威字段读取它）。
+ * 未知或格式错误的帧会被丢弃，绝不猜测其含义。
  */
 export function parseServerMessage(raw: string): ServerMessage | null {
   let value: unknown;
@@ -37,7 +37,7 @@ export function parseServerMessage(raw: string): ServerMessage | null {
   return null;
 }
 
-/** Maps a close code to the one situation the room view reacts to. */
+/** 将关闭码映射到房间视图会做出反应的那一种情形。 */
 export function closeInfo(code: number, reason: string): CloseInfo {
   return {
     code,
@@ -50,14 +50,14 @@ export function closeInfo(code: number, reason: string): CloseInfo {
   };
 }
 
-/** Why the current page cannot keep talking to this server on this socket. */
+/** 当前页面为何无法在这个 Socket 上继续与该服务端通信。 */
 export type Diagnosis = 'ok' | 'auth' | 'room' | 'protocol';
 
 /**
- * An HTTP 409 carrying the server's required protocol is a refresh-required verdict,
- * including when a proxy or stale request omitted this page's current version header.
- * Shared by the initial route load and the post-close diagnosis, so both
- * surfaces reach the same terminal "refresh the page" state.
+ * 携带服务端所需协议的 HTTP 409 是一条「需要刷新」的判定，
+ * 也包括代理或陈旧请求漏掉本页面当前版本请求头的情况。
+ * 初始路由加载与关闭后诊断共用该判定，
+ * 使两个界面都能到达同一个终态的「刷新页面」状态。
  */
 export function isProtocolRejection(error: unknown): boolean {
   if (!(error instanceof DetailedError)) return false;

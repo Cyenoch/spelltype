@@ -86,7 +86,7 @@ export const QUEUE_ENTRY_TTL_MS = 60_000;
  * 快速匹配等待真人对手的时长，超时后匹配系统将安排合成对手。
  * 服务端依据票据的 `createdAt` 计算阈值；排队页面引用同一数值以确保承诺的回退与服务端执行一致。
  */
-export const QUICK_GHOST_FALLBACK_MS = 10_000;
+export const QUICK_GHOST_FALLBACK_MS = 30_000;
 /**
  * 在合成对手对局中，战斗在没有成功施法的情况下可进行的时长，超过后房间将不再留手：
  * 从此时起对手的攻击将具有致命伤害。对局仍通过常规伤害结算（若人类玩家一直在施法则为 `bot_concession`）
