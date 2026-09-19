@@ -1,5 +1,4 @@
 import { For, Show, createMemo, onMount } from 'solid-js';
-import { BOT_IDLE_MS } from '../../../../shared/protocol';
 import type { Player, RoomSnapshot } from '../../../../shared/protocol';
 import {
   END_REASON_LABELS,
@@ -131,9 +130,7 @@ export function BattleResults(props: {
           class={stylex.props(ui.smallText, ui.muted).className}
           data-testid="result-training-note"
         >
-          本局为训练对局：对手（{OPPONENT_KIND_LABELS[props.snapshot.opponentKind]}
-          ）由系统自动安排，战绩照常记录；连续 {BOT_IDLE_MS / 1000}{' '}
-          秒无成功施法，训练对手将不再让胜。
+          训练对局 · 战绩照常记录。
         </p>
       </Show>
       <div class={stylex.props(ui.buttonRow, styles.resultActions).className}>

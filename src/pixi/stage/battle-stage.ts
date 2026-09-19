@@ -28,6 +28,8 @@ import type { Element, RoomSnapshot } from '../../../shared/protocol';
 export interface BattleStage {
   update(snapshot: RoomSnapshot, selfId: string): void;
   typing(progress: number, element: Element): void;
+  /** 当仍有攻击在排队或飞行中时为 true：结算界面等最后一击落地。 */
+  settling(): boolean;
   destroy(): void;
 }
 
@@ -258,6 +260,10 @@ export async function createBattleStage(host: HTMLElement): Promise<BattleStage>
     update(snapshot: RoomSnapshot, nextSelfId: string): void {
       if (destroyed) return;
       match.update(snapshot, nextSelfId);
+    },
+
+    settling(): boolean {
+      return combat.busy();
     },
 
     typing(progress: number, element: Element): void {

@@ -19,6 +19,11 @@ const CONNECTION_LABELS: Record<'connecting' | 'reconnecting', string> = {
   reconnecting: '重连中…',
 };
 
+/** 结算界面的最短等待：让最后一击、KO 与胜利起手至少能被看见。 */
+const RESULTS_MIN_HOLD_MS = 900;
+/** 结算界面的最长等待：卡在空中的弹道绝不能一直挡住结果。 */
+const RESULTS_MAX_WAIT_MS = 3000;
+
 /**
  * 权威快照决定显示大厅、战斗还是专门的结算界面。
  * 大厅与战斗始终保持挂载，使打字逻辑与渲染器宿主能跨阶段存活；
@@ -41,6 +46,34 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
   const finished = createMemo(() => phase() === 'finished');
   const generating = createMemo(() => phase() === 'generating');
   const inCombat = () => phase() === 'countdown' || phase() === 'playing';
+
+  let finishedAt: number | null = null;
+
+  createEffect(() => {
+    if (finished()) {
+      if (finishedAt === null) finishedAt = Date.now();
+    } else {
+      finishedAt = null;
+    }
+  });
+
+  /**
+   * 结算界面的登场时机。权威阶段翻到 finished 的那一刻，
+   * 致命一击的弹道往往还在飞行：先让竞技场把最后一击演完
+   * （无画布时无从可等），或等到硬上限，再切换到结算界面。
+   * 由房间的重绘心跳驱动轮询。
+   */
+  const resultsReady = createMemo(() => {
+    if (!finished()) return false;
+    void session.tick();
+    const elapsed = Date.now() - (finishedAt ?? Date.now());
+    if (elapsed >= RESULTS_MAX_WAIT_MS) return true;
+    const current = stage();
+    if (current === null) return true;
+    return elapsed >= RESULTS_MIN_HOLD_MS && !current.settling();
+  });
+
+  const battleVisible = () => inCombat() || (finished() && !resultsReady());
   const renderMode = (): RenderMode => (canvasState() === 'ready' ? 'canvas' : 'dom');
   const selfId = () => props.ctx.session.user?.id ?? '';
 
@@ -143,7 +176,7 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
       <div
         class={stylex.props(styles.roomHead).className}
         data-connection={session.connection()}
-        hidden={!session.snapshot() || finished() || generating()}
+        hidden={!session.snapshot() || (finished() && resultsReady()) || generating()}
       >
         <span
           class={stylex.props(styles.phase, statusDimmed() && styles.phaseDim).className}
@@ -158,7 +191,8 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
           <>
             {/* 两个界面在整个房间生命周期内保持挂载，并通过 `hidden` 切换：
                 一次重赛（finished → lobby → countdown）必须保持相同的画布宿主、
-                相同的渲染器与相同的输入框。 */}
+                相同的渲染器与相同的输入框。收尾宽限期内战斗界面保持可见，
+                让最后一击演完之后再让结算界面接替。 */}
             <LobbyPanel
               hidden={inCombat() || finished() || generating()}
               snapshot={room()}
@@ -168,7 +202,7 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
               actions={lobbyActions}
             />
             <BattlePanel
-              hidden={!inCombat()}
+              hidden={!battleVisible()}
               snapshot={room()}
               selfId={selfId()}
               reconnectedMarker={session.reconnectedMarker()}
@@ -200,7 +234,7 @@ export function RoomView(props: { roomId: string; ctx: AppContext; initial: Room
                 />
               </div>
             </Show>
-            <Show when={finished()}>
+            <Show when={finished() && resultsReady()}>
               <div data-testid="view-results">
                 <BattleResults
                   snapshot={room()}

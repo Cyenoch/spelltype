@@ -66,6 +66,8 @@ export interface Combat {
   sweep(clock: number): void;
   /** 当针对该用户的攻击正在飞行或已入队时为 true。 */
   incoming(userId: string): boolean;
+  /** 当仍有指令未发射或弹道在飞行中时为 true：结算界面等最后一击落地。 */
+  busy(): boolean;
   reset(): void;
 }
 
@@ -248,6 +250,10 @@ export function createCombat(wiring: CombatWiring): Combat {
         if (order.targetId === userId) return true;
       }
       return false;
+    },
+
+    busy(): boolean {
+      return queue.length > 0 || fx.airborne;
     },
 
     reset(): void {
