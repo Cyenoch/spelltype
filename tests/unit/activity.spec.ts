@@ -7,7 +7,7 @@
  * honest zero only when everything truly is idle, and a 503 rather than a fabricated total when
  * the read fails. Everything runs against a real PGlite database and the real stable app.
  */
-import { describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, setSystemTime } from 'bun:test';
 import { readActivitySummary } from '../../server/activity';
 import type { ServerConfig } from '../../server/config';
 import type { Database } from '../../server/db';
@@ -25,9 +25,17 @@ import {
 import { createApp } from '../../server/http/app';
 
 const ORIGIN = 'https://app.example';
-const NOW = Date.now();
+const NOW = Date.UTC(2026, 0, 1);
 
 let database: OpenedDatabase;
+
+beforeEach(() => {
+  setSystemTime(NOW);
+});
+
+afterEach(() => {
+  setSystemTime();
+});
 
 /** Foreign keys decide the order; every table starts empty so each test sees one clean state. */
 async function wipeEverything(db: Database): Promise<void> {
@@ -137,7 +145,9 @@ describe('等待玩家计数', () => {
     await setup();
     // matched 持有的是席位，不是队列位置；同一张票无法同时等待，过期条目说明已离开。
     await seedTicket('request-waiting', 'waiting', NOW + 1000);
-    await seedTicket('request-expired', 'matched', NOW - 1000);
+    await seedTicket('request-expired', 'waiting', NOW - 1000);
+    await seedTicket('request-at-deadline', 'waiting', NOW);
+    await seedTicket('request-matched', 'matched', NOW + 1000);
     expect(await readActivitySummary(database.db)).toEqual({
       activeDuels: 0,
       waitingPlayers: 1,
