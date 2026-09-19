@@ -22,7 +22,7 @@ const PERSISTENCE_TEXT: Record<'idle' | 'saving' | 'saved' | 'error', string> = 
 
 type Outcome = 'win' | 'loss' | 'draw' | 'finished';
 
-/** Published ranks decide order; tied rows retain stable seating, not a hidden score tiebreak. */
+/** 名次由已公布的名次决定；并列的行保持稳定的席位顺序，而不是隐藏的分数破同分规则。 */
 function ranked(players: Player[]): Player[] {
   return [...players].sort((a, b) => {
     const rankA = a.rank ?? Number.POSITIVE_INFINITY;
@@ -33,14 +33,14 @@ function ranked(players: Player[]): Player[] {
 }
 
 /**
- * Dedicated settled screen: clear outcome and primary actions first, then the
- * viewer's figures, the full standings and the room's save state.
+ * 专门的结算界面：先给出清晰的结果与主要操作，
+ * 随后是观察者的数据、完整排名以及房间的存档状态。
  */
 export function BattleResults(props: {
   snapshot: RoomSnapshot;
   self: Player | undefined;
   players: Player[];
-  /** A maintenance window (or unknown service status) blocks the next match. */
+  /** 维护窗口（或未知的服务状态）会阻断下一场对局。 */
   admissionBlocked: boolean;
   onRematch(): void;
   onLeave(): void;

@@ -81,7 +81,7 @@ export class RoomRuntime implements RoomRuntimePort {
     return runtime;
   }
 
-  // ------------------------------------------------------------------ port API
+  // ------------------------------------------------------------------ 端口 API
 
   /**
    * 在接管房间之前验证其是否存在。协调层和 HTTP 可能会向本运行时传递
@@ -165,7 +165,7 @@ export class RoomRuntime implements RoomRuntimePort {
     await this.ownership.close();
   }
 
-  // ----------------------------------------------------------------- internals
+  // ------------------------------------------------------------------ 内部实现
 
   /** 每个房间变更事务在执行首条语句前断言的所有权写入隔离界限。 */
   assertOwnership(tx: Transaction): Promise<void> {

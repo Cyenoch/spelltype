@@ -7,7 +7,7 @@ import { styles } from './battle.styles';
 import { CRITICAL_HP_RATIO, LOW_HP_RATIO, type RenderMode } from './battle-view';
 
 interface HpTone {
-  /** Threshold bucket shared by the arena vignette and the health bar. */
+  /** 竞技场暗角与生命条共用的阈值分档。 */
   ratio: 'ok' | 'low' | 'critical' | 'down';
   percent: number;
   text: string;
@@ -27,9 +27,9 @@ function hpTone(hp: number, maxHp: number, eliminated: boolean): HpTone {
 }
 
 /**
- * One combatant's overhead label, targeting tags and always-visible cast progress.
- * Canvas feet bars own the visual health presentation; DOM health remains available
- * to assistive tech and becomes visible when the canvas cannot render.
+ * 一名战斗者的顶部标签、瞄准标记与始终可见的施法进度。
+ * 画布上的脚部进度条负责视觉生命值呈现；DOM 生命值仍可供无障碍技术读取，
+ * 并在画布无法渲染时变得可见。
  */
 export function SeatLabel(props: {
   player: Player;
@@ -37,7 +37,7 @@ export function SeatLabel(props: {
   isTarget: boolean;
   aimedAtMe: boolean;
   render: RenderMode;
-  /** The viewer's own readout follows local typing instead of a snapshot ack. */
+  /** 观察者自己的读数跟随本地打字，而不是跟随快照确认。 */
   selfCast: { progress: number; length: number };
 }) {
   const eliminated = createMemo(() => props.player.eliminatedAt !== null);
@@ -56,8 +56,8 @@ export function SeatLabel(props: {
         ? `即将施法 ${castPercent()}%`
         : `咏唱进度 ${castPercent()}%`;
   /**
-   * The readout darkens a downed bar; the player's own bar keeps its normal
-   * gradient, mirroring the two rules the old sheet had.
+   * 读数会让已倒下的进度条变暗；玩家自己的进度条保持其常规渐变，
+   * 与旧样式表中的两条规则保持一致。
    */
   const barTone = createMemo(() => {
     const ratio = tone().ratio;

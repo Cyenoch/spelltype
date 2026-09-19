@@ -4,7 +4,7 @@ import { formatAccuracyPercent, formatAmount, formatHealth, percentOf } from '..
 import * as stylex from '@stylexjs/stylex';
 import { styles } from './battle.styles';
 
-/** The viewer's own health and figures, every one of them read from the snapshot. */
+/** 观察者自身的生命值与数据，每一项都读自快照。 */
 export function BattleSelfbar(props: { self: Player | undefined }) {
   const selfHp = createMemo(() => {
     const self = props.self;

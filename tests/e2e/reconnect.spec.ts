@@ -1,10 +1,10 @@
 /**
- * Disconnects: the match never freezes, a reconnecting player gets their seat, health and accepted
- * draft back, and the live match — identity, absolute deadline, per-player progress — survives a
- * process restart. (A session dying mid-match is covered by the auth spec.)
+ * 断线：对局绝不冻结，重连的玩家能拿回自己的席位、生命值与已接受的草稿，
+ * 而进行中的对局 —— 身份、绝对截止时间、每位玩家的进度 —— 能在进程重启后存活。
+ * （会话在对局中途失效的场景由 auth 测试覆盖。）
  *
- * The harness restarts the native runtime on the same port and database, without a product test
- * hook, so only committed state survives.
+ * 测试环境在相同端口与数据库上重启原生运行时，且不使用任何产品测试钩子，
+ * 因此只有已提交的状态能够存活。
  */
 import { expect } from '@playwright/test';
 import { test } from '../support/test';
@@ -51,7 +51,7 @@ test('对手断线不冻结比赛，重连与进程重启后恢复席位、血�
   const liveMatchId = await battleMatchId(host.page);
   const combatDeadline = await deadline(host.page);
 
-  // The guest commits a prefix, which the host can see, then drops off the network entirely.
+  // 客方提交一段前缀（房主可以看到），随后完全断开网络。
   await typeText(guest.page, firstSpell.slice(0, 5));
   await expect
     .poll(
@@ -62,15 +62,14 @@ test('对手断线不冻结比赛，重连与进程重启后恢复席位、血�
     .toBe(5);
   await guest.context.close();
 
-  // The remaining player keeps a live, decreasing clock instead of a frozen match.
+  // 仍在场的玩家看到的是继续走动、不断递减的时钟，而不是一场冻结的对局。
   const before = await timerRemaining(host.page);
   await settle(2500);
   expect(await timerRemaining(host.page)).toBeLessThan(before - 1000);
   expect(await host.page.getByTestId('arena-seat').count()).toBe(2);
   expect(await battlePhase(host.page)).toBe('playing');
 
-  // The disconnected player keeps their seat, their accepted prefix and their health; only the
-  // connection flag changes.
+  // 断线的玩家保留其席位、已接受前缀与生命值；只有连接标记发生变化。
   await expect
     .poll(
       async () =>
@@ -83,8 +82,8 @@ test('对手断线不冻结比赛，重连与进程重启后恢复席位、血�
   expect(snapshotPlayer(during, guestIdentity).progress).toBe(5);
   expect(snapshotPlayer(during, guestIdentity).hp).toBe(INITIAL_HEALTH);
 
-  // The match keeps moving without the opponent: a real completion still lands on the absent
-  // target. Damage arrives with the completion's batch window, so the health read polls.
+  // 对局在对手缺席时仍继续推进：真实的完成依然会打到缺席的目标身上。
+  // 伤害随该次完成的批次窗口一同到达，因此生命值的读取需要轮询。
   await completeSpell(host.page);
   await expect
     .poll(
@@ -95,7 +94,7 @@ test('对手断线不冻结比赛，重连与进程重启后恢复席位、血�
   const damaged = await roomSnapshot(host.context, room.roomId);
   expect(snapshotPlayer(damaged, hostIdentity).spellsCast).toBe(1);
 
-  // Reconnect: same seat, same match, same accepted draft, restored to that player only.
+  // 重连：相同席位、相同对局、相同已接受草稿，且只恢复到该名玩家。
   const firstReconnect = await newContext(browser);
   const firstPage = await firstReconnect.newPage();
   await gotoApp(firstPage, '/');
@@ -110,13 +109,12 @@ test('对手断线不冻结比赛，重连与进程重启后恢复席位、血�
   const hostView = await roomSnapshot(host.context, room.roomId);
   expect(hostView.selfInput).not.toBe(restored.selfInput);
 
-  // The draft is a real accepted prefix: completing the rest of it finishes the spell.
+  // 该草稿是真实已被接受的前缀：补完其余部分即可完成这道咒文。
   expect(await completeSpell(firstPage)).toBe(firstSpell);
   expect(await battlePhase(host.page)).toBe('playing');
 
-  // Native runtime recovery: both clients disconnect and the runtime restarts against the same
-  // database and port. The running match must survive with its identity, its
-  // absolute deadline and every player's accepted state.
+  // 原生运行时恢复：两个客户端都断线，运行时针对同一个数据库与端口重启。
+  // 进行中的对局必须连同其身份、绝对截止时间以及每位玩家的已接受状态一起存活。
   const matchIdBefore = await battleMatchId(firstPage);
   const deadlineBefore = await deadline(firstPage);
   const stateBeforeRestart = await roomSnapshot(firstReconnect, room.roomId);
@@ -143,7 +141,7 @@ test('对手断线不冻结比赛，重连与进程重启后恢复席位、血�
 
   expect(await battleMatchId(guestPageAfter)).toBe(matchIdBefore);
   expect(await battleMatchId(hostPageAfter)).toBe(matchIdBefore);
-  // The deadline is one absolute instant: reactivation neither resets nor extends it.
+  // 截止时间是一个绝对时刻：重新激活既不重置它，也不延长它。
   expect(await deadline(guestPageAfter)).toBe(deadlineBefore);
   const afterRestart = await roomSnapshot(hostAfter, room.roomId);
   expect(afterRestart.startedAt).toBe(stateBeforeRestart.startedAt);
@@ -153,7 +151,7 @@ test('对手断线不冻结比赛，重连与进程重启后恢复席位、血�
   expect(snapshotPlayer(afterRestart, guestIdentity).hp).toBe(guestHpBefore);
   expect(snapshotPlayer(afterRestart, hostIdentity).spellsCast).toBe(hostSpellsBefore);
 
-  // Play resumes from the server's own state: the same book continues and the next completion lands.
+  // 对局从服务端自身的状态继续：同一本咒文书接着进行，下一次完成照常生效。
   const resumeText = await spellText(hostPageAfter);
   expect(book).toContain(resumeText);
   await completeSpell(hostPageAfter);
@@ -168,7 +166,7 @@ test('对手断线不冻结比赛，重连与进程重启后恢复席位、血�
     'data-state',
     'open',
   );
-  // The reconnected player's own arena shows the same, freshly dealt health.
+  // 重连玩家自己的竞技场显示相同的、刚刚结算过的生命值。
   expect(await seatHealth(guestPageAfter, guestIdentity.userId)).toEqual({
     hp: guestHpBefore - completionDamage(resumeText),
     maxHp: INITIAL_HEALTH,

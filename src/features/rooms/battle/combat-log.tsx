@@ -5,13 +5,13 @@ import { ui } from '../../../ui/primitives';
 import * as stylex from '@stylexjs/stylex';
 import { styles } from './battle.styles';
 
-/** The room keeps a 32-entry ring; the visible log mirrors that bound. */
+/** 房间保留 32 条事件的环形缓冲区；可见日志与这一上限保持一致。 */
 const LOG_LIMIT = 32;
 
 /**
- * The room's own combat log, bounded to the event ring the snapshot carries.
- * Entries are looked up from the snapshot by sequence, so a re-sent snapshot
- * never re-orders or duplicates what the player already read.
+ * 房间自身的战斗日志，上限即快照所携带的事件环。
+ * 条目按序号从快照中查找，因此重新下发的快照绝不会
+ * 打乱顺序或重复玩家已经读过的内容。
  */
 export function CombatLog(props: { events: CombatEvent[]; players: Player[] }) {
   const logSeqs = createMemo(() => {
@@ -45,7 +45,7 @@ export function CombatLog(props: { events: CombatEvent[]; players: Player[] }) {
   );
 }
 
-/** One damage entry: who hit whom, for how much, and the health left behind. */
+/** 一条伤害条目：谁打了谁、伤害多少，以及之后剩余的生命值。 */
 function LogEntry(props: { event: CombatEvent; players: Player[] }) {
   const nameOf = (id: string) =>
     props.players.find((player) => player.id === id)?.username ?? '未知玩家';

@@ -15,7 +15,7 @@ import { createRoomRuntime } from './rooms';
 export interface StartServerOptions {
   config: ServerConfig;
   generate?: GenerateSpells;
-  /** Caller-owned connection; the server never closes an injected database. */
+  /** 由调用方持有的连接；服务器绝不关闭外部注入的数据库。 */
   database?: Database;
 }
 
@@ -24,7 +24,7 @@ export interface RunningServer {
   close(): Promise<void>;
 }
 
-/** Applies pending migrations and claims the sole writer before listening. */
+/** 在监听之前先应用待处理迁移，并取得唯一写入者所有权。 */
 export async function startServer({
   config,
   generate,

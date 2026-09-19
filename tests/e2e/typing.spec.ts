@@ -1,11 +1,11 @@
 /**
- * Typing semantics under the combat contract, driven through the real field: what counts as an
- * attempt, how deletions and selection replacement behave, that paste is refused, that the last
- * character is what completes a spell, that a replayed completion can never deal a second hit, and
- * that an active IME composition is never judged, never sent and never pollutes accuracy.
+ * 战斗契约下的打字语义，通过真实输入框驱动：
+ * 什么算作一次尝试、删除与选区替换的行为、粘贴会被拒绝、
+ * 完成一道咒文的是最后一个字符、重放的完成绝不可能造成第二次命中，
+ * 以及正在进行的 IME 拼写绝不被判定、绝不被发送，也绝不污染准确率。
  *
- * The accounting itself (attempts/errors/progress) is unit-tested through `diffSnapshot`; what is
- * only observable here is the client + room round trip.
+ * 记账本身（尝试/错误/进度）通过 `diffSnapshot` 做单元测试；
+ * 此处只能观测到的是客户端与房间之间的往返。
  */
 import { expect } from '@playwright/test';
 import { test } from '../support/test';
@@ -33,7 +33,7 @@ import { sendRawMessages, sentMessages } from '../support/wire';
 
 declare global {
   interface Window {
-    /** Composition-event counters installed by the IME scenario and read back after the run. */
+    /** 由 IME 场景安装、并在运行结束后读回的拼写事件计数器。 */
     __composition?: { start: number; end: number };
   }
 }
@@ -55,8 +55,8 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
   const text = acceptedGeneration(await fixture().state()).generation.texts[0];
   expect(await spellText(host)).toBe(text);
 
-  // A wrong character stalls the accepted prefix; deleting it restores the prefix and leaves the
-  // rejected text in the field until it is removed.
+  // 一个错误字符会卡住已接受前缀；删除它会恢复该前缀，
+  // 而被拒绝的文本会一直留在输入框中，直到被移除。
   await typeText(host, text.slice(0, 4));
   await expect
     .poll(
@@ -75,7 +75,7 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
   await backspace(host, 2);
   expect(await inputValue(host)).toBe(text.slice(0, 4));
 
-  // Selection replacement, deletion and retyping are ordinary edits.
+  // 选区替换、删除与重新输入都属于普通编辑。
   await typeText(host, text.slice(4, 7));
   await expect
     .poll(
@@ -91,8 +91,8 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
   await insertIntoField(host, text.slice(5, 7));
   expect(await inputValue(host)).toBe(text.slice(0, 7));
 
-  // The last character is what completes the spell: a prefix never advances the cursor and never
-  // reports a confirmed completion.
+  // 完成这道咒文的是最后一个字符：仅有前缀绝不会推进游标，
+  // 也绝不会报告一次已确认的完成。
   await typeText(host, text.slice(7, -1));
   await expect.poll(() => inputValue(host)).toBe(text.slice(0, -1));
   await expect
@@ -107,8 +107,7 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
   )!.hp;
   expect(guestHpBefore).toBe(INITIAL_HEALTH);
 
-  // Paste is refused through the real clipboard path and through a paste event, without touching
-  // the accepted prefix.
+  // 粘贴会通过真实的剪贴板路径与粘贴事件被拒绝，且不影响已接受前缀。
   await room.host.context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await host.evaluate((value) => navigator.clipboard.writeText(value), text);
   await host.getByTestId('typing-input').click();
@@ -126,10 +125,10 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
     }, '整段粘贴的非法咒文');
   expect(await inputValue(host)).toBe(text.slice(0, -1));
 
-  // A fullwidth equivalent is corrected before completion and must not cost an error.
+  // 全角等价字符会在完成之前被自动纠正，且不应为此记一次错误。
   expect(text).toMatch(/[!~]$/);
-  // The completion is only lawful once this viewer's own gate has opened: wait for the
-  // server's notBefore instead of racing it with real keystroke time.
+  // 只有当该观察者自身的门槛开启后，完成才是合法的：
+  // 等待服务端的 notBefore，而不是用真实击键时间与它抢跑。
   await waitForInputGate(host);
   const lastPunctuation = String.fromCharCode(text.charCodeAt(text.length - 1) + 0xfee0);
   const accuracyBefore = snapshotPlayer(
@@ -150,8 +149,8 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
     snapshotPlayer(await roomSnapshot(room.host.context, room.roomId), hostIdentity).accuracy,
   ).toBeGreaterThan(accuracyBefore!);
 
-  // Replaying the completion the room already accepted — twice, over a fresh socket — must never
-  // deal a second hit or move any counter.
+  // 重放房间已经接受的那次完成 —— 在一条新 Socket 上重放两次 ——
+  // 绝不能造成第二次命中，也不能移动任何计数器。
   const settled = await roomSnapshot(room.host.context, room.roomId);
   const liveMatchId = await battleMatchId(host);
   const hostBefore = snapshotPlayer(settled, hostIdentity);
@@ -170,9 +169,9 @@ test('错误、删除、选区替换、粘贴与重复提交都按规则处理',
   expect(snapshotPlayer(after, hostIdentity).damageDealt).toBe(hostBefore.damageDealt);
   expect(after.events).toHaveLength(settled.events.length);
 
-  // The room applies the same correction even if a client sends an uncorrected frame. The
-  // accepted completion lands with its batch window, so the host's health is the poll target —
-  // the spell counter alone advances before the window ends.
+  // 即便客户端发送未纠正的帧，房间也会施加同样的纠正。
+  // 被接受的完成随其批次窗口落地，因此轮询目标是房主的生命值 ——
+  // 在窗口结束之前，只有咒文计数器会先行推进。
   await sendRawMessages(guest, room.roomId, [
     {
       type: 'input',
@@ -233,7 +232,7 @@ test('组合输入期间不判错、不推进、不下发，提交后才计入�
   const cdp = await room.host.context.newCDPSession(host);
   await host.getByTestId('typing-input').click();
 
-  // Composing pinyin must not be judged, must not advance the accepted prefix and must not be sent.
+  // 拼写拼音绝不被判定、绝不推进已接受前缀，也绝不被发送。
   await cdp.send('Input.imeSetComposition', {
     text: 'zhouwen',
     selectionStart: 7,
@@ -243,7 +242,7 @@ test('组合输入期间不判错、不推进、不下发，提交后才计入�
   expect(await acceptedProgress()).toBe(0);
   expect(frameText()).not.toContain('zhouwen');
 
-  // Provisional text that happens to match the target prefix is still provisional.
+  // 临时文本即便恰好匹配目标前缀，仍然是临时的。
   await cdp.send('Input.imeSetComposition', {
     text: text.slice(0, 3),
     selectionStart: 3,
@@ -254,19 +253,19 @@ test('组合输入期间不判错、不推进、不下发，提交后才计入�
     .toContain(text.slice(0, 3));
   expect(await acceptedProgress()).toBe(0);
 
-  // Cancelling that composition leaves nothing behind.
+  // 取消该次拼写不会留下任何痕迹。
   await cdp.send('Input.imeSetComposition', { text: '', selectionStart: 0, selectionEnd: 0 });
   await expect.poll(() => host.getByTestId('typing-input').inputValue()).toBe('');
   expect(await acceptedProgress()).toBe(0);
   expect(frameText()).not.toContain(text.slice(0, 3));
 
-  // Commit the first characters of the real spell: now they count, locally and on the server.
+  // 提交真实咒文的前几个字符：现在它们会被计入，本地与服务端都是如此。
   await cdp.send('Input.insertText', { text: text.slice(0, 3) });
   await expect.poll(() => host.getByTestId('typing-input').inputValue()).toBe(text.slice(0, 3));
   await expect.poll(acceptedProgress, { timeout: 20_000 }).toBe(3);
   expect(frameText()).toContain(text.slice(0, 3));
 
-  // A cancelled composition is never judged as a mistake: accuracy is still perfect.
+  // 被取消的拼写绝不被判定为错误：准确率依然是完美的。
   await cdp.send('Input.imeSetComposition', {
     text: 'ceshicuowu',
     selectionStart: 10,
@@ -284,8 +283,8 @@ test('组合输入期间不判错、不推进、不下发，提交后才计入�
   expect(composition?.start).toBeGreaterThan(0);
   expect(composition?.end).toBeGreaterThan(0);
 
-  // Ordinary editing continues after composition and finishes the spell. The final
-  // characters may only be typed once this viewer's own gate has opened.
+  // 拼写结束后普通编辑继续，并最终完成这道咒文。
+  // 最后几个字符只有在该观察者自身的门槛开启后才能输入。
   await waitForInputGate(host);
   await insertIntoField(host, text.slice(3, 5));
   await backspace(host, 1);

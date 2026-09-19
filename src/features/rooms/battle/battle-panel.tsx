@@ -23,17 +23,16 @@ export interface BattlePanelProps {
   snapshot: RoomSnapshot;
   selfId: string;
   /**
-   * A rematch returns the room to the lobby, so the combat surface is hidden
-   * rather than unmounted: its canvas hosts, the field and the renderers outlive
-   * every phase change.
+   * 一次重赛会让房间回到大厅，因此战斗界面是被隐藏而非卸载：
+   * 其画布宿主、输入框与渲染器都能跨过每一次阶段变化而存续。
    */
   hidden: boolean;
-  /** Bumped only by a real reconnect; the next snapshot then reconciles once. */
+  /** 仅由真正的重连递增；随后到达的那份快照会对账一次。 */
   reconnectedMarker: number;
-  /** The one line the combat panel shows while something is wrong, or null. */
+  /** 出问题时战斗面板展示的那一行提示，或 null。 */
   notice: string | null;
   clock: ServerClock;
-  /** Room-level repaint tick: drives the one global clock while a tab is visible. */
+  /** 房间级重绘心跳：在标签页可见时驱动那个唯一的全局时钟。 */
   tick: number;
   stage: BattleStage | null;
   typingFx: TypingEffects | null;
@@ -47,20 +46,19 @@ export interface BattlePanelProps {
 }
 
 /**
- * The combat surface: one arena with every player's health, one global clock,
- * one typing station with the recipient's current spell, and the combat log.
- * Every number shown here comes from the authoritative snapshot; the canvas only draws it.
+ * 战斗界面：一座展示所有玩家生命值的竞技场、一个全局时钟、
+ * 一个包含接收者当前咒文的打字站，以及战斗日志。
+ * 此处展示的每个数字都来自权威快照；画布只是把它画出来。
  *
- * Both surfaces are mounted as soon as the room has a snapshot and only hidden
- * while the other one is on screen: a rematch therefore keeps the same canvas
- * hosts, the same renderers and the same typing field across every phase change.
+ * 房间一旦有快照便挂载两个界面，仅在另一个界面显示时将其隐藏：
+ * 因此一次重赛能在每一次阶段变化中保持相同的画布宿主、相同的渲染器与相同的输入框。
  */
 export function BattlePanel(props: BattlePanelProps) {
   const typing = createBattleTyping(props);
 
   const view = createMemo(() => combatView(props.snapshot, props.selfId));
 
-  /** The viewer's own card follows local typing; everyone else follows the snapshot. */
+  /** 观察者自己的卡片跟随本地打字；其他所有人跟随快照。 */
   const selfProgress = createMemo(() => {
     const self = view().self;
     const chars = typing.targetChars().length;
@@ -70,7 +68,7 @@ export function BattlePanel(props: BattlePanelProps) {
     return { progress: self?.progress ?? 0, length: self?.spellLength ?? 0 };
   });
 
-  /** What the field is doing, as one attribute the tests and the styling both read. */
+  /** 输入框当前的状态，作为一个测试与样式共同读取的属性。 */
   const inputState = createMemo(() => {
     if (typing.finished()) return 'locked';
     if (typing.phase() !== 'playing') return 'idle';

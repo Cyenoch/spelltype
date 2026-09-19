@@ -4,9 +4,8 @@ import * as stylex from '@stylexjs/stylex';
 import { styles } from './battle.styles';
 
 /**
- * The one global clock. It shows the opening countdown, then the single combat
- * deadline; it never restarts per spell and never shows a frozen value from a
- * phase that has no clock.
+ * 唯一的全局时钟。它先显示开局倒计时，随后显示单段战斗的截止时间；
+ * 它绝不按咒文重新开始，也绝不显示无时钟阶段的冻结数值。
  */
 export function TimerBox(props: { phase: RoomSnapshot['phase']; remainingMs: number | null }) {
   const active = createMemo(() => props.remainingMs !== null);

@@ -47,6 +47,6 @@ function shutdown(): void {
   );
 }
 
-// Backend restarts are explicit: Bun --watch does not await PGlite shutdown. Vite owns frontend HMR.
+// 后端重启需显式触发：Bun --watch 不会等待 PGlite 正常关闭。前端热更新（HMR）由 Vite 负责。
 process.once('SIGTERM', shutdown);
 process.once('SIGINT', shutdown);

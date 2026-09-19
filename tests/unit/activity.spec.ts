@@ -1,11 +1,12 @@
 /**
- * Public activity counters — the homepage's `GET /api/activity`.
+ * 公开活跃度计数器 —— 首页的 `GET /api/activity`。
  *
- * Pinned here are the lifecycle boundaries a wrong counter would get visibly wrong: which room
- * phases count as an ongoing duel (the clock decides, never the alarm), which ticket rows still
- * mean a waiting player once entries expire or pair off, and the route's honesty contract — an
- * honest zero only when everything truly is idle, and a 503 rather than a fabricated total when
- * the read fails. Everything runs against a real PGlite database and the real stable app.
+ * 此处固定的是那些一旦算错就会明显失真的生命周期边界：
+ * 哪些房间阶段算作进行中的对战（由时钟决定，绝不是由定时器决定）、
+ * 条目过期或配对之后哪些票据行仍代表一名等待中的玩家，
+ * 以及该路由的诚实契约 —— 只有一切确实空闲时才给出诚实的零，
+ * 读取失败时返回 503 而不是编造一个总数。
+ * 一切都在真实的 PGlite 数据库与真实的稳定应用上运行。
  */
 import { afterEach, beforeEach, describe, expect, it, setSystemTime } from 'bun:test';
 import { readActivitySummary } from '../../server/activity';
@@ -37,7 +38,7 @@ afterEach(() => {
   setSystemTime();
 });
 
-/** Foreign keys decide the order; every table starts empty so each test sees one clean state. */
+/** 顺序由外键决定；每张表都从空开始，使每个测试看到同一份干净状态。 */
 async function wipeEverything(db: Database): Promise<void> {
   await db.delete(matchTickets);
   await db.delete(departures);
@@ -60,7 +61,7 @@ async function setup(): Promise<void> {
   });
 }
 
-/** Inserts a room whose duel-liveness is decided purely by the seeded phase and deadline. */
+/** 插入一个房间，其对战存活性完全由所植入的阶段与截止时间决定。 */
 async function seedRoom(
   roomId: string,
   phase: 'lobby' | 'generating' | 'countdown' | 'playing' | 'finished',
@@ -79,7 +80,7 @@ async function seedRoom(
   });
 }
 
-/** Inserts a queue ticket for a fresh account; `state` separates waiting from seated matched. */
+/** 为一个新账号插入排队票据；`state` 区分等待中与已配对入座。 */
 async function seedTicket(
   requestId: string,
   state: 'waiting' | 'matched',

@@ -84,7 +84,7 @@ async function pair(db: Database, first: string, second: string) {
   return { paired, roomId: paired.roomId };
 }
 
-/** A published ghost sourced from an existing account, eligible under the current rules. */
+/** 一份源自既有账号、在当前规则下合格的已发布幽灵录像。 */
 async function seedGhost(db: Database, ghostId: string, sourceUserId: string) {
   await db.insert(accounts).values({
     id: sourceUserId,

@@ -699,7 +699,7 @@ export const styles = stylex.create({
   inputGateReason: { margin: 0, color: 'var(--ink-dim)' },
   pasteNotice: { fontSize: '.85rem', color: 'var(--gold)' },
   pasteNoticeEmpty: { display: 'none' },
-  /* Mirrors the provisional IME composition that the invisible field hides. */
+  /* 镜像不可见输入框所隐藏的临时 IME 拼写内容。 */
   composingChip: {
     display: 'inline-flex',
     alignSelf: 'flex-start',
@@ -732,8 +732,8 @@ export const styles = stylex.create({
   },
   castFeedbackIdle: { color: 'var(--ink-faint)' },
   castFeedbackPending: { color: 'var(--gold)' },
-  /* Composed over ui.notice, which now carries a material background: the red
-     state cue must restate the full stack or the stone texture paints over it. */
+  /* 叠加在 ui.notice 之上，后者现在带有材质背景：
+     红色状态提示必须重述完整的叠加栈，否则石材纹理会把红色盖住。 */
   eliminatedNotice: {
     borderColor: 'rgba(255, 107, 125, .5)',
     backgroundImage:
@@ -784,7 +784,7 @@ export const styles = stylex.create({
     fontSize: '.95rem',
   },
 
-  /* ------------------------------------------------------------- combat log */
+  /* -------------------------------------------------------------- 战斗日志 */
 
   side: {
     padding: 'clamp(14px, 1.8vw, 18px)',
@@ -835,7 +835,7 @@ export const styles = stylex.create({
     '@media (max-width: 560px)': { display: 'none' },
   },
 
-  /* ---------------------------------------------------------------- results */
+  /* ------------------------------------------------------------------ 结算 */
 
   results: {
     display: 'flex',
@@ -868,8 +868,8 @@ export const styles = stylex.create({
     borderImageWidth: '16px',
     borderImageRepeat: 'stretch',
     backgroundColor: 'transparent',
-    /* The verdict stamped on a seal: the watermark sits behind the title and
-       every outcome variant restates this layer stack over its own material. */
+    /* 盖在印章上的裁决文字：水印位于标题之后，
+       每个结果变体都会在其自身材质之上重述这一层叠加。 */
     backgroundImage:
       'linear-gradient(180deg, rgba(10, 8, 20, .35), rgba(8, 6, 16, .55)), var(--ornament-seal), var(--surface-stone)',
     backgroundSize: 'auto, 96px 98px, 256px 256px',

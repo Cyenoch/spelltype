@@ -1,43 +1,42 @@
 /**
- * The WeChat test kit: the relay-token contract plus the deterministic bridge fixture.
+ * 微信测试套件：中继令牌契约加上确定性的桥接夹具。
  *
- * Test-only infrastructure: never imported by product code. The real deployment trusts an external
- * bridge service that owns WeChat credentials and answers the server's redirect with a signed relay
- * token; `startWechatBridge()` is that peer as a local HTTP fixture, and `relayClaims`/
- * `signRelayToken`/`signForgedToken` build and sign the exact token shapes
- * `server/auth/wechat.ts` verifies — so the suite exercises the real verification path, with only
- * the remote credential holder simulated.
+ * 仅供测试使用的基础设施：绝不被产品代码导入。真实部署信任一个持有微信凭据的外部桥接服务，
+ * 它用一个签名中继令牌来回应服务端的重定向；`startWechatBridge()` 就是那个对端在本地
+ * HTTP 上的夹具，而 `relayClaims`/`signRelayToken`/`signForgedToken` 构造并签名出
+ * `server/auth/wechat.ts` 所校验的确切令牌形态 ——
+ * 因此测试套件走的是真实的校验路径，只是把远端凭据持有者模拟了出来。
  *
- * Identities are keyed by nickname: the same nickname always maps to the same WeChat identity
- * (`union:` derived deterministically), so "sign in again as the same player" works like it does
- * for a real user, while distinct nicknames are distinct accounts.
+ * 身份以昵称为键：同一个昵称总是映射到同一个微信身份
+ * （确定性地推导出 `union:`），因此「以同一名玩家再次登录」的表现与真实用户一致，
+ * 而不同的昵称就是不同的账号。
  */
 import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-/** The bridge fixture's coordinates, as the server's `wechatBridge` config expects them. */
+/** 桥接夹具的坐标，与服务端 `wechatBridge` 配置所期望的形式一致。 */
 export const TEST_WECHAT_BRIDGE = {
   baseUrl: 'https://bridge.example',
   appId: 'spelltype-test-app',
   appKey: 'spelltype-e2e-wechat-app-key',
 } as const;
-/** The app key, on its own: several unit specs sign tokens directly against it. */
+/** 单独的 app key：多个单元测试会直接针对它签名令牌。 */
 export const TEST_WECHAT_APP_KEY: string = TEST_WECHAT_BRIDGE.appKey;
 export const TEST_WECHAT_IDENTITY_COOKIE = 'spelltype_fixture_nickname';
 /**
- * The one WeChat identity the product grants the admin role: the exact verified UnionID the
- * server checks. Every other identity is an ordinary `user`.
+ * 产品授予管理员角色的唯一微信身份：服务端所校验的那个确切的已核实 UnionID。
+ * 其他任何身份都是普通的 `user`。
  */
 export const ADMIN_NICKNAME = '管理员';
 export const ADMIN_UNIONID = 'omBLS6xCiew0470A53hBYx0mzCbw';
 
-/** The payload the real bridge encodes into one relay token, verbatim. */
+/** 真实桥接编码进一个中继令牌的确切载荷。 */
 export interface RelayClaims {
   v: 1;
   iss: string;
   aud: string;
-  /** The bridge app the login belongs to; the server refuses any other app's tokens. */
+  /** 该登录所属的桥接应用；服务端会拒绝其他任何应用的令牌。 */
   app_id: string;
   provider: 'wechat';
   channel: 'open' | 'mp';
@@ -49,7 +48,7 @@ export interface RelayClaims {
   nickname?: string;
 }
 
-/** Honest claims for one fresh login against the fixture bridge, overridable per scenario. */
+/** 针对夹具桥接的一次全新登录的诚实声明，可按场景覆盖。 */
 export function relayClaims(patch: Partial<RelayClaims> = {}): RelayClaims {
   const now = Math.floor(Date.now() / 1000);
   const jti = patch.jti ?? randomBytes(32).toString('base64url');
@@ -71,8 +70,8 @@ export function relayClaims(patch: Partial<RelayClaims> = {}): RelayClaims {
 }
 
 /**
- * Signs claims exactly the way the real bridge does: base64url JSON, a dot, and the 43-character
- * base64url HMAC-SHA256 the server verifies bit for bit.
+ * 完全按真实桥接的方式对声明签名：base64url 的 JSON、一个点，
+ * 以及服务端会逐位校验的 43 字符 base64url HMAC-SHA256。
  */
 export function signRelayToken(claims: RelayClaims, appKey = TEST_WECHAT_APP_KEY): string {
   const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
@@ -80,7 +79,7 @@ export function signRelayToken(claims: RelayClaims, appKey = TEST_WECHAT_APP_KEY
   return `${body}.${signature}`;
 }
 
-/** Signs with a foreign app key by default: the forged-token shape the server must refuse. */
+/** 默认使用外来的 app key 签名：这是服务端必须拒绝的伪造令牌形态。 */
 export function signForgedToken(
   claims: RelayClaims | Record<string, unknown>,
   appKey = 'a-foreign-bridge-app-key-that-is-long-enough',
@@ -93,17 +92,17 @@ export function signForgedToken(
 export type WechatBridgeFailure = 'user_denied' | 'timeout';
 
 export interface WechatIdentity {
-  /** Base for the stable `openid`; the union id is derived from it unless overridden. */
+  /** 稳定 `openid` 的基础值；除非被覆盖，union id 由它推导而来。 */
   openid: string;
-  /** The profile nickname the callback reports; the server turns it into the account name. */
+  /** 回调上报的资料昵称；服务端将其转为账号名。 */
   nickname: string;
-  /** Overrides the derived union id — an admin identity pins the product's granted one. */
+  /** 覆盖推导出的 union id —— 管理员身份会固定为产品所授予的那个。 */
   unionid?: string;
-  /** When set, the callback carries `wx_bridge_error` instead of a token (failure scenarios). */
+  /** 设置后，回调携带 `wx_bridge_error` 而非令牌（用于失败场景）。 */
   failWith?: WechatBridgeFailure;
 }
 
-/** A fresh 43-character base64url value — the exact shape the relay `jti` uses. */
+/** 一个全新的 43 字符 base64url 值 —— 中继 `jti` 所使用的确切形态。 */
 function freshJti(): string {
   return randomBytes(32).toString('base64url');
 }
@@ -129,19 +128,19 @@ function writeJson(response: ServerResponse, status: number, body: unknown): voi
   response.end(payload);
 }
 
-/** The identity a nickname gets when the spec registered none: deterministic per nickname. */
+/** 当测试未注册任何身份时，昵称所对应的身份：按昵称确定性生成。 */
 function fallbackIdentity(nickname: string): WechatIdentity {
   return { openid: `open-${nickname || randomUUID()}`, nickname: nickname || '微信玩家' };
 }
 
 export interface WechatBridge {
-  /** The base URL the server's `wechatBridge.baseUrl` points at. */
+  /** 服务端 `wechatBridge.baseUrl` 所指向的基础 URL。 */
   origin: string;
-  /** Registers (or replaces) the identity a nickname signs in with. */
+  /** 注册（或替换）某个昵称登录时所用的身份。 */
   register(identity: WechatIdentity): void;
-  /** Alters one fixture reply before it reaches the browser, without intercepting redirects. */
+  /** 在某个夹具回复到达浏览器之前修改它，而不拦截重定向。 */
   rewriteNextRelay(rewrite: (destination: URL) => void): void;
-  /** Drops every registered identity: later logins fall back to fresh deterministic ones. */
+  /** 清空所有已注册身份：此后的登录回退到新的确定性身份。 */
   reset(): void;
   close(): Promise<void>;
 }
@@ -162,7 +161,7 @@ export async function startWechatBridge(): Promise<WechatBridge> {
       try {
         const url = new URL(request.url ?? '/', 'http://fixture.wechat');
 
-        // The fixture-only cookie selects the browser's identity without rewriting product URLs.
+        // 仅夹具使用的 Cookie 在不改写产品 URL 的前提下选择浏览器身份。
         if (url.pathname === '/api/auth/wechat/bridge/start') {
           if (url.searchParams.get('app_id') !== TEST_WECHAT_BRIDGE.appId) {
             writeJson(response, 400, { error: 'unknown app_id' });
@@ -192,7 +191,7 @@ export async function startWechatBridge(): Promise<WechatBridge> {
             : '';
           const identity = identities.get(nickname) ?? fallbackIdentity(nickname);
           if (identity.failWith) {
-            // The bridge echoes the state even when it refuses the handshake.
+            // 即便拒绝握手，桥接也会回显该 state。
             destination.searchParams.set('state', state);
             destination.searchParams.set('wx_bridge_error', identity.failWith);
             sendRelay(response, destination);
@@ -201,10 +200,10 @@ export async function startWechatBridge(): Promise<WechatBridge> {
           const now = Math.floor(Date.now() / 1000);
           const claims: RelayClaims = {
             v: 1,
-            // The server verifies `iss` against its configured bridge base URL: this fixture.
+            // 服务端会用其配置的桥接基础 URL 校验 `iss`：也就是本夹具。
             iss: origin,
             aud: destination.origin,
-            // The server refuses any token minted for another app id.
+            // 服务端会拒绝任何为其他 app id 签发的令牌。
             app_id: TEST_WECHAT_BRIDGE.appId,
             provider: 'wechat',
             channel: 'open',
@@ -222,7 +221,7 @@ export async function startWechatBridge(): Promise<WechatBridge> {
           return;
         }
 
-        // Control surface: the specs (through the helpers) pin identities or reset them.
+        // 控制面：测试用例（经由各辅助函数）可固定身份或将其重置。
         if (url.pathname === '/__control/identities' && request.method === 'POST') {
           const body = JSON.parse((await readBody(request)) || '{}') as {
             nickname?: string;

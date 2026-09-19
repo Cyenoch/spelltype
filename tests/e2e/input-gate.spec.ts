@@ -1,17 +1,18 @@
 /**
- * The server-side casting-time gate, observed end to end through real browser surfaces.
+ * 服务端的施法时间门槛，通过真实浏览器界面做端到端观测。
  *
- * What only a browser can prove: the enforced floor rejects a premature completion and the field
- * is restored to the exact accepted draft (empty or not, errors preserved, caret at the end); a
- * parked authoritative adoption never disturbs an open IME composition and never resurrects
- * through the trailing input event; the input-overload reset reconnects no earlier than the
- * floor no matter what triggers fire; the protocol-mismatch state is terminal with a reload as
- * the only fix; stored policy and eligibility survive real process restarts untouched; and the
- * whole thing is visible at desktop and mobile viewport sizes.
+ * 只有浏览器才能证明的事情：强制时间下限会拒绝过早的完成，
+ * 并把输入框恢复到确切的已接受草稿（空或非空、错误被保留、光标落在末尾）；
+ * 一条被暂存的权威采用绝不打扰正在进行的 IME 拼写，
+ * 也绝不通过随后的 input 事件复活；
+ * 无论何种触发器被触发，输入过载重置的重连都绝不早于时间下限；
+ * 协议不匹配状态是终态的，唯一的修复办法是刷新；
+ * 已存储的策略与资格能在真实进程重启后原样存活；
+ * 并且这一切在桌面与移动端视口尺寸下都可见。
  *
- * Raw frames here always carry the identity captured from a snapshot at send time; stale
- * identities are sent verbatim on purpose. The scripted-cast test waits out the published
- * `notBefore` — it proves the timing rule is the only barrier, never that a typist is human.
+ * 此处的原始帧始终携带发送时从快照捕获的身份；陈旧身份是刻意原样发送的。
+ * 脚本化施法测试会等过已发布的 `notBefore` ——
+ * 它证明时间规则是唯一的障碍，而绝不证明打字者是人类。
  */
 import { expect, type Page } from '@playwright/test';
 import { test } from '../support/test';
@@ -60,20 +61,20 @@ import {
 import { captureCloseCodes, openRawSocket, receivedText, sentMessages } from '../support/wire';
 import { newContext, signIn, signUp, signedInContext, uniqueName } from '../support/session';
 
-/** The one server copy for every version refusal: handshake, room GET and the 4003 frame. */
+/** 所有版本拒绝共用的同一句服务端文案：握手、房间 GET 与 4003 帧。 */
 const UPDATE_REQUIRED = '客户端版本已更新，请刷新页面后继续。';
-/** The one server copy announcing a rejection-driven restore. */
+/** 宣布因拒绝而触发恢复的同一句服务端文案。 */
 const RECOVERY_NOTICE = '输入完成早于本局施法规则，已恢复上一次接受的输入；就绪后请重新补全。';
-/** The one server copy for the input-overload reset. */
+/** 输入过载重置所用的同一句服务端文案。 */
 const OVERLOAD_NOTICE = '输入消息过于密集，连接已重置；正在恢复已保存的输入。';
 
 test.beforeEach(async () => {
   await fixture().reset();
 });
 
-/* ------------------------------------------------------------- local helpers */
+/* ------------------------------------------------------------- 本地辅助函数 */
 
-/** Appends `text` at the field's caret end through one real input event. */
+/** 通过一次真实的 input 事件在输入框光标末尾追加 `text`。 */
 async function insertWholeText(page: Page, text: string): Promise<void> {
   const input = typingInput(page);
   await input.focus();
@@ -83,7 +84,7 @@ async function insertWholeText(page: Page, text: string): Promise<void> {
   await page.keyboard.insertText(text);
 }
 
-/** The caret sits exactly after the last character of the field. */
+/** 光标正好位于输入框最后一个字符之后。 */
 async function expectCaretAtEnd(page: Page): Promise<void> {
   const position = await typingInput(page).evaluate<
     { start: number | null; end: number | null; length: number },
@@ -99,8 +100,9 @@ async function expectCaretAtEnd(page: Page): Promise<void> {
 }
 
 /**
- * Stages a fresh spell whose premature window is open right now. A spell whose floor already
- * passed is completed lawfully (that cast is fine), which rolls a fresh window on the next spell.
+ * 布置一道当前正处于过早窗口内的新咒文。
+ * 时间下限已过的咒文会被合法地完成（那次施法没问题），
+ * 而这会在下一道咒文上滚出一个全新的窗口。
  */
 async function atPrematureWindow(page: Page, roomId: string, maxSpells = 4): Promise<RoomSnapshot> {
   for (let attempt = 0; attempt < maxSpells; attempt += 1) {
@@ -117,9 +119,10 @@ async function atPrematureWindow(page: Page, roomId: string, maxSpells = 4): Pro
 }
 
 /**
- * Guarantees exactly one rejection on this viewer's current spell: completes inside the open
- * premature window and returns once the server's epoch moved. The accepted draft, the stats and
- * both seats' health are untouched by a rejection, which the callers assert on their own.
+ * 保证在该观察者当前这道咒文上恰好发生一次拒绝：
+ * 在过早窗口开启期间完成，并在服务端代际发生移动后返回。
+ * 已接受草稿、统计数据以及两个席位的生命值都不受拒绝影响，
+ * 这一点由各调用方自行断言。
  */
 async function rejectCurrentSpell(
   page: Page,
@@ -151,8 +154,8 @@ async function rejectCurrentSpell(
 }
 
 /**
- * The observe-mode counterpart: completes inside the premature window and proves the cast was
- * ACCEPTED (spell counter moved) without any epoch bump — recorded, not blocked.
+ * 观察模式下的对应场景：在过早窗口内完成，并证明该次施法被接受
+ * （咒文计数器前进）且代际没有任何递增 —— 记录在案，而非被拦截。
  */
 async function acceptPremature(
   page: Page,
@@ -177,7 +180,7 @@ async function acceptPremature(
   throw new Error('premature completion was not accepted under observe mode');
 }
 
-/** Fires the two reconnect triggers the client listens for, as a focus/online burst would. */
+/** 触发客户端所监听的两个重连触发器，如同一次获焦/上线突发。 */
 async function fireReconnectTriggers(page: Page): Promise<void> {
   await page.evaluate(() => {
     window.dispatchEvent(new Event('online'));
@@ -190,7 +193,7 @@ interface TrackedSocket {
   closed: boolean;
 }
 
-/** Counts every WebSocket the page creates from now on, with what each received. */
+/** 从此刻起统计页面创建的每一条 WebSocket，以及每条收到的内容。 */
 function trackWebsockets(page: Page): { sockets: TrackedSocket[]; count(): number } {
   const sockets: TrackedSocket[] = [];
   page.on('websocket', (socket) => {
@@ -205,7 +208,7 @@ function trackWebsockets(page: Page): { sockets: TrackedSocket[]; count(): numbe
   return { sockets, count: () => sockets.length };
 }
 
-/* ------------------------------------------------------------------ rejects */
+/* ------------------------------------------------------------------ 拒绝 */
 
 test('过早完成被拒绝：恢复已接受草稿、错误保留、光标就位，随后一次命中', async ({ browser }) => {
   test.setTimeout(420_000);
@@ -220,8 +223,8 @@ test('过早完成被拒绝：恢复已接受草稿、错误保留、光标就�
   const text = await spellText(host);
   expect(await gateIndicator(host)).toMatchObject({ present: true, mode: 'enforce' });
 
-  // An accepted draft that carries real mistakes: one wrong character typed and taken back
-  // leaves the match-cumulative error count at one while the prefix stays correct.
+  // 一份带有真实错误的已接受草稿：输入一个错误字符再撤回，
+  // 会让整场累计错误计数停留在一，而前缀保持正确。
   await typeText(host, text.slice(0, 2));
   await insertIntoField(host, '错');
   await backspace(host, 1);
@@ -236,7 +239,7 @@ test('过早完成被拒绝：恢复已接受草稿、错误保留、光标就�
   expect(beforeReject.selfInputStats!.errorTotal).toBe(1);
   expect(await inputValue(host)).toBe(text.slice(0, 4));
 
-  // Completing inside the window is refused whole: no damage, no event, no counter moves.
+  // 在窗口内完成会被整体拒绝：没有伤害、没有事件、任何计数器都不移动。
   const rejected = await rejectCurrentSpell(host, room.roomId);
   expect(rejected.epochBefore).toBe(0);
   const afterReject = rejected.snapshot;
@@ -247,8 +250,8 @@ test('过早完成被拒绝：恢复已接受草稿、错误保留、光标就�
   expect(snapshotPlayer(afterReject, guestIdentity).damageDealt).toBe(0);
   expect(afterReject.events).toHaveLength(beforeReject.events.length);
 
-  // The field is exactly the accepted draft again, with the caret after it, and the station
-  // explains the restore instead of pretending readiness.
+  // 输入框重新变成确切的已接受草稿，光标落在其后，
+  // 而打字站解释这次恢复，而不是假装已就绪。
   expect(await inputValue(host)).toBe(text.slice(0, 4));
   await expectCaretAtEnd(host);
   const indicator = await gateIndicator(host);
@@ -258,18 +261,18 @@ test('过早完成被拒绝：恢复已接受草稿、错误保留、光标就�
   await expect(host.getByTestId('battle-tip')).toHaveText('');
   expect(await host.getByTestId('input-status').textContent()).toMatch('本局错误 1 次');
 
-  // The rejection is the viewer's private state: the opponent's snapshot and wire never carry it.
+  // 该拒绝属于观察者的私有状态：对手的快照与线路上绝不携带它。
   const guestView = await roomSnapshot(room.guest.context, room.roomId);
   expect(JSON.stringify(guestView)).not.toContain('completion_too_early');
-  // The guest's own gate is their own: it never carries the host's bumped epoch or reason.
+  // 客方自身的门槛归其自身所有：绝不携带房主那边递增过的代际或原因。
   expect(guestView.selfInputGate!.resetReason).toBeNull();
   expect(guestView.selfInputGate!.draftEpoch).toBe(0);
   expect(JSON.stringify(guestView.players)).not.toContain('resetReason');
   expect(JSON.stringify(guestView.players)).not.toContain('notBefore');
   expect(receivedText(room.guestSockets!)).not.toContain('completion_too_early');
 
-  // Backwards compatibility of intent: the restored draft is a real accepted prefix, so the
-  // lawful completion after the floor lands exactly once.
+  // 意图层面的向后兼容：被恢复的草稿是真实已被接受的前缀，
+  // 因此等过时间下限后的合法完成会恰好生效一次。
   await waitForInputGate(host);
   await insertWholeText(host, text.slice(4));
   await expect
@@ -282,7 +285,7 @@ test('过早完成被拒绝：恢复已接受草稿、错误保留、光标就�
     )
     .toBe(INITIAL_HEALTH - completionDamage(text));
   expect(await selfSpellsCast(host)).toBe(1);
-  // Exactly one combat event for the one cast, no duplicates from the restore.
+  // 这一次施法恰好产生一个战斗事件，恢复过程不会带来任何重复。
   const settled = await roomSnapshot(room.host.context, room.roomId);
   const newEvents = settled.events.filter((event) => event.attackerId === hostIdentity.userId);
   expect(newEvents).toHaveLength(1);
@@ -303,12 +306,12 @@ test('空草稿过早完成恢复为空；等待期内无自动施法，就绪�
 
   const rejected = await rejectCurrentSpell(host, room.roomId);
   expect(rejected.snapshot.selfInputGate!.resetReason).toBe('completion_too_early');
-  // The accepted draft was empty, so the restore is an empty field — never a half completion.
+  // 已接受草稿为空，因此恢复结果就是一个空输入框 —— 绝不是半完成的残留。
   expect(await inputValue(host)).toBe('');
   expect(rejected.snapshot.selfInput).toBe('');
   expect(snapshotPlayer(rejected.snapshot, guestIdentity).hp).toBe(INITIAL_HEALTH);
 
-  // While the floor holds, nothing moves by itself: no auto packet, no damage, no advance.
+  // 时间下限仍在生效期间，一切都不会自行移动：不自动发包、不产生伤害、不推进游标。
   const inputsDuring = sentMessages(room.hostSockets!).filter((frame) => frame.type === 'input');
   await waitForInputGate(host);
   expect(await inputValue(host)).toBe('');
@@ -319,7 +322,7 @@ test('空草稿过早完成恢复为空；等待期内无自动施法，就绪�
   const inputsAfterWait = sentMessages(room.hostSockets!).filter((frame) => frame.type === 'input');
   expect(inputsAfterWait).toHaveLength(inputsDuring.length);
 
-  // The player's own completion — typing the whole target — is what lands the hit, once.
+  // 真正命中一次的是玩家自己完成的输入 —— 把整个目标打完。
   await insertWholeText(host, afterWait.spell!.text);
   await expect
     .poll(
@@ -359,7 +362,7 @@ test('门槛满足后逐字、输入法确认、整段插入与选区替换同�
         },
       )
       .toBe(INITIAL_HEALTH - damaged);
-    // Exactly one new combat event for this caster: no path dealt a double hit.
+    // 该施法者恰好产生一个新的战斗事件：没有任何路径造成双重命中。
     const view = await roomSnapshot(room.host.context, room.roomId);
     const mine = view.events.filter((event) => event.attackerId === hostIdentity.userId);
     expect(mine).toHaveLength(eventsSeen + 1);
@@ -367,14 +370,14 @@ test('门槛满足后逐字、输入法确认、整段插入与选区替换同�
     eventsSeen = mine.length;
   };
 
-  // (1) Per-keystroke typing of the whole target.
+  // （1）逐击键输入整个目标。
   const first = await spellText(host);
   await waitForInputGate(host);
   await typeText(host, first);
   await expectGuestHp(first);
   expect(await selfSpellsCast(host)).toBe(1);
 
-  // (2) An IME-staged completion: provisional text is neither judged nor sent; the commit is.
+  // （2）经由 IME 暂存的完成：临时文本既不被判定也不被发送；被提交的那部分才会。
   const second = await spellText(host);
   await waitForInputGate(host);
   await insertIntoField(host, second.slice(0, 2));
@@ -403,14 +406,14 @@ test('门槛满足后逐字、输入法确认、整段插入与选区替换同�
   await expectGuestHp(second);
   expect(await selfSpellsCast(host)).toBe(2);
 
-  // (3) The whole target in one input event.
+  // （3）在一次 input 事件中输入整个目标。
   const third = await spellText(host);
   await waitForInputGate(host);
   await insertWholeText(host, third);
   await expectGuestHp(third);
   expect(await selfSpellsCast(host)).toBe(3);
 
-  // (4) A selection replacement that lands the final character.
+  // （4）一次选区替换，落下最后一个字符。
   const fourth = await spellText(host);
   await waitForInputGate(host);
   await typeText(host, `${fourth.slice(0, -1)}#`);
@@ -441,10 +444,10 @@ test('恢复与组合输入交错：候选不动、延迟采纳、尾随回放�
   await Promise.all([waitForCombat(host), waitForCombat(guest)]);
 
   /**
-   * Types an accepted prefix, opens a real IME composition over it, and runs one real
-   * disconnect/reconnect cycle so the reconnect's authoritative adoption lands while the
-   * composition is open — it must be parked, never applied into the candidate text. Returns
-   * the discarded composition value and the accepted draft it must fall back to.
+   * 输入一段已接受前缀，在其之上开启一次真实的 IME 拼写，
+   * 并运行一次真实的断开/重连循环，使重连的权威采用在拼写仍开启时到达 ——
+   * 它必须被暂存，绝不能被写入候选文本。返回被丢弃的拼写值，
+   * 以及它必须回退到的已接受草稿。
    */
   const parkRestoreUnderComposition = async (): Promise<{
     committed: string;
@@ -483,7 +486,7 @@ test('恢复与组合输入交错：候选不动、延迟采纳、尾随回放�
         timeout: 30_000,
       })
       .toBe('open');
-    // The parked adoption must not have touched the open composition's candidate text.
+    // 被暂存的采用绝不能触碰仍开启的拼写的候选文本。
     expect(await inputValue(host)).toBe(`${accepted}ceshi`);
     return { committed: `${accepted}ceshi`, accepted, errorTotal };
   };
@@ -493,9 +496,9 @@ test('恢复与组合输入交错：候选不动、延迟采纳、尾随回放�
       (frame) => frame.type === 'input' && (frame.text ?? '').includes('ceshi'),
     ).length;
 
-  // (a) A nonempty discarded composition: the adoption wins at compositionend, the trailing
-  // replay of the exact discarded value falls back to the accepted draft, and the real
-  // browser-side cancel afterwards is an ordinary no-op.
+  // （a）被丢弃的拼写非空：采用在 compositionend 时胜出，
+  // 随后对确切被丢弃值的重放会回退到已接受草稿，
+  // 而此后真实的浏览器侧取消只是一次普通的空操作。
   const parkA = await parkRestoreUnderComposition();
   await typingInput(host).evaluate<void, string, HTMLTextAreaElement>((field, discarded) => {
     field.dispatchEvent(new Event('compositionend'));
@@ -507,7 +510,7 @@ test('恢复与组合输入交错：候选不动、延迟采纳、尾随回放�
   expect((await roomSnapshot(room.host.context, room.roomId)).selfInputStats!.errorTotal).toBe(
     parkA.errorTotal,
   );
-  // Close out the browser-side composition; reverting to the accepted draft counts nothing.
+  // 结束浏览器侧的拼写；回退到已接受草稿不计入任何东西。
   const cdpA = await room.host.context.newCDPSession(host);
   await cdpA.send('Input.imeSetComposition', {
     text: '',
@@ -516,8 +519,8 @@ test('恢复与组合输入交错：候选不动、延迟采纳、尾随回放�
   });
   expect(await inputValue(host)).toBe(parkA.accepted);
   expect(framesWithCeshi()).toBe(0);
-  // A DIFFERENT next value — the target's true next character — is a real keystroke: judged
-  // and sent as usual, so the restore never swallows genuine typing.
+  // 一个不同的后续值 —— 目标真正的下一个字符 —— 是一次真实击键：
+  // 照常判定并发送，因此恢复绝不会吞掉真实的输入。
   const nextChar = (await roomSnapshot(room.host.context, room.roomId)).spell!.text.slice(
     parkA.accepted.length,
     parkA.accepted.length + 1,
@@ -530,7 +533,7 @@ test('恢复与组合输入交错：候选不动、延迟采纳、尾随回放�
     )
     .toBe(parkA.accepted.length + 1);
 
-  // (b) An empty discarded composition must still restore the accepted draft, not wipe it.
+  // （b）被丢弃的拼写为空时，仍必须恢复已接受草稿，而不是把它抹掉。
   const parkB = await parkRestoreUnderComposition();
   await typingInput(host).evaluate<void, void, HTMLTextAreaElement>((field) => {
     field.value = '';
@@ -547,7 +550,7 @@ test('恢复与组合输入交错：候选不动、延迟采纳、尾随回放�
   });
   expect(await inputValue(host)).toBe(parkB.accepted);
 
-  // (c) Terminal while composing: the parked text can never be submitted after the match ends.
+  // （c）拼写中进入终态：对局结束后，被暂存的文本绝不可能被提交。
   const terminalDraft = (await roomSnapshot(room.host.context, room.roomId)).selfInput;
   await host.getByTestId('typing-input').click();
   const cdpC = await room.host.context.newCDPSession(host);
@@ -581,8 +584,8 @@ test('同纪元确认不回退本地编辑；连接正常时在线与可见事�
   const text = await spellText(host);
   const tracked = trackWebsockets(host);
 
-  // Two keystrokes in one burst: the first character's acknowledgement must never rewrite the
-  // field back to one character once the second has landed locally.
+  // 一次突发中的两次击键：当第二个字符已在本地落下后，
+  // 第一个字符的确认绝不能把输入框改回一个字符。
   await typeText(host, text.slice(0, 1));
   await typeText(host, text.slice(1, 2));
   expect(await inputValue(host)).toBe(text.slice(0, 2));
@@ -598,7 +601,7 @@ test('同纪元确认不回退本地编辑；连接正常时在线与可见事�
   );
   expect(charFrames).toHaveLength(1);
 
-  // The socket is open: the reconnect triggers must not stack a second connection beside it.
+  // Socket 处于打开状态：重连触发器绝不可在其旁再叠加一条连接。
   await fireReconnectTriggers(host);
   await settle(1500);
   expect(tracked.count()).toBe(0);
@@ -627,7 +630,7 @@ test('刷新、第二连接接管与进程重启保持草稿、纪元与资格�
   const baseGate = base.selfInputGate!;
   const baseDeadline = base.deadline;
 
-  // Refresh: the same stored identity comes back, the floor is not re-timed.
+  // 刷新：同一个已存储身份回来了，时间下限不会被重新计时。
   await host.page.reload();
   await waitForCombat(host.page);
   expect(await inputValue(host.page)).toBe(text.slice(0, 4));
@@ -636,8 +639,8 @@ test('刷新、第二连接接管与进程重启保持草稿、纪元与资格�
   expect(afterReload.selfInputGate!.notBefore).toBe(baseGate.notBefore);
   expect(afterReload.deadline).toBe(baseDeadline);
 
-  // A second window of the same account takes the seat over; the original window stops for
-  // good instead of fighting for the seat.
+  // 同一账号的第二个窗口接管了席位；原窗口就此永久停止，
+  // 而不是为这个席位争夺。
   const trackedOriginal = trackWebsockets(host.page);
   const secondWindow = await newContext(browser);
   const secondPage = await secondWindow.newPage();
@@ -651,12 +654,12 @@ test('刷新、第二连接接管与进程重启保持草稿、纪元与资格�
   await expect(host.page.getByTestId('room-error')).toContainText('接管');
   await settle(4000);
   expect(trackedOriginal.count()).toBe(0);
-  // Takeover is verified. Vite's dev-only restart reloads even terminal pages, which would
-  // legitimately reclaim this seat; that is not part of the Worker durability scenario.
+  // 接管已验证。Vite 仅供开发使用的重启会连终态页面一起重载，
+  // 而那会合法地重新占回这个席位；这并不属于 Worker 持久性场景的一部分。
   await host.page.close();
 
-  // A real process restart: both pages' sockets die with the process and reconnect on their
-  // own; identity, floor and deadline come back as the stored ones, byte for byte.
+  // 一次真实的进程重启：两个页面的 Socket 随进程一起消亡并自行重连；
+  // 身份、时间下限与截止时间逐字节地按已存储的内容恢复。
   await harness().restartServer();
   await expect
     .poll(() => secondPage.getByTestId('connection-status').getAttribute('data-state'), {
@@ -676,7 +679,7 @@ test('刷新、第二连接接管与进程重启保持草稿、纪元与资格�
   expect(afterRestart.selfInputGate!.notBefore).toBe(baseGate.notBefore);
   expect(afterRestart.deadline).toBe(baseDeadline);
 
-  // The preserved eligibility is a real one: the lawful completion after it lands.
+  // 被保留下来的资格是真实的：其后的合法完成会正常生效。
   await waitForInputGate(secondPage);
   await insertWholeText(secondPage, text.slice(4));
   await expect
@@ -730,8 +733,8 @@ test('输入超限一次4004：在线与可见触发被地板拦住，重连保�
   const beforeGate = (await roomSnapshot(room.host.context, room.roomId)).selfInputGate!;
   const tracked = trackWebsockets(host);
 
-  // Sixty-one lawful drafts in one quota window through the page's own real socket: the last
-  // one is refused, the connection is revoked and closed exactly once with 4004.
+  // 在一个配额窗口内通过页面自身的真实 Socket 提交六十一次合法草稿：
+  // 最后一次被拒绝，连接被撤销并以 4004 恰好关闭一次。
   await typingInput(host).evaluate<void, void, HTMLTextAreaElement>((field) => {
     for (let count = 1; count <= 61; count += 1) {
       field.value = 'x'.repeat(count);
@@ -741,11 +744,11 @@ test('输入超限一次4004：在线与可见触发被地板拦住，重连保�
   await expect.poll(() => closeLog(), { timeout: 20_000 }).toContain(4004);
   await expect(host.getByTestId('battle-notice')).toContainText(OVERLOAD_NOTICE);
 
-  // Measure from native close/constructor events, not from a potentially late Node poll.
-  // The in-page close observer also fires online/visibility bursts within the floor.
+  // 从原生的关闭/构造事件计时，而不是依赖可能迟到的 Node 轮询。
+  // 页面内的关闭观察器还会在时间下限内触发上线/可见性突发。
 
-  // After the floor the room comes back on its own: the same match, the same gate, the draft
-  // the server accepted, and no forfeit.
+  // 过了时间下限后房间会自行恢复：相同的对局、相同的门槛、
+  // 服务端所接受的草稿，且没有被判弃赛。
   await expect
     .poll(() => host.getByTestId('connection-status').getAttribute('data-state'), {
       timeout: 15_000,
@@ -770,7 +773,7 @@ test('输入超限一次4004：在线与可见触发被地板拦住，重连保�
   expect(reconnected.phase).toBe('playing');
   expect(reconnected.selfInputGate!.draftEpoch).toBe(beforeGate.draftEpoch);
   expect(reconnected.selfInputGate!.notBefore).toBe(beforeGate.notBefore);
-  // The reconnection restores the server's accepted draft, not a forfeited seat.
+  // 重连恢复的是服务端已接受的草稿，而不是一个被判弃赛的席位。
   await expect.poll(() => inputValue(host), { timeout: 15_000 }).toBe(reconnected.selfInput);
   expect(snapshotPlayer(reconnected, hostIdentity).eliminatedAt).toBeNull();
   expect(snapshotPlayer(reconnected, guestIdentity).hp).toBe(INITIAL_HEALTH);
@@ -789,7 +792,7 @@ test('协议握手：无与错误子协议被拒绝，缺纪元的输入帧按�
   const host = room.host.page;
   await waitForLobbyVisible(host);
 
-  // A handshake that cannot name the wire protocol never becomes a socket.
+  // 无法指明线协议的握手绝不会变成一条 Socket。
   const withoutProtocol = await openRawSocket(host, room.roomId, { protocols: [] });
   expect(withoutProtocol.opened).toBe(false);
   const wrongProtocol = await openRawSocket(host, room.roomId, { protocols: ['spelltype.v1'] });
@@ -797,8 +800,8 @@ test('协议握手：无与错误子协议被拒绝，缺纪元的输入帧按�
   const currentProtocol = await openRawSocket(host, room.roomId, { holdMs: 300 });
   expect(currentProtocol.opened).toBe(true);
 
-  // A v2-shaped input without its mandatory draft epoch is an old client in disguise: told to
-  // refresh once, then closed with the protocol-mismatch code.
+  // 一个缺少必需草稿代际的 v2 形态输入是伪装的旧客户端：
+  // 先被告知刷新一次，随后以协议不匹配关闭码关闭。
   const missingEpoch = await openRawSocket(host, room.roomId, {
     holdMs: 1500,
     send: [{ type: 'input', matchId: '000000000000000000000000', spellIndex: 0, text: 'spell' }],
@@ -829,12 +832,12 @@ test('初始读取版本不符是终态：刷新按钮出现，网络恢复与�
   );
   await gotoApp(host, `/?room=${room.roomId}`);
 
-  // The terminal surface offers exactly one fix for the page itself: reload.
+  // 终态界面为页面自身提供的修复办法只有一个：刷新。
   await expect(host.getByTestId('room-error')).toContainText(UPDATE_REQUIRED);
   await expect(host.getByTestId('room-reload')).toBeVisible();
   await expect(host.getByTestId('room-error-retry')).toHaveCount(0);
 
-  // Terminal means terminal: online, focus and visibility triggers never open a socket.
+  // 终态就是终态：上线、获焦与可见性触发器绝不会打开任何 Socket。
   for (let burst = 0; burst < 4; burst += 1) {
     await fireReconnectTriggers(host);
     await settle(400);
@@ -858,8 +861,8 @@ test('重启后旧局策略与资格不可变；新局遵循新默认且观察�
   expect(enforceGate.mode).toBe('enforce');
   const liveDeadline = await deadline(host);
 
-  // The instance reboots with observe as the new default: the running match keeps the policy it
-  // was locked with, down to the exact stored floor instant.
+  // 实例以 observe 作为新默认值重启：进行中的对局保留其被锁定时的策略，
+  // 直到那个确切存储的时间下限时刻。
   try {
     await harness().restartServer({ inputPolicyMode: 'observe' });
     await expect
@@ -880,7 +883,7 @@ test('重启后旧局策略与资格不可变；新局遵循新默认且观察�
     expect(kept.selfInputGate!.notBefore).toBe(enforceGate.notBefore);
     expect(kept.deadline).toBe(liveDeadline);
 
-    // The old match still ENFORCES: a premature completion is refused even under an observe config.
+    // 旧对局仍然强制执行：即便在 observe 配置下，过早的完成也会被拒绝。
     const staged = await atPrematureWindow(host, room.roomId);
     const rejected = await rejectCurrentSpell(host, room.roomId);
     expect(rejected.snapshot.selfInputGate!.resetReason).toBe('completion_too_early');
@@ -888,14 +891,14 @@ test('重启后旧局策略与资格不可变；新局遵循新默认且观察�
       snapshotPlayer(staged, hostIdentity).spellsCast,
     );
 
-    // Settle the frozen match: the leaver's row and the survivor's row are stored under the
-    // match's own policy, not the config that happens to be deployed now.
+    // 结算这场被冻结的对局：离场者的行与幸存者的行都按该对局自身的策略存储，
+    // 而不是按当前恰好部署的配置。
     await guest.getByTestId('battle-leave').click();
     await expect.poll(() => battlePhase(host), { timeout: 30_000 }).toBe('finished');
     await expect.poll(() => saveStatus(host), { timeout: 120_000 }).toBe('saved');
 
-    // A fresh match plays under the new default: observe records the premature attempt and lets
-    // the cast land, with zeroed per-match summaries and no recovery.
+    // 新对局在新默认值下进行：observe 记录这次过早尝试并让施法落地，
+    // 单场汇总为零，且没有恢复。
     const roomB = await twoPlayerRoom(browser, { theme: '观察默认' });
     const hostBIdentity = await selfIdentity(roomB.host.context);
     await startMatch(roomB.host.page);
@@ -909,8 +912,8 @@ test('重启后旧局策略与资格不可变；新局遵循新默认且观察�
     expect(accepted.selfInputGate!.resetReason).toBeNull();
     expect(snapshotPlayer(accepted, hostBIdentity).spellsCast).toBe(1);
 
-    // The history column names the stored policy per match: the enforce match stayed 执行, the
-    // observe match reports its one recorded gate touch, zero recoveries, and no human claim.
+    // 历史列按对局记录所存储的策略：enforce 那场保持为 enforce，
+    // observe 那场报告其唯一一次记录在案的门槛命中、零次恢复，且不声称有人为操作。
     await roomB.guest.page.getByTestId('battle-leave').click();
     await expect.poll(() => saveStatus(roomB.host.page), { timeout: 120_000 }).toBe('saved');
     const profile = await apiJson<Profile>(roomB.host.context, '/api/profile');
@@ -943,12 +946,12 @@ test('战绩只记一次、摘要不串局；存储只有聚合；历史只属�
   await startMatch(host);
   await Promise.all([waitForCombat(host), waitForCombat(guest)]);
 
-  // One real rejection gives this match a nonzero summary before anything can be stored.
+  // 一次真实的拒绝使本场对局在任何内容被存储之前就拥有非零汇总。
   const rejected = await rejectCurrentSpell(host, room.roomId);
   const matchA = rejected.snapshot.matchId!;
   expect(rejected.snapshot.selfInputGate!.draftEpoch).toBe(1);
 
-  // Stop before the current spell can kill, observing every committed volley first.
+  // 在当前这道咒文能造成击杀之前停下，并先观测每一次已提交的齐射。
   const guestHp = async () =>
     snapshotPlayer(await roomSnapshot(room.host.context, room.roomId), guestIdentity).hp;
   let lethalHp = await guestHp();
@@ -965,7 +968,7 @@ test('战绩只记一次、摘要不串局；存储只有聚合；历史只属�
   const killingIndex = await selfSpellIndex(host);
   await breakResultsSink();
   try {
-    // Acceptance survives a failed sink, but damage and terminal state do not.
+    // 接受结果能在写入失败后存活，但伤害与终态不能。
     await completeSpell(host);
     expect(await selfSpellIndex(host)).toBe(killingIndex + 1);
     const [pending] = await testDb()
@@ -993,8 +996,8 @@ test('战绩只记一次、摘要不串局；存储只有聚合；历史只属�
     if (await resultsSinkIsBroken()) await restoreResultsSink();
   }
 
-  // The accepted intent settles without another input, including across restart.
-  // Changing the default cannot rewrite the measured policy of this existing match.
+  // 被接受的意图无需另一次输入即完成结算，跨重启亦然。
+  // 更改默认值无法改写这场既有对局已实测的策略。
   try {
     await harness().restartServer({ inputPolicyMode: 'observe' });
     await gotoApp(host, `/?room=${room.roomId}`);
@@ -1023,7 +1026,7 @@ test('战绩只记一次、摘要不串局；存储只有聚合；历史只属�
     expect(guestA.input_recoveries).toBe(0);
     expect(guestA.input_min_completion_ratio).toBeNull();
 
-    // A second match under the new default keeps its own summaries; nothing blends across matches.
+    // 新默认值下的第二场对局保留自己的汇总；不同对局之间不会混合。
     await roomBrematch(host, guest);
     const matchB = await roomSnapshot(room.host.context, room.roomId).then((view) => view.matchId!);
     expect(matchB).not.toBe(matchA);
@@ -1057,7 +1060,7 @@ test('战绩只记一次、摘要不串局；存储只有聚合；历史只属�
     )!;
     expect(hostAAgain.input_policy_mode).toBe('enforce');
 
-    // The persisted table carries aggregates only: no draft, trajectory or raw-input column.
+    // 持久化表只携带聚合数据：没有草稿、轨迹或原始输入列。
     const columns = await testDb()
       .select({ column_name: sql<string>`column_name` })
       .from(sql`information_schema.columns`)
@@ -1067,8 +1070,7 @@ test('战绩只记一次、摘要不串局；存储只有聚合；历史只属�
         /draft|trajectory|raw_input|keystroke|input_text/,
       );
 
-    // History is private: each account reads exactly its own rows, and a bystander account
-    // reads none of them.
+    // 历史是私有的：每个账号恰好读到自己的行，而旁观账号读不到其中任何一行。
     const hostProfile = await apiJson<Profile>(room.host.context, '/api/profile');
     expect(hostProfile.body.history.some((row) => row.match_id === matchA)).toBe(true);
     expect(hostProfile.body.history.some((row) => row.match_id === matchB)).toBe(true);
@@ -1101,9 +1103,9 @@ test('按门槛等待的脚本施法正常生效', async ({ browser }) => {
   await startMatch(host);
   await Promise.all([waitForCombat(host), waitForCombat(guest)]);
 
-  // A script that respects the published floor casts like anyone else: it reads its own
-  // identity from a snapshot, waits out the server clock, and sends the captured values
-  // verbatim. This verifies the timing rule — never that a typist is human.
+  // 尊重已发布时间下限的脚本，施法方式与任何客户端无异：
+  // 它从快照读取自身身份、等过服务端时钟，并原样发送所捕获的值。
+  // 这验证的是时间规则 —— 绝不验证打字者是人类。
   let damaged = 0;
   let casts = 0;
   for (let round = 0; round < 2; round += 1) {
@@ -1121,7 +1123,7 @@ test('按门槛等待的脚本施法正常生效', async ({ browser }) => {
       if (fresh.serverNow >= notBefore && fresh.selfInputGate!.notBefore === notBefore) break;
       await settle(120);
     }
-    // The raw frame carries exactly the identity this script captured: verbatim, never upgraded.
+    // 该原始帧携带的正是本脚本所捕获的身份：原样，绝不升级。
     await sendCapturedInput(host, room.roomId, {
       matchId: staged.matchId!,
       spellIndex: snapshotPlayer(staged, hostIdentity).spellIndex,
@@ -1149,8 +1151,8 @@ test('按门槛等待的脚本施法正常生效', async ({ browser }) => {
 
 test('门槛与恢复的可见状态留存桌面与移动截图', async ({ browser }) => {
   test.setTimeout(420_000);
-  // Host on the suite's desktop viewport; guest on a phone-sized one (layout proof only — a
-  // real device keyboard cannot be emulated).
+  // 房主使用测试套件的桌面视口；客方使用手机尺寸视口
+  // （仅用于证明布局 —— 真实设备键盘无法被模拟）。
   const host = await signedInContext(browser, 'gate');
   const roomId = await createRoom(host.page, { theme: '可见契约' });
   const guest = await newContext(browser, { viewport: { width: 390, height: 844 } });
@@ -1169,7 +1171,7 @@ test('门槛与恢复的可见状态留存桌面与移动截图', async ({ brows
   const guestIdentity = await selfIdentity(guest);
   const text = await spellText(host.page);
 
-  // Desktop: the recovery notice, the restored draft, the caret, and an editable field.
+  // 桌面端：恢复提示、被恢复的草稿、光标位置，以及仍可编辑的输入框。
   await typeText(host.page, text.slice(0, 4));
   const rejected = await rejectCurrentSpell(host.page, roomId);
   expect(await inputValue(host.page)).toBe(text.slice(0, 4));
@@ -1179,7 +1181,7 @@ test('门槛与恢复的可见状态留存桌面与移动截图', async ({ brows
   const desktopShot = test.info().outputPath('input-gate-desktop-1440x900.png');
   await host.page.screenshot({ path: desktopShot });
 
-  // The field is still an ordinary editor after the restore: the next keystroke is judged.
+  // 恢复之后输入框仍是普通编辑器：下一次击键照常被判定。
   await insertIntoField(host.page, text.slice(4, 5));
   await expect
     .poll(
@@ -1189,7 +1191,7 @@ test('门槛与恢复的可见状态留存桌面与移动截图', async ({ brows
     )
     .toBe(5);
 
-  // Mobile: the same room shows its own gate inside the phone viewport.
+  // 移动端：同一个房间在手机视口内显示其自身的门槛。
   await expect
     .poll(async () => snapshotGate(await roomSnapshot(guest, roomId), guestIdentity))
     .not.toBeNull();
@@ -1204,7 +1206,7 @@ test('门槛与恢复的可见状态留存桌面与移动截图', async ({ brows
   const mobileShot = test.info().outputPath('input-gate-mobile-390x844.png');
   await guestPage.screenshot({ path: mobileShot });
 
-  // No duplicate hit: the recovered draft completes once and damages exactly once.
+  // 没有重复命中：被恢复的草稿完成一次，造成恰好一次伤害。
   await waitForInputGate(host.page);
   await insertWholeText(host.page, rejected.snapshot.spell!.text.slice(5));
   await expect(host.page.getByTestId('spell-text-complete')).toBeVisible();
@@ -1223,14 +1225,14 @@ test('门槛与恢复的可见状态留存桌面与移动截图', async ({ brows
   await guest.close();
 });
 
-/* ------------------------------------------------------------ test-local glue */
+/* ------------------------------------------------------------ 测试本地衔接代码 */
 
-/** Waits until the lobby is visible (handshake tests only need a seated room, not combat). */
+/** 等待直到大厅可见（握手测试只需要一个已入座的房间，不需要战斗）。 */
 async function waitForLobbyVisible(page: Page): Promise<void> {
   await expect(page.getByTestId('lobby-panel')).toBeVisible({ timeout: 30_000 });
 }
 
-/** Sends one captured input frame verbatim over a fresh raw v2 socket. */
+/** 通过一条新建的原始 v2 Socket 原样发送一个已捕获的输入帧。 */
 async function sendCapturedInput(
   page: Page,
   roomId: string,
@@ -1242,7 +1244,7 @@ async function sendCapturedInput(
   });
 }
 
-/** Rematches the settled private room in place (both seats survive a settled match). */
+/** 在已结算的私人房中就地再来一局（两个席位都能跨过已结算的对局存续）。 */
 async function roomBrematch(host: Page, guest: Page): Promise<void> {
   await host.getByTestId('rematch').click();
   await Promise.all([
@@ -1250,7 +1252,7 @@ async function roomBrematch(host: Page, guest: Page): Promise<void> {
     expect(guest.getByTestId('lobby-panel')).toBeVisible({ timeout: 30_000 }),
   ]);
   await Promise.all([setReady(host, true), setReady(guest, true)]);
-  // Either surviving connection can become host after the process restart.
+  // 进程重启后，任一条幸存的连接都可以成为房主。
   await startMatch((await host.getByTestId('lobby-start').isVisible()) ? host : guest);
   await Promise.all([waitForCombat(host), waitForCombat(guest)]);
 }

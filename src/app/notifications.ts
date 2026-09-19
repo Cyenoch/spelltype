@@ -195,7 +195,7 @@ export function createNotificationService(props: { session: Session }): Notifica
     ),
   );
 
-  /** Re-checked after every await: identity, generation, consent, visibility and expiry. */
+  /** 在每次 await 之后重新校验：身份、代际、授权、可见性与有效期。 */
   const stillValid = (attempt: Attempt): boolean =>
     userId() === attempt.ownerId &&
     accountGeneration === attempt.accountGen &&
@@ -210,7 +210,7 @@ export function createNotificationService(props: { session: Session }): Notifica
     event: GameNotification,
   ): Promise<void> => {
     const copy = COPY[event.kind];
-    // `renotify` ships in browsers but not yet in this TypeScript DOM lib.
+    // `renotify` 已在浏览器中提供，但本 TypeScript DOM 类型库尚未包含它。
     const options: NotificationOptions & { renotify?: boolean } = {
       body: copy.body,
       lang: 'zh-CN',
@@ -226,7 +226,7 @@ export function createNotificationService(props: { session: Session }): Notifica
     await reg.showNotification(copy.title, options);
   };
 
-  /** Closes only the notification this exact attempt produced; never a newer same-room one. */
+  /** 只关闭本次尝试所产生的通知；绝不关闭同一房间更新的那条。 */
   const closeShown = async (reg: ServiceWorkerRegistration, attempt: Attempt): Promise<void> => {
     try {
       const tag = `${TAG_PREFIX}${attempt.ownerId}:${attempt.roomId}`;
@@ -236,7 +236,7 @@ export function createNotificationService(props: { session: Session }): Notifica
         if (data?.eventKey === attempt.key && data?.gen === attempt.gen) notification.close();
       }
     } catch {
-      // Best-effort cleanup; a stale toast is harmless compared to a wrong close.
+      // 尽力而为的清理；相比错误关闭，一条陈旧的吐司提示无害得多。
     }
   };
 
@@ -249,7 +249,7 @@ export function createNotificationService(props: { session: Session }): Notifica
     const key = [ownerId, event.roomId, event.matchId ?? RESERVATION_KEY, event.kind].join(':');
     if (shown.has(key)) return;
 
-    // A new event identity for a room supersedes any attempt still in flight for it.
+    // 房间的新事件身份会取代该房间任何仍在飞行中的尝试。
     let room = rooms.get(event.roomId);
     if (!room) {
       room = { gen: 0, lastKey: null };
@@ -272,7 +272,7 @@ export function createNotificationService(props: { session: Session }): Notifica
       const reg = await startRegistration();
       if (!reg || !stillValid(attempt)) return;
       if (typeof navigator.locks?.request === 'function') {
-        // One account-wide lock serialises read → dedup → show → record across tabs.
+        // 一把账号级的锁在跨标签页场景下串行化 读取 → 去重 → 展示 → 记录。
         await navigator.locks.request(`${LOCK_PREFIX}${attempt.ownerId}`, async () => {
           if (!stillValid(attempt)) return;
           const ledger = readLedger(attempt.ownerId);
@@ -297,14 +297,14 @@ export function createNotificationService(props: { session: Session }): Notifica
         shown.add(attempt.key);
       }
     } catch {
-      // Delivery is best-effort: a failure changes no game state and never retries itself.
+      // 送达是尽力而为的：失败不会改变任何对局状态，也绝不自行重试。
     }
   };
 
   const invalidateRoom = (roomId: string): void => {
     const room = rooms.get(roomId);
-    // Without local room state (the reminder may have been shown by another tab),
-    // every reminder for the room is stale; otherwise only the recorded generations.
+    // 若没有本地房间状态（该提醒可能已由另一个标签页展示过），
+    // 则房间的每条提醒都已陈旧；否则只针对已记录的代际。
     const staleUpTo = room?.gen ?? Number.POSITIVE_INFINITY;
     if (room) {
       room.gen += 1;
@@ -328,8 +328,8 @@ export function createNotificationService(props: { session: Session }): Notifica
   const enable = async (): Promise<void> => {
     if (!supported()) return;
     try {
-      // Runs inside the click handler's stack: the permission request is the very
-      // first thing that happens, before any await can spend the user gesture.
+      // 在点击处理器的调用栈中运行：权限请求是最先发生的事，
+      // 早于任何可能耗掉用户手势的 await。
       if (Notification.permission === 'default') {
         setNativePermission(await Notification.requestPermission());
       }

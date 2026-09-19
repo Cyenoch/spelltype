@@ -37,8 +37,9 @@ export {
 export * from './schema';
 
 /**
- * The native database union. Development runs PGlite; production runs PostgreSQL over Bun's native
- * SQL client. Storage functions accept this union or the corresponding transaction union below.
+ * 原生数据库联合类型。开发环境使用 PGlite；
+ * 生产环境通过 Bun 原生 SQL 客户端连接 PostgreSQL。
+ * 存储层函数接受此联合类型，或下方对应的事务联合类型。
  */
 export type Database = BunSQLDatabase<typeof schema> | PgliteDatabase<typeof schema>;
 
@@ -49,15 +50,15 @@ type PgliteTx = PgTransaction<
   ExtractTablesWithRelations<typeof schema>
 >;
 
-/** The `db.transaction(async (tx) => ...)` callback parameter, per driver. */
+/** 各驱动对应的 `db.transaction(async (tx) => ...)` 回调参数类型。 */
 export type Transaction = BunSqlTx | PgliteTx;
 
-/** Anything that can run queries: an open database or a transaction from either driver. */
+/** 任何具备查询能力的对象：已打开的数据库实例，或由任一驱动发起的事务。 */
 export type QueryDatabase = Database | Transaction;
 
 /**
- * An open-phase failure that is not about the URL, the lock or migrations themselves — e.g. an
- * engine that refused to shut down after a failed open. The original failure rides in `cause`.
+ * 打开阶段的失败，且与 URL、锁或迁移本身无关 ——
+ * 例如引擎在一次失败的打开之后拒绝关闭。原始失败挂在 `cause` 上。
  */
 export class DatabaseOpenError extends Error {
   constructor(message: string, options?: { cause?: unknown }) {
@@ -69,32 +70,32 @@ export class DatabaseOpenError extends Error {
 export interface OpenedDatabase {
   db: Database;
   /**
-   * Closes the driver and, for PGlite, releases the exclusive data-directory claim. A clean close
-   * releases the directory; a failed close intentionally leaves the claim in place so no second
-   * owner can open a database of uncertain state.
+   * 关闭驱动；对于 PGlite，还会释放其排他的数据目录占用声明。正常关闭会释放目录；
+   * 失败的关闭会刻意保留占用声明，使第二个所有者无法打开一个状态未决的数据库。
    */
   close(): Promise<void>;
 }
 
 export interface OpenDatabaseOptions {
   /**
-   * Defaults to the repository's `drizzle/` folder, resolved relative to this module (correct for
-   * the unbundled dev server and tests). Bundled deployments must pass the folder they ship.
+   * 默认为仓库的 `drizzle/` 目录，相对本模块解析
+   * （对未打包的开发服务器与测试而言是正确的）。
+   * 打包部署必须传入它们所交付的那个目录。
    */
   migrationsFolder?: string;
   /**
-   * Apply pending migrations on open (default `true`, including production startup). Maintenance
-   * commands pass `false` to check the schema without changing it. Both modes validate the shipped
-   * migration prefix and fail closed on stale or diverged history.
+   * 打开时应用待处理迁移（默认 `true`，生产启动亦然）。
+   * 维护命令传入 `false`，以便在不改动 schema 的前提下检查它。
+   * 两种模式都会校验随构建交付的迁移前缀，并在历史陈旧或分歧时故障闭锁。
    */
   migrate?: boolean;
 }
 
 export interface MigrateDatabaseOptions {
   /**
-   * Defaults to the repository's `drizzle/` folder (see {@link OpenDatabaseOptions}). Only the
-   * folder is configurable: migrating never opens an application pool and never claims the
-   * runtime-ownership lease — the migration entry stays a pure schema tool.
+   * 默认为仓库的 `drizzle/` 目录（见 {@link OpenDatabaseOptions}）。
+   * 只有该目录可配置：迁移过程绝不打开应用连接池，也绝不占用运行时归属租约 ——
+   * 迁移入口始终是一个纯粹的 schema 工具。
    */
   migrationsFolder?: string;
 }
@@ -105,9 +106,9 @@ const DEFAULT_MIGRATIONS_FOLDER = path.resolve(
 );
 
 /**
- * The sha256 of every migration file this build ships, in journal order. The migrator records the
- * same hashes in `drizzle.__drizzle_migrations`, so an exact per-entry comparison decides whether
- * an open contains the complete migration prefix required by this build.
+ * 本次构建所交付的所有迁移文件的 sha256，按日志顺序排列。
+ * 迁移器会把相同的哈希记录在 `drizzle.__drizzle_migrations` 中，
+ * 因此通过逐项精确比对即可判定某次打开是否包含本次构建所要求的完整迁移前缀。
  */
 function shippedMigrationHashes(migrationsFolder: string): string[] {
   const journal = JSON.parse(
@@ -121,8 +122,8 @@ function shippedMigrationHashes(migrationsFolder: string): string[] {
 }
 
 /**
- * The applied migration hashes on the given session, in application order. Both drivers keep them
- * in `drizzle.__drizzle_migrations(id, hash, created_at)`; only the query surface differs.
+ * 给定会话上已应用的迁移哈希，按应用顺序排列。两种驱动都将其保存在
+ * `drizzle.__drizzle_migrations(id, hash, created_at)` 中；只有查询接口不同。
  */
 async function appliedMigrationHashesPostgres(client: SQL): Promise<string[]> {
   const rows = (await client.unsafe(
@@ -139,12 +140,12 @@ async function appliedMigrationHashesPglite(client: PGlite): Promise<string[]> {
 }
 
 /**
- * Fail-closed prefix comparison: every migration this build ships must be present in the
- * database's applied history with the exact hash. A database that is AHEAD of this build (extra,
- * newer migrations applied by a newer image) is accepted on purpose — rolling back to a
- * compatible older image must stay possible, and there are no down-migrations. What refuses the
- * open: a database MISSING a migration this build requires, or an expected migration whose
- * recorded hash no longer matches this build's file (rewritten history).
+ * 故障闭锁的前缀比对：本次构建交付的每一个迁移都必须以其确切的哈希
+ * 出现在数据库的已应用历史中。领先于本次构建的数据库（更旧的镜像之上
+ * 被更新镜像应用了额外、更新的迁移）会被刻意接受 ——
+ * 回滚到兼容的旧镜像必须始终可行，而这里不存在向下迁移。
+ * 会拒绝打开的情形：数据库缺少本次构建所要求的某个迁移，
+ * 或某个预期迁移的记录哈希已不再匹配本次构建的文件（历史被改写）。
  */
 function assertMigrationLevelMatches(applied: string[], shipped: string[]): void {
   if (applied.length < shipped.length) {
@@ -164,10 +165,10 @@ function assertMigrationLevelMatches(applied: string[], shipped: string[]): void
 }
 
 /**
- * Opens the database and resolves only when it is usable: pending migrations applied by default,
- * then the shipped migration prefix validated. Both drivers run the same generated migration set,
- * and both paths fail closed: a malformed URL, a contested PGlite directory, a failed migration
- * or a stale schema never resolves into a half-ready database.
+ * 打开数据库，且仅在其完全可用时才解析完成：默认先应用待处理迁移，
+ * 随后校验随构建交付的迁移前缀。两种驱动运行完全相同的生成迁移集，
+ * 且两条路径都故障闭锁：格式错误的 URL、存在争用的 PGlite 目录、
+ * 失败的迁移或陈旧的 schema，都绝不会解析出一个半就绪的数据库。
  */
 export async function openDatabase(
   rawUrl: string,
@@ -188,11 +189,11 @@ export async function openDatabase(
 }
 
 /**
- * PostgreSQL: a dedicated single-connection migration pool owns the whole migration. The bounded
- * session SETs, the advisory lock and the drizzle migrator all run on that one reserved session;
- * because `release()` only returns a session to its pool, the migration pool is then *ended* —
- * the SETs and the lock provably die with it instead of surviving on a pooled session. Only after
- * a clean end does the application open its own separate pool.
+ * PostgreSQL：由专用的单连接迁移池负责整个迁移流程。有界的会话级 SET、
+ * 咨询锁以及 drizzle 迁移器全部运行在那唯一一条预留会话上；
+ * 由于 `release()` 只是把会话归还给其连接池，迁移池随后会被*结束* ——
+ * 那些 SET 与锁可证明地随之消亡，而不是继续存活在某条池化会话上。
+ * 只有在干净结束之后，应用才会打开自己独立的连接池。
  */
 async function openPostgres(
   connectionString: string,
@@ -223,9 +224,10 @@ async function openPostgres(
 }
 
 /**
- * The PostgreSQL migration critical section on its own dedicated pool: bounded SETs, advisory
- * lock, migrator, proven unlock, pool end. Shared by `openDatabase` (which then opens its own
- * app pool) and `migrateDatabase` (which stops here on purpose).
+ * 在专用连接池上执行的 PostgreSQL 迁移临界区：有界 SET、咨询锁、
+ * 迁移器、已验证的解锁、连接池结束。
+ * 由 `openDatabase`（随后会打开自己的应用连接池）与
+ * `migrateDatabase`（刻意到此为止）共用。
  */
 async function runPostgresMigrations(
   connectionString: string,
@@ -242,10 +244,10 @@ async function runPostgresMigrations(
       await migratePostgresOn(reserved, migrationsFolder);
     } finally {
       try {
-        // Propagates: a migration whose unlock could not be proven is not a clean migration.
+        // 向上传播：无法证明已解锁的迁移不算干净的迁移。
         if (lock !== undefined) await lock.release();
       } finally {
-        // Return the session even if the unlock failed; the pool end below still runs.
+        // 即便解锁失败也归还会话；下方的连接池结束仍会执行。
         reserved.release();
       }
     }
@@ -253,15 +255,15 @@ async function runPostgresMigrations(
     try {
       await migrationSql.end();
     } catch {
-      // Preserve the real failure; the lock dies when the process's connection does regardless.
+      // 保留真实失败；无论如何，进程的连接一消亡，锁也会随之消亡。
     }
     if (error instanceof DatabaseMigrationError) throw error;
     throw new DatabaseMigrationError('PostgreSQL migration did not complete cleanly.', {
       cause: error,
     });
   }
-  // Migration proven complete and unlocked: end the migration pool. A failure here still fails
-  // the whole operation — the lock proof must not rest on a session we could not close.
+  // 迁移已被证明完成并解锁：结束迁移连接池。
+  // 此处的失败仍会让整个操作失败 —— 锁的证明绝不能依赖一条我们无法关闭的会话。
   try {
     await migrationSql.end();
   } catch (error) {
@@ -273,10 +275,10 @@ async function runPostgresMigrations(
 }
 
 /**
- * PGlite: claim the data directory before the WASM instance exists (PGlite is handed exactly the
- * canonical claimed directory, so lock and use can never diverge), then migrate — or prove the
- * migration level — on the same single-connection instance the app will use. The claim is what
- * serializes migrations here — only one process can hold the directory at all.
+ * PGlite：在 WASM 实例存在之前先占用数据目录
+ * （交给 PGlite 的正是那个规范化后的已占用目录，因此锁定与使用绝不会分歧），
+ * 随后在应用将要使用的同一单连接实例上执行迁移 —— 或证明迁移层级。
+ * 这里的占用声明正是迁移串行化的手段 —— 同一时间只有一个进程能持有该目录。
  */
 async function openPglite(
   parsed: Extract<ParsedDatabaseUrl, { driver: 'pglite' | 'pglite-memory' }>,
@@ -309,9 +311,8 @@ async function openPglite(
       try {
         await client.close();
       } catch (closeError) {
-        // Shutdown failed: the engine may still hold the directory's files, so the claim stays —
-        // handing it back now would let a second opener in. Surface the shutdown failure without
-        // losing the original cause.
+        // 关闭失败：引擎可能仍持有该目录的文件，因此占用声明保留 ——
+        // 此刻交还它会放进第二个打开者。上报该关闭失败，同时不丢失原始原因。
         throw new DatabaseOpenError(
           `PGlite failed to shut down after a failed open (${String(closeError)}); ` +
             'the directory claim was kept so no second opener can start.',
@@ -319,23 +320,23 @@ async function openPglite(
         );
       }
     }
-    // The engine is provably down (or never started): the directory can be handed back so the
-    // next attempt — after whatever fix — can claim it.
+    // 引擎已被证明停止（或从未启动）：目录可以交还，
+    // 使下一次尝试 —— 在完成相应修复之后 —— 能够占用它。
     try {
       await claim?.release();
     } catch {
-      // The lock file stays; the next open fails closed with the recorded receipt.
+      // 锁文件保留；下一次打开会带着已记录的回执故障闭锁。
     }
     throw error;
   }
 }
 
 /**
- * Applies pending migrations and closes — nothing else. The production migration entry uses this
- * to move the schema without ever opening the application database or claiming the runtime lease,
- * so a migration run cannot silently become a running game server. Serialization is identical to
- * `openDatabase`'s migration phase: the PostgreSQL advisory lock on a dedicated pool, or PGlite's
- * exclusive directory claim.
+ * 应用待处理迁移然后关闭 —— 别无其他。生产迁移入口用它来推进 schema，
+ * 而绝不打开应用数据库、也绝不占用运行时租约，
+ * 因此一次迁移运行不可能悄然变成一个正在跑对局的服务进程。
+ * 串行化方式与 `openDatabase` 的迁移阶段完全相同：
+ * 专用连接池上的 PostgreSQL 咨询锁，或 PGlite 的排他目录占用声明。
  */
 export async function migrateDatabase(
   rawUrl: string,
@@ -375,7 +376,7 @@ export async function migrateDatabase(
     try {
       await claim?.release();
     } catch {
-      // The lock file stays; the next attempt fails closed with the recorded receipt.
+      // 锁文件保留；下一次尝试会带着已记录的回执故障闭锁。
     }
     throw error;
   }

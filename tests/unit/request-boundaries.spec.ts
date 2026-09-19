@@ -1,14 +1,13 @@
 /**
- * Request input boundaries — the gates every state change, WebSocket handshake and JSON body
- * passes through.
+ * 请求输入边界 —— 每一次状态变更、WebSocket 握手与 JSON 请求体都要经过的门。
  *
- * Every case is driven through the real app (`createApp` in `server/http/app.ts`) over a real
- * PGlite database, so what is pinned is the behaviour of the boundary itself: the same-origin
- * gate on state changes and WebSocket handshakes, the body cap (which must cut an oversized
- * stream, not buffer it), the narrowing of untrusted request values, the wire-protocol gate on
- * every game request, the maintenance admission rules, native method/route handling (the old
- * release-scoped prefixes no longer exist) and the JSON body contract. A stub `RoomRuntimePort`
- * fails loudly if a gate lets a request through that should never reach the runtime.
+ * 每个用例都通过真实应用（`server/http/app.ts` 中的 `createApp`）
+ * 在真实 PGlite 数据库上驱动，因此固定下来的是边界自身的行为：
+ * 状态变更与 WebSocket 握手上的同源门控、请求体上限
+ * （必须切断超大的流，而不是把它缓冲下来）、不可信请求值的收窄、
+ * 每个游戏请求上的线协议门控、维护准入规则、
+ * 原生方法/路由处理（旧的按版本划分的前缀已不复存在）以及 JSON 请求体契约。
+ * 若某个门放行了本绝不该到达运行时的请求，桩实现 `RoomRuntimePort` 会大声失败。
  */
 import { describe, expect, it } from 'bun:test';
 import { eq } from 'drizzle-orm';
@@ -69,7 +68,7 @@ const minimalSnapshot = (roomId: string): RoomSnapshot => ({
   error: null,
 });
 
-/** The runtime the gates must protect: any call is recorded, never silently tolerated. */
+/** 各道门必须保护的运行时：任何调用都会被记录，绝不被静默容忍。 */
 const runtimeLog: string[] = [];
 const runtime: RoomRuntimePort = {
   runtimeEpoch: 1,
@@ -101,7 +100,7 @@ const runtime: RoomRuntimePort = {
 let database: OpenedDatabase;
 let app: ReturnType<typeof createApp>;
 
-/** Foreign keys decide the order; every table starts empty so each test sees one clean state. */
+/** 顺序由外键决定；每张表都从空开始，使每个测试看到同一份干净状态。 */
 async function wipeEverything(db: Database): Promise<void> {
   await db.delete(matchTickets);
   await db.delete(departures);
@@ -113,12 +112,12 @@ async function wipeEverything(db: Database): Promise<void> {
   await db.delete(accounts);
 }
 
-/** A fresh environment per test: every gate sees the same clean database and open control row. */
+/** 每个测试一套全新环境：每道门看到的都是同一个干净数据库与 open 状态的控制行。 */
 async function setup(): Promise<void> {
   database ??= await openDatabase('pglite://:memory:');
   await wipeEverything(database.db);
-  // The control row outlives table wipes (no owner to cascade from): reset it so every test
-  // starts from the fresh-install state — open, revision 0, no runtime lease.
+  // 控制行比清表操作更长寿（没有可级联的所有者）：重置它，
+  // 使每个测试都从全新安装的状态开始 —— open、revision 0、无运行时租约。
   await database.db.delete(runtimeControl);
   await database.db.insert(runtimeControl).values({
     singleton: 1,
@@ -134,7 +133,7 @@ async function setup(): Promise<void> {
   });
 }
 
-/** A ServerConfig literal for tests, with the auth budget the scenario needs. */
+/** 供测试使用的 ServerConfig 字面量，携带该场景所需的鉴权配额。 */
 function testConfig(authLimits: { attempts: number; windowMs: number }): ServerConfig {
   return {
     buildId: 'unit-test',
@@ -152,12 +151,12 @@ function testConfig(authLimits: { attempts: number; windowMs: number }): ServerC
   };
 }
 
-/** Anything that can serve a request: the real app and the admin app both qualify. */
+/** 任何能够处理请求的对象：真实应用与管理端应用都符合。 */
 interface RequestTarget {
   request(input: string, init?: RequestInit, env?: unknown): Response | Promise<Response>;
 }
 
-/** Shaped after the real `fetch` request the browser makes. */
+/** 按浏览器实际发出的 `fetch` 请求的形状构造。 */
 async function call(
   target: RequestTarget,
   method: string,
@@ -187,8 +186,8 @@ async function call(
 }
 
 /**
- * A real session for authenticated requests: the account/session rows the WeChat callback would
- * have committed, and the bearer-shaped cookie value exactly as the browser holds it.
+ * 供已鉴权请求使用的真实会话：微信回调本会提交的账号/会话行，
+ * 以及与浏览器所持有的完全一致的 bearer 形态 Cookie 值。
  */
 async function sessionCookie(userId = 'session-user-000000000001'): Promise<string> {
   await database.db
@@ -204,7 +203,7 @@ async function sessionCookie(userId = 'session-user-000000000001'): Promise<stri
   return ticket.token;
 }
 
-/** A session whose account row carries `role`, exactly as a completed login would have left it. */
+/** 账号行携带 `role` 的会话，与一次完整登录会留下的状态完全一致。 */
 async function sessionAs(role: 'user' | 'admin', id: string): Promise<string> {
   await database.db
     .insert(accounts)
@@ -640,7 +639,7 @@ describe('维护准入', () => {
     expect(body.protocolVersion).toBe(WS_PROTOCOL);
     expect(body.maintenance).toMatchObject({ mode: 'open' });
 
-    // A runtime that has lost its lease fails readiness closed — never with a stale 200.
+    // 失去租约的运行时其就绪检查会故障闭锁 —— 绝不返回一个陈旧的 200。
     const losing: RoomRuntimePort = {
       ...runtime,
       assertOwnership: async () => {
@@ -767,7 +766,7 @@ describe('维护准入', () => {
 describe('运维令牌', () => {
   const OPS_TOKEN = 'b'.repeat(64);
 
-  /** The ops app: identical to `app` except the maintenance token it was configured with. */
+  /** 运维应用：除其被配置的维护令牌外，与 `app` 完全相同。 */
   function opsApp(token: string | null) {
     if (token === null) return app;
     return createApp({
@@ -783,7 +782,7 @@ describe('运维令牌', () => {
     options: { token?: string; cookie?: string; data?: unknown } = {},
   ): Promise<Response> {
     return call(target, method, '/api/ops/maintenance', {
-      // The bearer path is not an ambient credential: no Origin gate applies here.
+      // bearer 路径不是环境隐式凭据：此处不适用 Origin 门控。
       origin: null,
       headers: {
         ...(options.token === undefined ? {} : { authorization: `Bearer ${options.token}` }),

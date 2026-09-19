@@ -5,7 +5,7 @@ import { motion } from '../../../ui/motion';
 const STAMP_DURATION_MS = 360;
 const LANDING_OFFSET = 0.72;
 
-/** Reusable translucent imprints; the actual letters never move or change size. */
+/** 可复用的半透明印记；实际字母绝不移动或改变大小。 */
 export function createGlyphStamp(): (glyph: HTMLElement) => void {
   const pool: {
     node: HTMLSpanElement;

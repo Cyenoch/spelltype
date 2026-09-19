@@ -2,7 +2,7 @@ import { createEffect, createSignal, onCleanup } from 'solid-js';
 import * as stylex from '@stylexjs/stylex';
 import { ui } from '../../../ui/primitives';
 
-/** Retained with the arena, but audible only during the actual battle. */
+/** 与竞技场一同保留，但仅在实际战斗期间可闻。 */
 export function BattleMusic(props: { active: boolean }) {
   let audio!: HTMLAudioElement;
   let disposed = false;
@@ -12,7 +12,7 @@ export function BattleMusic(props: { active: boolean }) {
   const play = () => {
     if (!props.active || !enabled()) return;
     void audio.play().catch(() => {
-      // Phase changes and disposal can abort a pending play request normally.
+      // 阶段变化与销毁会正常中止一个待处理的播放请求。
       if (!disposed && props.active && enabled()) setBlocked(true);
     });
   };
@@ -36,7 +36,7 @@ export function BattleMusic(props: { active: boolean }) {
     }
     setEnabled(true);
     if (audio.error) audio.load();
-    // Invoke directly in the gesture handler to satisfy autoplay restrictions.
+    // 直接在手势处理器中调用，以满足自动播放限制。
     play();
   };
 

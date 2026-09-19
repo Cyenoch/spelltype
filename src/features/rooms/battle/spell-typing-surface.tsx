@@ -33,12 +33,12 @@ function driftStyle(index: number): string {
   return style;
 }
 
-/** One visible spell/input surface shared by real combat and local practice. */
+/** 真实战斗与本地练习共用的一个可见咒文/输入界面。 */
 export function SpellTypingSurface(props: {
   target: string;
   text: string;
   settled: boolean;
-  /** The owner has accepted completion; matching draft text alone is not enough. */
+  /** 所有者已接受完成；仅草稿文本匹配并不足够。 */
   completed: boolean;
   composing: boolean;
   element?: Element | null;

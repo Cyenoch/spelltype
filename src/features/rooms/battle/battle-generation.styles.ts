@@ -1,15 +1,15 @@
 import * as stylex from '@stylexjs/stylex';
 
 /**
- * Styles for the dedicated spell-generation scene (the authoritative
- * `generating` phase): a floating grimoire inside turning rune rings, so the
- * pause before combat reads as a ritual, never as a stalled blank input screen.
+ * 咒文生成专用场景（权威 `generating` 阶段）的样式：
+ * 旋转符文环中悬浮的一本魔导书，使战斗前的停顿读起来像一场仪式，
+ * 而绝不是卡死的空白输入界面。
  *
- * Motion follows the queue screen's vocabulary, composed and never overridden:
- * a `*Run` class applies an animation, the reduced-motion preference (mirrored
- * onto `<html>` by motion.ts) drops the animation name entirely so the static
- * scene stays clear, and the shared `paused` class freezes whatever runs where
- * it stands. Every animation moves `transform` or `opacity` only.
+ * 动效遵循排队界面的词汇表，采用组合而非覆盖的方式：
+ * `*Run` 类施加动画，减弱动效偏好（由 motion.ts 镜像到 `<html>` 上）
+ * 会彻底移除动画名称，使静态场景保持清晰，
+ * 而共享的 `paused` 类则把正在运行的一切冻结在原地。
+ * 每个动画只改动 `transform` 或 `opacity`。
  */
 const floatY = stylex.keyframes({
   '0%, 100%': { transform: 'translateY(0)' },
@@ -63,7 +63,7 @@ const drift = stylex.keyframes({
 });
 
 export const styles = stylex.create({
-  /* ------------------------------------------------------------- scene --- */
+  /* ------------------------------------------------------------- 场景 --- */
 
   scene: {
     position: 'relative',
@@ -101,7 +101,7 @@ export const styles = stylex.create({
     },
   },
 
-  /* Full-bleed scene feathers into the material below the foreground frame. */
+  /* 满幅场景在画框前景之下渐隐融入材质。 */
   backdrop: {
     position: 'absolute',
     inset: 0,
@@ -114,7 +114,7 @@ export const styles = stylex.create({
     pointerEvents: 'none',
   },
 
-  /* Rising dust motes: purely decorative, spread by per-mote placement. */
+  /* 上升的浮尘：纯装饰，靠逐粒定位铺开。 */
   dust: {
     position: 'absolute',
     top: 0,
@@ -217,9 +217,9 @@ export const styles = stylex.create({
     '@media (max-width: 420px)': { fontSize: '1.42rem' },
   },
 
-  /* The one live sentence: who is ready, what this room waits for (a shared
-     preset book, a refresh of it, or a per-match cast), and the countdown
-     that follows — all of it authoritative copy. */
+  /* 唯一一句实时文案：谁已准备、本房间在等待什么
+     （一本共享的预设咒文书、它的一次刷新，或一次按对局生成），
+     以及随后的倒计时 —— 全部都是权威文案。 */
   state: {
     margin: 0,
     maxWidth: 'min(560px, 100%)',
@@ -229,7 +229,7 @@ export const styles = stylex.create({
     overflowWrap: 'anywhere',
   },
 
-  /* ------------------------------------------------------------ stage --- */
+  /* ------------------------------------------------------------ 舞台 --- */
 
   stage: {
     position: 'relative',
@@ -241,7 +241,7 @@ export const styles = stylex.create({
     '@media (max-width: 720px)': { width: 'clamp(212px, 60vw, 280px)' },
   },
 
-  /* Soft light behind the book; opacity-only so centring survives the pulse. */
+  /* 书后的柔光；只改透明度，因此居中线在脉动中始终成立。 */
   aura: {
     position: 'absolute',
     top: '50%',
@@ -286,7 +286,7 @@ export const styles = stylex.create({
     '@media (prefers-reduced-motion: reduce)': { animationName: 'none' },
   },
 
-  /* An energy arc pouring around the book while the pages are being written. */
+  /* 书页正在被书写时，环绕书本涌动的能量弧。 */
   ringSweep: {
     top: '4%',
     right: '4%',
@@ -320,9 +320,8 @@ export const styles = stylex.create({
     opacity: 0.8,
   },
 
-  /* Orbiting element glyphs: the wrapper spans the ring so its own rotation
-     moves the sigil around the centre; each glyph counter-rotates so the art
-     stays upright at every point of the orbit. */
+  /* 环绕飞行的元素字形：外层容器横跨整环，因此其自身的旋转会把符印
+     沿中心移动；每个字形反向旋转，使美术在轨道的任何位置都保持正立。 */
   orbit: {
     position: 'absolute',
     top: 0,
@@ -387,7 +386,7 @@ export const styles = stylex.create({
     filter: 'drop-shadow(0 0 8px rgba(159, 146, 255, 0.55))',
   },
 
-  /* Two embers on the counter-orbit; dots, so no uprighting is needed. */
+  /* 反向轨道上的两点余烬；因为是圆点，无需校正正立方向。 */
   orbitDot: {
     position: 'absolute',
     top: 0,
@@ -420,7 +419,7 @@ export const styles = stylex.create({
     },
   },
 
-  /* ------------------------------------------------------------- book --- */
+  /* ------------------------------------------------------------- 书本 --- */
 
   book: {
     position: 'relative',
@@ -458,7 +457,7 @@ export const styles = stylex.create({
     backgroundRepeat: 'no-repeat, repeat',
     boxShadow:
       '0 24px 48px rgba(3, 2, 12, 0.6), inset 0 1px 0 rgba(255, 236, 200, 0.18), inset 0 0 30px rgba(122, 96, 255, 0.18)',
-    /* Spine highlight along the bound edge. */
+    /* 沿装订边的高光。 */
     '::before': {
       content: '""',
       position: 'absolute',
@@ -473,7 +472,7 @@ export const styles = stylex.create({
     },
   },
 
-  /* A slow light pass across the cover: pages are visibly being written. */
+  /* 一道缓慢扫过封面的光：书页显然正在被书写。 */
   bookSheen: {
     '::after': {
       content: '""',
@@ -514,7 +513,7 @@ export const styles = stylex.create({
     '@media (prefers-reduced-motion: reduce)': { animationName: 'none' },
   },
 
-  /* Page block peeking out on the fore-edge, behind the cover. */
+  /* 从书口边缘探出的书页块，位于封面之后。 */
   bookPages: {
     position: 'absolute',
     top: '7%',
@@ -527,7 +526,7 @@ export const styles = stylex.create({
     boxShadow: '2px 2px 8px rgba(3, 2, 12, 0.5)',
   },
 
-  /* Grounding shadow; it breathes with the float so the book stays planted. */
+  /* 贴地阴影；它随悬浮一同呼吸，使书本始终像扎根在地面上。 */
   bookShadow: {
     position: 'absolute',
     right: '12%',
@@ -547,7 +546,7 @@ export const styles = stylex.create({
     '@media (prefers-reduced-motion: reduce)': { animationName: 'none' },
   },
 
-  /* ------------------------------------------------------------- copy --- */
+  /* ------------------------------------------------------------- 文案 --- */
 
   trail: {
     display: 'flex',
@@ -613,15 +612,15 @@ export const styles = stylex.create({
     marginTop: 2,
   },
 
-  /* The pause toggle is pointless when the preference already dropped all
-     motion, so it steps aside exactly like the queue screen's toggle. */
+  /* 当系统偏好已经移除了全部动效时，暂停开关就没有意义，
+     因此它会像排队界面的开关一样让位隐藏。 */
   motionToggle: {
     '@media (prefers-reduced-motion: reduce)': { display: 'none' },
   },
 
   /**
-   * Freezes every running animation where it stands, including the animated
-   * pseudo-elements. Composed last, so it needs no `!important`.
+   * 把所有正在运行的动画冻结在原地，包括带动画效果的伪元素。
+   * 最后组合，因此无需 `!important`。
    */
   paused: {
     animationPlayState: 'paused',

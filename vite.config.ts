@@ -1,10 +1,9 @@
 import { defineConfig } from 'vite';
 import { frontendPlugins } from './vite.frontend.ts';
 
-// The client is always served from the root (`/`) by the single app server;
-// there is no per-release base path. SPELLTYPE_BUILD_ID only feeds the
-// informational __SPELLTYPE_BUILD_ID__ macro in browser builds; the runtime
-// build identity comes from /api/status.
+// 客户端始终由唯一的应用服务器从根路径（`/`）提供；不存在按版本划分的基准路径。
+// SPELLTYPE_BUILD_ID 仅用于向浏览器构建中的信息性宏 __SPELLTYPE_BUILD_ID__ 传值；
+// 运行时的构建标识来自 /api/status。
 export default defineConfig({
   base: '/',
   define: {
@@ -16,7 +15,7 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     strictPort: true,
-    // Persisted state and test evidence must not trigger a live game's browser reload.
+    // 持久化状态与测试证据不得触发现正在进行对局的浏览器重载。
     watch: { ignored: ['**/tests/.state/**', '**/.scratch/**', '**/.data/**'] },
   },
 });

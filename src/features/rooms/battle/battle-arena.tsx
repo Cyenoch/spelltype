@@ -17,18 +17,18 @@ import {
 import { BattleMusic } from './battle-music';
 
 /**
- * The arena: canvas characters with a DOM name floating over each head. The
- * canvas is decorative and optional — the feet bars draw health, while the DOM
- * keeps the authoritative numbers for assistive tech and as the fallback display.
+ * 竞技场：画布角色，每个头顶悬浮一个 DOM 名称。
+ * 画布是装饰性且可选的 —— 脚部进度条绘制生命值，
+ * 而 DOM 为无障碍技术保留权威数字，并作为兜底展示。
  */
 export function BattleArena(props: {
   snapshot: RoomSnapshot;
   players: Player[];
   selfId: string;
   selfCast: { progress: number; length: number };
-  /** Every seat the viewer's casts land on: all other living players. */
+  /** 观察者施法会命中的所有席位：其他所有存活玩家。 */
   myTargets: Player[];
-  /** Every living opponent whose casts land on the viewer. */
+  /** 所有施法会命中观察者的存活对手。 */
   aimingAtMe: Player[];
   longTarget: boolean;
   render: RenderMode;
@@ -47,8 +47,8 @@ export function BattleArena(props: {
     if (ratio <= LOW_HP_RATIO) return 'low';
     return 'none';
   });
-  /* The viewer reads themselves leftmost; the canvas seating follows the same
-     order, so each label stays over its character. */
+  /* 观察者自己读作最左；画布座位遵循相同顺序，
+     因此每个标签都停留在其角色上方。 */
   const seatIds = createMemo(() =>
     visualSeatOrder(props.players, props.selfId).map((player) => player.id),
   );
@@ -157,9 +157,8 @@ export function BattleArena(props: {
 }
 
 /**
- * The countdown shows whole seconds left, then the word `开始` at the instant the
- * deadline passes. A missing deadline (a stale snapshot) reads as `开始`, never as
- * a frozen number.
+ * 倒计时显示剩余整数秒，在截止时间过去的那一刻则显示「开始」二字。
+ * 缺失截止时间（陈旧快照）读作「开始」，而绝不是一个冻结的数字。
  */
 function countdownSeconds(remainingMs: number | null): string {
   if (remainingMs === null) return '开始';

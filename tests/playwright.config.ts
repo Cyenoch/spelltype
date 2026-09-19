@@ -1,9 +1,9 @@
 /**
- * Playwright configuration for the application-boundary E2E suite.
+ * 应用边界 E2E 测试套件的 Playwright 配置。
  *
- * One worker keeps the shared matchmaking queue, the one PGlite database and the fault-injection
- * steps deterministic: several specs share the one server stack (booted in-process by the
- * worker-scoped harness fixture) and one spec mutates the results table.
+ * 单 worker 使共享的匹配队列、唯一的 PGlite 数据库以及故障注入步骤保持确定性：
+ * 多个测试用例共享同一套服务端技术栈（由 worker 作用域的测试环境夹具在进程内启动），
+ * 而其中一个用例会改动战绩表。
  */
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';

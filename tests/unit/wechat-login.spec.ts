@@ -1,12 +1,12 @@
 /**
- * The WeChat login boundary — the bridge relay contract the session lives or dies by.
+ * 微信登录边界 —— 会话生死所系的中继桥接契约。
  *
- * Every case drives the real stable app (`server/http/app.ts`) over a real PGlite database with
- * the shared test bridge (`tests/support/wechat.ts`): the redirect out, the signed relay callback,
- * the single-use state and token ledgers, and the session cookie that results. A mistake here is
- * account takeover (a forged relay accepted as an identity) or a login that dies on the next
- * request, so nothing is pinned twice-removed: the responses under test are the ones the browser
- * and the bridge actually exchange.
+ * 每个用例都通过真实稳定应用（`server/http/app.ts`）在真实 PGlite 数据库上，
+ * 配合共享测试桥接（`tests/support/wechat.ts`）驱动：
+ * 向外的重定向、签名中继回调、一次性 state 与令牌账本，以及由此产生的会话 Cookie。
+ * 此处出错意味着账号被接管（伪造的中继被当作身份接受），
+ * 或是登录在下一个请求上即告失败，因此这里没有任何隔了一层的固定物：
+ * 被测的响应就是浏览器与桥接实际交换的那些。
  */
 import { afterAll, afterEach, describe, expect, it } from 'bun:test';
 import { eq } from 'drizzle-orm';
@@ -55,14 +55,14 @@ describe('微信登录边界', () => {
     }
   });
 
-  /** The full Set-Cookie header a response sets for one cookie, across several headers. */
+  /** 响应为某个 Cookie 所设置的完整 Set-Cookie 请求头，可能分布在多个头中。 */
   function setCookieHeaderOf(response: Response, name: string): string {
     const header = response.headers.getSetCookie().find((entry) => entry.startsWith(`${name}=`));
     if (header === undefined) throw new Error(`response set no cookie named ${name}`);
     return header;
   }
 
-  /** The absolute redirect target, resolved against the public origin like a browser would. */
+  /** 绝对重定向目标，按浏览器的方式相对公开源解析得到。 */
   function locationOf(response: Response, origin: string): URL {
     expect(response.status).toBe(302);
     const location = response.headers.get('location');
@@ -70,7 +70,7 @@ describe('微信登录边界', () => {
     return new URL(location!, origin);
   }
 
-  /** The failure redirect the callback must always degrade to. */
+  /** 回调在任何失败情况下都必须退化到的重定向目标。 */
   function expectFailureRedirect(response: Response, origin: string, room?: string): URL {
     const landed = locationOf(response, origin);
     expect(landed.pathname).toBe('/auth');
@@ -92,7 +92,7 @@ describe('微信登录边界', () => {
     bridgeError?: boolean;
   }
 
-  /** The callback exactly as the bridge's redirect delivers it (or as an attacker forges it). */
+  /** 与桥接重定向所送达（或攻击者所伪造）完全一致的回调。 */
   async function callback(app: HonoLike, options: CallbackOptions = {}): Promise<Response> {
     const query = new URLSearchParams();
     if (options.state !== null) query.set('state', options.state ?? '');
@@ -108,12 +108,12 @@ describe('微信登录边界', () => {
   interface RoundTripOptions {
     room?: string;
     claims?: Partial<RelayClaims>;
-    /** Sign with a foreign app key instead of the fixture's own. */
+    /** 使用外来的 app key 签名，而不是夹具自身的。 */
     appKey?: string;
     token?: string;
   }
 
-  /** Drives start plus one signed callback — the same round trip the browser walks in E2E. */
+  /** 驱动开始流程加上一次签名回调 —— 与浏览器在 E2E 中所走的同一次往返。 */
   async function roundTrip(
     app: HonoLike,
     origin: string,

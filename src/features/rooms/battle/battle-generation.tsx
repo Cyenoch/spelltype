@@ -17,24 +17,22 @@ const SLOT_ROTATION = [null, styles.slotB, styles.slotC, styles.slotD];
 const GLYPH_UPRIGHT = [null, styles.uprightB, styles.uprightC, styles.uprightD];
 
 /**
- * The dedicated spell-generation scene for the authoritative `generating`
- * phase: a floating grimoire inside turning rune rings, with the honest state
- * of the match around it. It exists so this phase can never be mistaken for a
- * stalled blank combat screen — the regular battle surface stays mounted the
- * whole time and is merely hidden, so every canvas and input host survives
- * until the countdown takes over.
+ * 权威 `generating` 阶段专用的咒文生成场景：
+ * 旋转符文环中悬浮的一本魔导书，周围环绕对局的真实现状。
+ * 它存在的意义是让该阶段绝不会被误认为卡死的空白战斗界面 ——
+ * 常规战斗界面全程保持挂载，只是被隐藏，
+ * 因此每个画布与输入宿主都能存活到倒计时接管。
  *
- * Every word of status here comes from the snapshot: who is ready, what this room is waiting
- * for — preset themes share one cached book per theme (near-instant while fresh, a new-book
- * wait when the old one expired, with rooms that start alongside keeping the old spells), a
- * custom theme is cast per match — the book always holds `SPELL_BOOK_SIZE` English spells
- * with Chinese translations, and the `OPENING_COUNTDOWN_MS` countdown starts by itself once
- * the book exists. Nothing counts spells, percent or substages,
- * because the room publishes no such progress.
+ * 这里每一句状态文字都来自快照：谁已准备、本房间在等待什么 ——
+ * 预设主题按主题共享同一本缓存咒文书（新鲜期内近乎瞬时返回，
+ * 旧书过期时需等待一次新书生成，与之同时开局的房间仍沿用旧咒文），
+ * 自定义主题则按对局生成 —— 书中始终包含 `SPELL_BOOK_SIZE` 条英文咒文及其中文释义，
+ * 且一旦书就绪，`OPENING_COUNTDOWN_MS` 倒计时会自行开始。
+ * 此处不统计咒文数、百分比或子阶段，因为房间并不公布这类进度。
  */
 export function BattleGeneration(props: {
   snapshot: RoomSnapshot;
-  /** The one failure line the combat surface shows, or null. */
+  /** 战斗界面展示的唯一失败提示行，或 null。 */
   notice: string | null;
   onLeave(): void;
 }) {
@@ -42,7 +40,7 @@ export function BattleGeneration(props: {
   const [backdropFailed, setBackdropFailed] = createSignal(false);
   const hold = () => (paused() ? styles.paused : null);
 
-  // Entering this phase proves matchmaking/readiness has already completed.
+  // 能进入该阶段，即证明匹配/准备流程已经完成。
   const readyLabel = createMemo(() =>
     props.snapshot.mode === 'quick' ? '匹配成功' : '玩家准备完成',
   );

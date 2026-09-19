@@ -11,9 +11,9 @@ import { styles } from './battle.styles';
 import type { BattleTyping } from './battle-typing';
 
 /**
- * The typing station: the recipient's current spell, the one input field bound
- * to it, the cast banner and the viewer's own health and figures. Every number
- * shown here comes from the authoritative snapshot or the local field.
+ * 打字站：接收者的当前咒文、绑定到它的那个输入框、
+ * 施法横幅，以及观察者自身的生命值与数据。
+ * 此处展示的每个数字都来自权威快照或本地输入框。
  */
 export function BattleStation(props: {
   snapshot: RoomSnapshot;
@@ -26,7 +26,7 @@ export function BattleStation(props: {
     () =>
       props.typing.phase() === 'playing' && Boolean(props.selfPlayer) && !props.typing.eliminated(),
   );
-  /** A phase that does not judge shows the whole target as settled. */
+  /** 不做判定的阶段会把整段目标显示为已结算。 */
   const settled = createMemo(
     () => props.typing.phase() !== 'playing' && props.typing.target() !== '',
   );
@@ -39,10 +39,9 @@ export function BattleStation(props: {
         self?.accuracy ?? null,
       )}`;
     }
-    // Live play separates this spell's progress from the match-cumulative
-    // counters. The local state IS the cumulative truth: it was calibrated from
-    // the server's stats at bind/reconnect/restore and every edit since is a
-    // diff on top — an ordinary ack never stacks onto it.
+    // 实时对局把本道咒文的进度与整场累计计数器区分开来。
+    // 本地状态就是累计真值：它在绑定/重连/恢复时以服务端统计数据校准，
+    // 此后每一次编辑都是在其之上的差量 —— 普通确认绝不会叠加到它上面。
     const state = props.typing.local();
     const parts: string[] = [];
     if (state.composing) parts.push('输入法组合中，暂不判定');
@@ -57,10 +56,9 @@ export function BattleStation(props: {
   });
 
   /**
-   * The input gate's visible state, evaluated on the room's 100 ms tick. A
-   * playing snapshot for a living player must carry a gate; when it does not,
-   * that is a corrupt state and submitting stays disabled — it is never shown
-   * as ordinary waiting.
+   * 输入门槛的可见状态，按房间的 100 毫秒心跳求值。
+   * 对存活玩家而言，playing 快照必须携带门槛；若未携带，
+   * 那就是损坏状态，提交保持禁用 —— 绝不会被显示成普通的等待中。
    */
   const gateView = createMemo(() => {
     if (props.typing.phase() !== 'playing' || props.typing.eliminated()) return null;
@@ -116,7 +114,7 @@ export function BattleStation(props: {
     return props.typing.eliminated() ? '你已出局 · 不再有咒文' : '咒文尚未显现';
   };
 
-  /** Display-only Chinese meaning of the current spell; empty when no spell is showing. */
+  /** 当前咒文仅供展示的中文释义；没有咒文显示时为空。 */
   const spellTranslation = createMemo(() => props.snapshot.spell?.translation ?? '');
 
   const elementLabel = () =>
@@ -132,9 +130,9 @@ export function BattleStation(props: {
     props.snapshot.spell ? ELEMENT_CSS[props.snapshot.spell.element] : undefined;
 
   /**
-   * What the IME is staging beyond the confirmed prefix. The field itself is
-   * invisible, so this chip is the only place provisional composition text
-   * shows; the native field stays the accessible copy for assistive tech.
+   * IME 在已确认前缀之外正在暂存的内容。
+   * 输入框本身不可见，因此这个标签是临时拼写文本唯一显示的地方；
+   * 原生输入框仍是无障碍技术所读取的那份可访问副本。
    */
   const composingTail = createMemo(() => {
     const state = props.typing.local();

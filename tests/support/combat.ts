@@ -1,11 +1,11 @@
 /**
- * Battle helpers: readers for the live arena DOM plus drivers that play real spells through the
- * real input field. Everything here reads the contract DuelInterface documents (data-testid hooks
- * and data-* attributes), never incidental wording or private implementation.
+ * 战斗辅助：实时竞技场 DOM 的读取器，以及通过真实输入框打出真实咒文的驱动器。
+ * 这里的一切都读取 DuelInterface 所记录的契约（data-testid 钩子与 data-* 属性），
+ * 绝不依赖偶然文案或私有实现。
  *
- * Full-match drivers commit the remaining text through the real field in one input event;
- * typing.spec.ts keeps the per-keystroke, correction, paste and IME coverage. Both paths
- * still require server acknowledgement, atomic damage and advancement.
+ * 整场对局的驱动会在一次 input 事件中通过真实输入框提交剩余文本；
+ * typing.spec.ts 保留逐击键、改正、粘贴与 IME 的覆盖。两条路径
+ * 都仍然要求服务端确认、原子伤害与游标推进。
  */
 import { expect, type BrowserContext, type Locator, type Page } from '@playwright/test';
 import {
@@ -17,7 +17,7 @@ import {
 import { gameJson, selfIdentity, type Identity } from './api';
 import { settle } from './app';
 
-/** Longest a single server round-trip may take before a spec should treat it as a failure. */
+/** 单次服务端往返允许的最长时间，超过则测试应视为失败。 */
 const ACK_TIMEOUT = 30_000;
 
 function battlePanel(page: Page): Locator {
@@ -32,7 +32,7 @@ export async function battleMatchId(page: Page): Promise<string> {
   return (await battlePanel(page).getAttribute('data-match-id')) ?? '';
 }
 
-/** The viewer's private, monotonic, zero-based spell cursor. */
+/** 观察者私有的、单调递增、从零开始的咒文游标。 */
 export async function selfSpellIndex(page: Page): Promise<number> {
   return Number(await battlePanel(page).getAttribute('data-spell-index'));
 }
@@ -41,7 +41,7 @@ export async function selfSpellsCast(page: Page): Promise<number> {
   return Number(await battlePanel(page).getAttribute('data-spells-cast'));
 }
 
-/** `elimination`, `timeout`, or empty while the match is live. */
+/** 对局进行中为空；结束时为 `elimination`、`timeout` 等。 */
 export async function endReason(page: Page): Promise<string> {
   return (await battlePanel(page).getAttribute('data-end-reason')) ?? '';
 }
@@ -59,19 +59,19 @@ export async function castState(page: Page): Promise<string> {
 }
 
 /**
- * The application writes `data-*` flags with `String(boolean)`, so a flag is either "true"/"false"
- * or the "1"/"0" form the hook contract documents. Both mean the same thing to a reader.
+ * 应用用 `String(boolean)` 写入 `data-*` 标记，因此标记要么是 "true"/"false"，
+ * 要么是钩子契约所记录的 "1"/"0" 形式。对读取者而言两者含义相同。
  */
 function flagValue(value: string | null): boolean {
   return value === '1' || value === 'true';
 }
 
-/** One seat card, addressed by account id (the DOM keys seats by `data-user`). */
+/** 一张席位卡片，以账号 id 定位（DOM 以 `data-user` 作为席位键）。 */
 function arenaSeat(page: Page, userId: string): Locator {
   return page.locator(`[data-testid="arena-seat"][data-user="${userId}"]`);
 }
 
-/** Seat account ids in DOM order (visual columns: the viewer leftmost, then the other slots ascending). */
+/** 按 DOM 顺序排列的席位账号 id（视觉列顺序：观察者在最左，其余席位按升序排列）。 */
 export async function seatOrder(page: Page): Promise<string[]> {
   return page
     .getByTestId('arena-seat')
@@ -95,25 +95,25 @@ export async function seatIsOut(page: Page, userId: string): Promise<boolean> {
   return flagValue(await arenaSeat(page, userId).getAttribute('data-eliminated'));
 }
 
-/** Accepted prefix of another player's current spell, read from their seat card. */
+/** 另一名玩家当前咒文已被接受的前缀，从其席位卡片读取。 */
 export async function opponentProgress(page: Page, userId: string): Promise<number> {
   return Number(
     await arenaSeat(page, userId).getByTestId('player-progress').getAttribute('aria-valuenow'),
   );
 }
 
-/** Read the accessible target, not the glyphs that now display the player's actual typos. */
+/** 读取无障碍目标文本，而不是那些显示玩家实际错误的字形。 */
 export async function spellText(page: Page): Promise<string> {
   const plain = (await page.getByTestId('spell-text-plain').textContent()) ?? '';
   return plain.replace(/^[^：]*：/, '').trim();
 }
 
-/** Whole-match remaining milliseconds while playing, countdown remaining during the opening. */
+/** 对局进行中返回整场剩余毫秒数，开局阶段返回倒计时剩余时间。 */
 export async function timerRemaining(page: Page): Promise<number> {
   return Number(await page.getByTestId('match-timer').getAttribute('data-remaining-ms'));
 }
 
-/** The room's single deadline: the countdown end, then the combat end. It never extends. */
+/** 房间唯一的截止时间：先是倒计时结束，随后是战斗结束。它绝不延长。 */
 export async function deadline(page: Page): Promise<number> {
   return Number(await battlePanel(page).getAttribute('data-deadline'));
 }
@@ -135,7 +135,7 @@ export async function saveStatus(page: Page): Promise<string> {
 }
 
 export interface FinalRow {
-  /** Account id and whatever label text the row carries. */
+  /** 账号 id，以及该行所携带的任意标签文本。 */
   user: string;
   text: string;
   rank: number;
@@ -148,7 +148,7 @@ export interface FinalRow {
   eliminated: boolean;
 }
 
-/** Every finished-match row, read from the panel's own cells. */
+/** 面板自身单元格中读出的全部已结束对局行。 */
 export async function finalRows(page: Page, timeout = ACK_TIMEOUT): Promise<FinalRow[]> {
   await expect(page.getByTestId('final-panel')).toBeVisible({ timeout });
   const rows = await page.getByTestId('final-row').all();
@@ -173,7 +173,7 @@ export async function finalRows(page: Page, timeout = ACK_TIMEOUT): Promise<Fina
   );
 }
 
-/** The room's authoritative view of one participant. */
+/** 房间对某位参与者的权威视图。 */
 export function snapshotPlayer(snapshot: RoomSnapshot, identity: Identity): Player {
   const player = snapshot.players.find((entry) => entry.id === identity.userId);
   if (!player) throw new Error(`room ${snapshot.id} has no player ${identity.username}`);
@@ -181,9 +181,9 @@ export function snapshotPlayer(snapshot: RoomSnapshot, identity: Identity): Play
 }
 
 /**
- * The room's authoritative snapshot, read the way every v2 client must: the exact room GET is
- * version-gated, so the read carries the current protocol header. A missing or wrong header is the
- * server's 409, never a snapshot.
+ * 房间的权威快照，按每个 v2 客户端都必须采用的方式读取：
+ * 精确的房间 GET 受版本门控，因此该读取会携带当前的协议请求头。
+ * 缺失或错误的请求头会得到服务端的 409，而绝不是一份快照。
  */
 export async function roomSnapshot(context: BrowserContext, roomId: string): Promise<RoomSnapshot> {
   const response = await gameJson<RoomSnapshot>(context, `/rooms/${roomId}`);
@@ -191,24 +191,24 @@ export async function roomSnapshot(context: BrowserContext, roomId: string): Pro
   return response.body;
 }
 
-/** The viewer's own input gate from a snapshot (null outside valid playing state). */
+/** 快照中观察者自身的输入门槛（在有效的 playing 状态之外为 null）。 */
 export function snapshotGate(snapshot: RoomSnapshot, identity: Identity): SelfInputGate | null {
   snapshotPlayer(snapshot, identity);
   return snapshot.selfInputGate ?? null;
 }
 
-/* ------------------------------------------------------------- input gate */
+/* ------------------------------------------------------------- 输入门槛 */
 
 export interface GateIndicator {
   present: boolean;
   mode: string;
-  /** Milliseconds the gate still withholds readiness, or null when ready/absent. */
+  /** 门槛仍将就绪状态推迟的毫秒数；就绪或不存在时为 null。 */
   remainingMs: number | null;
   reason: string;
   text: string;
 }
 
-/** Reads the station's input-gate indicator (`data-testid="input-gate"`). */
+/** 读取打字站的输入门槛指示器（`data-testid="input-gate"`）。 */
 export async function gateIndicator(page: Page): Promise<GateIndicator> {
   const gate = page.getByTestId('input-gate');
   if ((await gate.count()) === 0)
@@ -224,13 +224,13 @@ export async function gateIndicator(page: Page): Promise<GateIndicator> {
 }
 
 /**
- * Waits until this page's viewer may lawfully complete their current spell: the room is playing,
- * the viewer's own gate is published, and the server clock has reached `notBefore`.
+ * 等待直到本页面的观察者可以合法地完成其当前咒文：
+ * 房间处于 playing、观察者自身的门槛已发布，且服务端时钟已到达 `notBefore`。
  *
- * The identity the first observation captured — match, spell index, draft epoch — defines what is
- * being waited for. A later snapshot whose match differs, whose viewer fell or whose state is
- * broken fails fast with diagnostics instead of timing out on an entry that can never become
- * ready. A mere index/epoch advance inside the same match just re-captures the current identity.
+ * 首次观测所捕获的身份 —— 对局、咒文索引、草稿代际 —— 定义了在等待什么。
+ * 若后续快照的对局不同、观察者已倒下或其状态已损坏，则以诊断信息快速失败，
+ * 而不是在一个永远不可能就绪的条目上超时。
+ * 同一场对局内单纯的索引/代际推进只会重新捕获当前身份。
  */
 export async function waitForInputGate(page: Page, timeout = 60_000): Promise<void> {
   const roomId = new URL(page.url()).searchParams.get('room');
@@ -278,11 +278,11 @@ export async function waitForInputGate(page: Page, timeout = 60_000): Promise<vo
   }
 }
 
-/* ------------------------------------------------------------------ waits */
+/* ------------------------------------------------------------------ 等待 */
 
 /**
- * A live combat phase on this page: the phase is playing, the arena finished its asynchronous
- * initialisation, the target is published and the field accepts input.
+ * 本页面上的一段落实时战斗阶段：阶段为 playing、
+ * 竞技场已完成其异步初始化、目标已发布，且输入框接受输入。
  */
 export async function waitForCombat(page: Page, timeout = 60_000): Promise<void> {
   await expect(battlePanel(page)).toHaveAttribute('data-phase', 'playing', { timeout });
@@ -296,15 +296,15 @@ export async function waitForCombat(page: Page, timeout = 60_000): Promise<void>
   await expect.poll(() => spellText(page), { timeout }).not.toBe('');
 }
 
-/** Waits until the match has settled (phase finished, ranks published). */
+/** 等待直到对局已结算（阶段为 finished、名次已发布）。 */
 export async function waitForMatchEnd(page: Page, timeout = 120_000): Promise<void> {
   await expect(battlePanel(page)).toHaveAttribute('data-phase', 'finished', { timeout });
   await expect(page.getByTestId('final-panel')).toBeVisible({ timeout });
 }
 
-/* ------------------------------------------------------------------ input */
+/* ------------------------------------------------------------------ 输入 */
 
-/** Focuses the field, puts the caret after the committed text and types at full speed. */
+/** 聚焦输入框，把光标移到已提交文本之后，并以全速输入。 */
 export async function typeText(page: Page, text: string): Promise<void> {
   const input = typingInput(page);
   await input.click();
@@ -314,7 +314,7 @@ export async function typeText(page: Page, text: string): Promise<void> {
   await page.keyboard.type(text, { delay: 0 });
 }
 
-/** Types at the caret/selection without clicking, so an existing selection survives. */
+/** 在光标/选区处输入而不点击，使既有选区得以保留。 */
 export async function insertIntoField(page: Page, text: string): Promise<void> {
   await page.keyboard.type(text, { delay: 0 });
 }
@@ -323,7 +323,7 @@ export async function backspace(page: Page, times = 1): Promise<void> {
   for (let index = 0; index < times; index += 1) await page.keyboard.press('Backspace');
 }
 
-/** Empties the field through the keyboard, whatever it currently holds. */
+/** 通过键盘清空输入框，无论其中当前有何内容。 */
 async function clearField(page: Page): Promise<void> {
   const input = typingInput(page);
   await input.click();
@@ -333,11 +333,11 @@ async function clearField(page: Page): Promise<void> {
   await backspace(page, 1);
 }
 
-/* ------------------------------------------------------------- completion */
+/* ------------------------------------------------------------- 完成施法 */
 
 /**
- * Waits until the viewer's own spell cursor has moved past `completedIndex`, or the match settled
- * before it could (the completion that ends a match advances the cursor too, so both are accepted).
+ * 等待直到观察者自身的咒文游标已越过 `completedIndex`，
+ * 或对局在能够推进之前就已结算（结束对局的那次完成也会推进游标，因此两者都接受）。
  */
 async function waitForAdvanceOrEnd(
   page: Page,
@@ -356,14 +356,14 @@ async function waitForAdvanceOrEnd(
 }
 
 /**
- * Completes the open spell from whatever the field already holds: only the missing suffix of the
- * authoritative target is inserted, so a restored accepted draft is never duplicated. This
- * exercises the browser's input event, not paste or a direct WebSocket/API shortcut. Resolve
- * only when the server advances the viewer's cursor (or ends the match).
+ * 基于输入框当前已有的内容补完这道未完成的咒文：
+ * 只插入权威目标中缺失的后缀，因此被恢复的已接受草稿绝不会被重复输入。
+ * 这里触发的是浏览器的 input 事件，而不是粘贴或直接的 WebSocket/API 捷径。
+ * 仅当服务端推进观察者的游标（或结束对局）时才完成。
  *
- * The completion is lawful input: first wait until this viewer's own gate says the spell's time
- * floor has passed (never a hardcoded sleep, never a client-side guess at 35ms). A match that
- * settled while waiting is not an error — the loop callers treat a finished match as done.
+ * 补完是合法输入：先等待该观察者自身的门槛表明这道咒文的时间下限已过
+ * （绝不写死 sleep，也绝不在客户端猜测 35ms）。
+ * 等待期间对局结算并非错误 —— 循环调用方把已结束的对局视为完成。
  */
 export async function completeSpell(page: Page): Promise<string> {
   if ((await battlePhase(page)) === 'playing') {
@@ -392,8 +392,9 @@ export async function completeSpell(page: Page): Promise<string> {
 }
 
 /**
- * Plays real spells until `userId`'s seat is out. Damage is computed by the room from the spell the
- * attacker actually completes, so the loop is driven by observed health, not by arithmetic.
+ * 持续打出真实咒文，直到 `userId` 的席位出局。
+ * 伤害由房间依据攻击者实际完成的咒文计算，
+ * 因此该循环由观测到的生命值驱动，而不是靠算术推算。
  */
 export async function defeatSeat(page: Page, userId: string, maxSpells = 40): Promise<number> {
   let cast = 0;
@@ -403,8 +404,8 @@ export async function defeatSeat(page: Page, userId: string, maxSpells = 40): Pr
     if (hpBefore <= 0) break;
     await completeSpell(page);
     cast += 1;
-    // Cursor acknowledgment precedes damage. Observe this volley before deciding
-    // whether another cast is needed, or a late snapshot can kill the next seat.
+    // 游标确认先于伤害到达。在决定是否需要再施法之前先观测这次齐射，
+    // 否则一份迟到的快照可能直接击杀下一个席位。
     await expect
       .poll(
         async () =>
@@ -421,7 +422,7 @@ export async function defeatSeat(page: Page, userId: string, maxSpells = 40): Pr
   return cast;
 }
 
-/** Plays real spells until the match settles (either the last opponent falls or time runs out). */
+/** 持续打出真实咒文，直到对局结算（最后一名对手倒下或时间耗尽）。 */
 export async function playUntilFinished(page: Page, maxSpells = 60): Promise<number> {
   let cast = 0;
   while (cast < maxSpells && (await battlePhase(page)) !== 'finished') {
@@ -433,7 +434,7 @@ export async function playUntilFinished(page: Page, maxSpells = 60): Promise<num
   return cast;
 }
 
-/** Damage a completed spell of `text` deals to a target with `remainingHp` left (bounded by it). */
+/** 完成 `text` 这道咒文对剩余 `remainingHp` 的目标造成的伤害（以该值为上限）。 */
 export function completionDamage(text: string, remainingHp = Number.POSITIVE_INFINITY): number {
   return Math.min(DAMAGE_PER_CHARACTER * Array.from(text).length, remainingHp);
 }

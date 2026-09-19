@@ -61,7 +61,7 @@ function wordRun(length: number, offset: number): string {
   return text;
 }
 
-/** A conforming book; `flavor` makes books from different generations distinguishable. */
+/** 一本符合规范的咒文书；`flavor` 使不同代际生成的书彼此可区分。 */
 function book(flavor: string): Spell[] {
   return Array.from({ length: SPELL_BOOK_SIZE }, (_, index) => ({
     name: `${NAME_BASES[index % NAME_BASES.length]} ${LETTERS[index % LETTERS.length].toUpperCase()}${flavor}`,
