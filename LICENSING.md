@@ -16,8 +16,7 @@ Spelltype 自有代码及其他自有材料采用 **Apache License 2.0 + Commons
 Commons Clause 仅适用于项目权利人自己的可许可权利，**不覆盖**第三方材料：
 
 - `.agents/skills/` 保持各自上游许可证；见 [Skills 许可索引](licenses/skills/INDEX.md)。
-- npm 依赖保持各自上游许可证，沿用包内及上游声明，不逐包复制到本仓库。
-- `worker-configuration.d.ts` 的第三方 runtime declarations 保留 Cloudflare / Microsoft 的 Apache-2.0 声明；见[生成类型许可](licenses/dependencies/INDEX.md)。
+- npm 依赖保持各自上游许可证，沿用包内及上游声明，不逐包复制到本仓库；见[依赖许可说明](licenses/dependencies/INDEX.md)。
 - `licenses/` 中的上游法律文本保留原样，不改以项目许可授权。
 - 美术来源见 `public/assets/provenance.json`；项目许可仅适用于实际持有的可许可权利，不声称纯 AI 输出在所有司法辖区均享有独占版权。
 
@@ -25,6 +24,6 @@ Commons Clause 仅适用于项目权利人自己的可许可权利，**不覆盖
 
 ## 分发
 
-分发项目时，保留 Apache 2.0 与 Commons Clause 两部分、版权声明及相关第三方声明；修改第三方材料时遵守其原许可的修改标记等要求。浏览器构建、Worker 包等分发物也应随附所含组件要求的声明，根目录文档不会自动进入 Vite 的 `dist/`。
+分发项目时，保留 Apache 2.0 与 Commons Clause 两部分、版权声明及相关第三方声明；修改第三方材料时遵守其原许可的修改标记等要求。浏览器构建、Bun 服务端产物等分发物也应随附所含组件要求的声明，根目录文档不会自动进入 Vite 的 `dist/`。
 
 本页是说明，不修改英文许可正文。官方来源：[Apache License 2.0](https://www.apache.org/licenses/LICENSE-2.0.txt)、[Commons Clause 1.0](https://commonsclause.com/)。

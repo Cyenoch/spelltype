@@ -10,19 +10,9 @@ See [the complete Skills index](licenses/skills/INDEX.md) for the mapping of loc
 
 ## Application dependencies and development tools
 
-npm dependencies and development tools retain the licenses and notices supplied in their package distributions. This repository does not duplicate a license file for every installed package or maintain a separate package-by-package license inventory.
+npm dependencies and development tools retain the licenses and notices supplied in their package distributions. This repository does not duplicate a license file for every installed package or maintain a separate package-by-package license inventory. See [the dependency license notes](licenses/dependencies/INDEX.md), which also preserve historical notices for removed runtime declarations.
 
-If dependency code is included in a distributed browser bundle, Worker artifact, or other release, preserve the notices required for the components actually shipped. This requirement is separate from merely referencing dependencies in `package.json`.
-
-## Generated Cloudflare runtime declarations
-
-`worker-configuration.d.ts` identifies its generator as Wrangler and its runtime as `workerd@1.20260916.1`. Its runtime declaration section already carries these notices, which remain intact:
-
-> Copyright (c) Cloudflare. All rights reserved.
->
-> Copyright (c) Microsoft Corporation. All rights reserved.
-
-That section is licensed under unmodified Apache License 2.0, without the project's Commons Clause. See [the generated-type notice](licenses/dependencies/INDEX.md) for the full license.
+If dependency code is included in a distributed browser bundle, Bun server artifact, or other release, preserve the notices required for the components actually shipped. This requirement is separate from merely referencing dependencies in `package.json`.
 
 ## Artwork
 
