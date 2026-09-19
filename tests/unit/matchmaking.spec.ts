@@ -5,7 +5,7 @@
  * 轮询刷新等待记录的 TTL 而不改变其请求标识；取消具有真实性（已开始的对局保留席位）；
  * 释放的预约会解散整组并允许幸存者重新排队；并发轮询与取消/配对竞争能够收敛且不产生半途写入的状态；
  * 维护状态拒绝新条目而已配对的预约仍保持可读；丢失运行时围栏会作为真实错误抛出且零写入。
- * 合成对手兜底也独立锁定了契约：单独等待的玩家会等待真实对手，直到从入队算起的 10 秒截止时刻，
+ * 合成对手兜底也独立锁定了契约：单独等待的玩家会等待真实对手，直到从入队算起的 `QUICK_GHOST_FALLBACK_MS` 截止时刻，
  * 随后匹配到一个不拥有账号、会话或票据的合成席位 —— 合格时优先重放幽灵，否则生成机器人 ——
  * 并且上述所有竞争和围栏规则对该路径同样成立。
  */
@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { rejects } from 'node:assert/strict';
 import { eq } from 'drizzle-orm';
 import { MaintenanceError } from '../../shared/maintenance';
-import type { User } from '../../shared/protocol';
+import { QUICK_GHOST_FALLBACK_MS, type User } from '../../shared/protocol';
 import { openDatabase, runtimeControl } from '../../server/db';
 import type { Database, OpenedDatabase } from '../../server/db';
 import { accounts, departures, ghosts, matchTickets, players, rooms } from '../../server/db/schema';
@@ -114,7 +114,7 @@ async function ageWait(db: Database, userId: string, waitedMs: number) {
 /** 推动一个账号越过兜底截止时间进入合成房间；返回轮询响应。 */
 async function ghostMatch(db: Database, userId: string) {
   await acquireMatch(db, user(userId), fenced);
-  await ageWait(db, userId, 30_000);
+  await ageWait(db, userId, QUICK_GHOST_FALLBACK_MS);
   const matched = await acquireMatch(db, user(userId), fenced);
   if (matched.state !== 'matched' || !matched.roomId) throw new Error('合成对手兜底没有产生房间');
   return { matched, roomId: matched.roomId };
@@ -336,12 +336,12 @@ describe('合成对手兜底', () => {
     await seedGhost(db, 'g1', 'u2');
     await acquireMatch(db, user('u1'), fenced);
 
-    // 等待 9 秒：真实对手仍可能出现，因此轮询仅返回等待中。
-    await ageWait(db, 'u1', 9_000);
+    // 等待至距截止仅剩 1 秒：真实对手仍可能出现，因此轮询仅返回等待中。
+    await ageWait(db, 'u1', QUICK_GHOST_FALLBACK_MS - 1_000);
     expect(await acquireMatch(db, user('u1'), fenced)).toMatchObject({ state: 'waiting' });
     expect(await db.select().from(rooms)).toHaveLength(0);
 
-    await ageWait(db, 'u1', 10_000);
+    await ageWait(db, 'u1', QUICK_GHOST_FALLBACK_MS);
     const matched = await acquireMatch(db, user('u1'), fenced);
     expect(matched).toMatchObject({ state: 'matched' });
     expect(await db.select().from(rooms)).toHaveLength(1);
@@ -396,7 +396,7 @@ describe('合成对手兜底', () => {
     const db = await queueDb('u1', 'u2');
     await seedGhost(db, 'g1', 'u3');
     await acquireMatch(db, user('u1'), fenced);
-    await ageWait(db, 'u1', 30_000);
+    await ageWait(db, 'u1', QUICK_GHOST_FALLBACK_MS);
 
     const paired = await acquireMatch(db, user('u2'), fenced);
     expect(paired).toMatchObject({ state: 'matched' });
@@ -458,7 +458,7 @@ describe('合成对手兜底', () => {
     expect(await db.select().from(rooms)).toHaveLength(0);
 
     // 全新到达的请求如期触发幽灵截止时间。
-    await ageWait(db, 'u1', 10_000);
+    await ageWait(db, 'u1', QUICK_GHOST_FALLBACK_MS);
     expect((await acquireMatch(db, user('u1'), fenced)).state).toBe('matched');
   });
 
@@ -481,7 +481,7 @@ describe('合成对手兜底', () => {
     const db = await queueDb('u1');
     await seedGhost(db, 'g1', 'u2');
     await acquireMatch(db, user('u1'), fenced);
-    await ageWait(db, 'u1', 30_000);
+    await ageWait(db, 'u1', QUICK_GHOST_FALLBACK_MS);
     const [first, second] = await Promise.all([
       acquireMatch(db, user('u1'), fenced),
       acquireMatch(db, user('u1'), fenced),
@@ -515,7 +515,7 @@ describe('合成对手兜底', () => {
     const db = await queueDb('u1');
     await seedGhost(db, 'g1', 'u2');
     await acquireMatch(db, user('u1'), fenced);
-    await ageWait(db, 'u1', 30_000);
+    await ageWait(db, 'u1', QUICK_GHOST_FALLBACK_MS);
     const [cancellation, matching] = await Promise.all([
       cancelMatch(db, 'u1', fenced),
       acquireMatch(db, user('u1'), fenced),
@@ -544,7 +544,7 @@ describe('合成对手兜底', () => {
     const db = await queueDb('u1');
     await seedGhost(db, 'g1', 'u2');
     await acquireMatch(db, user('u1'), fenced);
-    await ageWait(db, 'u1', 30_000);
+    await ageWait(db, 'u1', QUICK_GHOST_FALLBACK_MS);
     await enterMaintenance(db, await controlRevision(db));
 
     const refused = await acquireMatch(db, user('u1'), fenced).catch((error: unknown) => error);
