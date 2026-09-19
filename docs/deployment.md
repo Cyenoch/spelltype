@@ -84,6 +84,32 @@ bun run deploy install --image "$IMAGE_ID"
 docker build --build-arg BUILD_ID=operator-build -t spelltype:operator-build .
 ```
 
+### 使用 GitHub Actions 镜像
+
+[`build` 工作流](../.github/workflows/build.yml) 并行执行代码校验与镜像构建，两者成功后才向 `ghcr.io/<owner>/<repository>`（全小写）发布同一份镜像，当前平台为 `linux/amd64`。不自动迁移数据库或更新生产容器。
+
+| 触发方式 | 发布标签 |
+| --- | --- |
+| 推送 `main`，或在 `main` 手动运行 | `main`、`latest`、`sha-<完整提交 SHA>` |
+| 推送 `v*` 标签，例如 `v1.2.3` | 原始版本标签、`sha-<完整提交 SHA>`；不更新 `latest` |
+| PR，或在其他分支手动运行 | 仅校验及构建，不登录 GHCR、不发布 |
+
+CI 使用自动提供的 `GITHUB_TOKEN`，不需要新增 PAT 或应用密钥；仅发布任务拥有 `packages: write` 权限。组织策略必须允许发布包；若同名包已存在，需在包设置中授予本仓库 Actions 写入权限。工作流不修改包可见性；私有包的宿主机需先使用有读取权限的凭据登录 GHCR。
+
+镜像的 `BUILD_ID` 为完整提交 SHA。成功运行的摘要列出镜像标签及 digest。**包括 SHA 标签在内的标签都可被重跑覆盖**，生产应从摘要复制完整的 `ghcr.io/<owner>/<repository>@sha256:...` 引用：
+
+```sh
+# 将成功运行摘要中的完整 digest 引用赋给 IMAGE_REF。
+docker pull "$IMAGE_REF"
+bun run deploy install --image "$IMAGE_REF"
+# 已安装的环境改用下方命令，按既有维护流程更新：
+# bun run deploy deploy --image "$IMAGE_REF" --wait-timeout 900
+```
+
+发布阶段加载本次构建的临时镜像产物，不重新构建。临时产物保留一天；过期后须重新运行构建，不能只重跑发布任务。多个标签的推送不是原子操作；中途失败时可能已有部分标签可用，应排查后重跑并以成功记录中的 digest 为准。
+
+工作流的权限、并发、缓存和失败行为见[构建与发布规格](../spec/spec-process-cicd-build.md)。
+
 ## 3. 日常发布与维护
 
 ```sh
