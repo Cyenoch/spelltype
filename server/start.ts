@@ -10,6 +10,7 @@ import { generateSpellSet } from './generation/spells';
 import { createSpellBookGenerator } from './generation/book-cache';
 import { createApp } from './http/app';
 import type { HttpEnv } from './http/context';
+import { RuntimeOwnershipBusyError } from './maintenance/ownership';
 import { createRoomRuntime } from './rooms';
 
 export interface StartServerOptions {
@@ -94,5 +95,39 @@ export async function startServer({
   } catch (error) {
     await close();
     throw error;
+  }
+}
+
+/**
+ * 面向单一所有者交接的启动入口：另一个存活实例仍持有租约时（任何 stop-first
+ * 编排器都会制造这个窗口——替换任务先启动、旧任务才收到 SIGTERM），
+ * 不立即崩溃成重启循环，而是在有界窗口内等待旧租约释放或 30s TTL 自然过期。
+ * 窗口耗尽仍繁忙则以 RuntimeOwnershipBusyError 退出，把决策交还给编排器；
+ * 非繁忙错误（配置、迁移、资产缺失）绝不等待，立即上抛。
+ */
+const BUSY_LEASE_WAIT_MS = 90_000; // 3 × 租约 TTL：覆盖心跳竞态与重试间隔。
+const BUSY_LEASE_RETRY_MS = 2_000;
+
+export interface StartServerUntilOwnedOptions extends StartServerOptions {
+  /** 等待繁忙租约释放的最长时间，默认 3 × 租约 TTL。 */
+  busyLeaseWaitMs?: number;
+  /** 两次获取尝试之间的间隔。 */
+  busyLeaseRetryMs?: number;
+}
+
+export async function startServerUntilOwned(
+  options: StartServerUntilOwnedOptions,
+): Promise<RunningServer> {
+  const deadline = Date.now() + (options.busyLeaseWaitMs ?? BUSY_LEASE_WAIT_MS);
+  const retryMs = options.busyLeaseRetryMs ?? BUSY_LEASE_RETRY_MS;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await startServer(options);
+    } catch (error) {
+      if (!(error instanceof RuntimeOwnershipBusyError)) throw error;
+      if (Date.now() >= deadline) throw error;
+      console.info(JSON.stringify({ event: 'lease_busy', attempt, retryInMs: retryMs }));
+      await Bun.sleep(retryMs);
+    }
   }
 }
