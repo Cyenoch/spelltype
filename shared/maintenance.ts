@@ -47,7 +47,7 @@ export const drainStatusSchema = maintenanceInfoSchema.extend({
 });
 
 /**
- * What still blocks reopening, counted under the control-row lock. `ready` is true only while
+ * What still blocks replacing the runtime, counted under the control-row lock. `ready` is true only while
  * draining with zero blocking work and a runtime state the database can vouch for.
  */
 export type DrainStatus = z.infer<typeof drainStatusSchema>;

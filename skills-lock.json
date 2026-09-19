@@ -49,6 +49,12 @@
       "skillPath": "skills/engineering/codebase-design/SKILL.md",
       "computedHash": "5a17552cc1482f1a40124bf4e6c9dbd90ac0dbb47e71c07d47369f9e5f2ae3b5"
     },
+    "create-github-action-workflow-specification": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/create-github-action-workflow-specification/SKILL.md",
+      "computedHash": "527e6c77d921d58a9d0059aa95d0d14b441d2166f9c20518263048a56ca8fbbb"
+    },
     "diagnosing-bugs": {
       "source": "mattpocock/skills",
       "sourceType": "github",
@@ -66,6 +72,12 @@
       "sourceType": "github",
       "skillPath": "skills/durable-objects/SKILL.md",
       "computedHash": "39266b1d6b680c584cc7f75459a2b7eb428a06f6b5f4e95d45a8aa7454fbf53e"
+    },
+    "github-actions-efficiency": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/github-actions-efficiency/SKILL.md",
+      "computedHash": "92628da7f3eb2ae5625168f31587712a3cd77ac9ba5a23ffc24e86fd12c4408c"
     },
     "grill-me": {
       "source": "mattpocock/skills",
@@ -120,6 +132,12 @@
       "sourceType": "github",
       "skillPath": ".agents/skills/migrate-oxlint/SKILL.md",
       "computedHash": "7bc6dccdcc557cdb7d887fc16c6632e685b13860d202b9c9ce5da7504f0dbe18"
+    },
+    "multi-stage-dockerfile": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/multi-stage-dockerfile/SKILL.md",
+      "computedHash": "698bf93a84dae18fd7bd0b1d35c21427307fde78fbdf4624be9726f5f98189ca"
     },
     "nextjs-on-cloudflare": {
       "source": "cloudflare/skills",

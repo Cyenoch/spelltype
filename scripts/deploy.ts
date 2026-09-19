@@ -8,12 +8,12 @@
 //   bun run deploy deploy      --image <ref>    [--wait-timeout <s>] [--expect-build <id>]
 //   bun run deploy rollback    [--image <ref>]  [--schema-compatible] [--wait-timeout <s>]
 //   bun run deploy status
-//   bun run deploy maintenance <status|drain|resume> [--timeout <s>]
+//   bun run deploy maintenance <status|drain|wait|resume> [--timeout <s>] [--http]
 //   bun run deploy unlock
 //
 // Requires docker on the host; never mounts the Docker socket into the app.
-// Operator configuration lives in deploy/compose.env (see
-// deploy/compose.env.example for the full runbook).
+// Operator configuration lives in deploy/compose.env; see
+// docs/deployment.md for the runbook and deploy/compose.env.example for settings.
 
 import {
   cmdBuild,

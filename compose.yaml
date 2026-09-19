@@ -1,7 +1,7 @@
 # Single-runtime production stack: one immutable spelltype image (app plus
 # one-shot migration and maintenance entries, all from the same image) and
 # PostgreSQL. There is no edge, no per-release containers, no admin listener
-# and no Docker socket: exactly one app container runs at any time, and
+# and no Docker socket: at most one app container runs at a time, and
 # scripts/deploy.ts serializes every deploy, rollback and bootstrap against
 # the durable maintenance state in PostgreSQL.
 #
@@ -13,7 +13,8 @@
 # maintenance-only CI bearer API. Credentials reach containers as file secrets
 # under SPELLTYPE_STATE_DIR/secrets; no variable has a default password.
 #
-# Operator runbook: deploy/compose.env.example. The deploy CLI always passes
+# Operator runbook: docs/deployment.md; settings: deploy/compose.env.example.
+# The deploy CLI always passes
 # SPELLTYPE_APP_IMAGE (an exact image ID) via the process environment, which
 # overrides deploy/compose.env — an operator running docker compose directly
 # must set SPELLTYPE_APP_IMAGE themselves (image IDs, never mutable tags).
@@ -96,8 +97,8 @@ services:
   # never moved by different code than the app that starts afterwards. Run via
   # scripts/deploy.ts (docker compose run --rm migrate); it is never running
   # at the same time as an app container in a healthy deployment. The entry
-  # applies migrations and guarantees durable draining maintenance; it can
-  # never reopen maintenance or touch game data.
+  # applies forward migrations and ensures durable draining afterwards.
+  # It never reopens admission; data transformations belong to the migrations.
   migrate:
     image: ${SPELLTYPE_APP_IMAGE:?set SPELLTYPE_APP_IMAGE to an exact image ID (scripts/deploy.ts deploy does this automatically)}
     profiles: [migrate]

@@ -1,13 +1,11 @@
 // One-shot maintenance entry for the host-side deploy runner (baked into the
-// image as dist/server/maintenance.js). It reads and moves ONLY the durable
-// maintenance control row: inspect status, enter draining, or leave draining
-// with the revision/runtime-epoch CAS. It applies no migrations, acquires no
-// runtime ownership and never touches game data. The host runner invokes it
-// inside the running app container (`docker compose exec -T app bun
-// dist/server/maintenance.js ...`) or one-shot while no app exists
-// (`docker compose run --rm maintenance ...`); there is no separate admin
-// listener and no bearer token — host privilege to exec into the container
-// IS the authorization.
+// image as dist/server/maintenance.js). It inspects durable maintenance state,
+// closes admission (clearing waiting tickets), or reopens with revision/epoch
+// CAS. It applies no migrations, acquires no runtime ownership, and never
+// forcibly terminates matches. The host runner invokes it inside the app
+// container or in a one-shot container from the same image during recovery.
+// Host Docker privilege authorizes this entry; it does not use the separate
+// maintenance-only bearer credential supported by /api/ops/maintenance.
 //
 // Modes (exactly one per invocation):
 //   --status                       print the DrainStatus as JSON (read-only)

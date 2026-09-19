@@ -9,11 +9,11 @@
 #
 #   MAINTENANCE_TOKEN=$(openssl rand -hex 32) bun run deploy secrets
 #
-# Without this file in COMPOSE_FILE (or without the token), the ops API is
-# disabled and only the WeChat admin role and the host docker-exec path can
-# move maintenance. The token authorizes NOTHING else: no user-admin
-# endpoints, no cookies, no container replacement — CI/platform automation
-# uses it to drain and resume around a replacement it performs itself.
+# Without this override and without an application token, the ops API is disabled;
+# the WeChat admin role and host docker-exec path still support maintenance.
+# With this override enabled, a missing token file is a configuration error.
+# The token grants no user-admin access or container replacement authority.
+# CI owns the replacement workflow; see docs/deployment.md for its safety gates.
 # The token reaches the app at the next container recreate (initial install
 # or the next `bun run deploy deploy`).
 services:

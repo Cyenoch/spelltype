@@ -1,11 +1,10 @@
 // One-shot production schema migration entry (baked into the image as
-// dist/server/migrate.js). It applies Drizzle migrations forward-only, then
-// guarantees durable draining maintenance, and closes the database. It never
-// reopens maintenance, never rewrites or removes user data, and never leaves
-// maintenance — resuming is always an explicit runner operation against a
-// healthy running app (dist/server/maintenance.js). The production app starts
-// with auto-migration disabled, so this entry is the only sanctioned way the
-// production schema moves, and it always runs with admission closed.
+// dist/server/migrate.js). Run only after the old app has drained and stopped.
+// It applies forward migrations, then ensures durable draining maintenance
+// and closes the database. Data transformations belong to the migrations;
+// backups and compatibility review remain the operator's responsibility.
+// This entry never acquires runtime ownership or reopens admission. Production
+// startup verifies migration history but does not apply migrations itself.
 //
 // Modes:
 //   (default)  apply migrations, ensure draining maintenance, close.
