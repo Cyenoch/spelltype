@@ -107,10 +107,13 @@ jobs:
             docker tag spelltype:ci "$tag"
             docker push "$tag"
           done <<< "$IMAGE_TAGS"
+          first_tag="${IMAGE_TAGS%%$'\n'*}"
+          image_ref="$(docker image inspect "$first_tag" --format '{{json .RepoDigests}}' |
+            jq -er --arg repository "${first_tag%:*}" '.[] | select(startswith($repository + "@"))')"
           {
             echo '## Published image'
             echo '```text'
             printf '%s\n' "$IMAGE_TAGS"
-            docker image inspect spelltype:ci --format '{{range .RepoDigests}}{{println .}}{{end}}'
+            printf '%s\n' "$image_ref"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
