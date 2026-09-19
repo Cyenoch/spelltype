@@ -31,8 +31,8 @@ function Application(props: { queryClient: QueryClient }) {
   const [notice, setNotice] = createSignal('');
   const [connection, setConnection] = createSignal<RoomLinkState>('idle');
   const [graphicsFailed, setGraphicsFailed] = createSignal(false);
-  // Static-compiled styles resolve asset URLs from the document base, so the
-  // arena image host is registered before any of those surfaces render.
+  // 静态编译的样式会根据文档基准解析资源 URL，
+  // 因此在渲染这些界面前需先注册竞技场图片的基础路径。
   onMount(() => installAssetBase());
   const ctx: AppContext = {
     session,
@@ -50,7 +50,7 @@ function Application(props: { queryClient: QueryClient }) {
     handleAuthFailure: (reason) => {
       setNotice(reason);
       session.clear();
-      // The shell owns the router, so re-authentication navigates with it.
+      // 外层壳组件管理路由，因此重新认证时直接调用其导航。
       void router.navigate({
         to: '/auth',
         search: { room: pending() ?? undefined },
@@ -86,7 +86,7 @@ function createAppRouter(context: AppRouterContext) {
     context,
     defaultPreload: false,
     scrollRestoration: true,
-    // Room IDs are opaque strings, including IDs consisting entirely of digits.
+    // 房间 ID 均为不透明字符串，包括完全由数字构成的 ID。
     parseSearch: (search) => Object.fromEntries(new URLSearchParams(search)),
     stringifySearch: stringifySearchWith(String),
   });

@@ -4,20 +4,20 @@ import type { Database, QueryDatabase, Transaction } from '../db';
 import { matchTickets, rooms, runtimeControl, type RuntimeControlRow } from '../db/schema';
 
 /**
- * Durable maintenance: admission, drain observation and the revision-CAS transitions.
+ * 持久化维护状态：准入控制、排空（drain）进度观察以及基于版本 CAS 的状态流转。
  *
- * The one `runtime_control` row is the whole story. `mode` decides admission; `revision` is the
- * CAS token that makes every transition (`enterMaintenance`/`leaveMaintenance`) safe for racy
- * operators — a stale or repeated operation is refused with `MaintenanceConflict` (409), never
- * silently taken over. Drain readiness is computed, not asserted: the barrier counts are read
- * under the control-row lock, so an inspection can never miss work that is mid-admission.
+ * 唯一的 `runtime_control` 行统辖一切。`mode` 决定准入放行与否；`revision` 作为 CAS 令牌，
+ * 使得每一次状态转换（`enterMaintenance`/`leaveMaintenance`）在面对并发运维操作时都能确保安全——
+ * 过期或重复的操作会被以 `MaintenanceConflict` (409) 明确拒绝，绝不被静默覆盖接管。
+ * 排空就绪状态是通过严密计算得出而非主观断言：所有屏障统计计数均在控制行锁保护下读取，
+ * 从而确保巡检时绝不会漏掉任何正在处于准入过程中的操作。
  *
- * Lock order everywhere: runtime_control → rooms → tickets. Nothing waits for a network inside
- * these transactions, and every deadline comparison reads the database's own `clock_timestamp()`
- * AFTER the row lock — `now()` is frozen at transaction start and goes stale across lock waits.
+ * 全局加锁顺序：runtime_control → rooms → tickets。这些事务内部绝不等待网络 IO，
+ * 且每一次截止时间比较均在获取行锁*之后*读取数据库自身的 `clock_timestamp()`——
+ * 因为 `now()` 在事务开启时就被冻结，跨锁等待后便会失效变陈旧。
  */
 
-/** A maintenance transition lost its race or quoted a stale revision; re-read and retry. */
+/** 维护状态流转在并发竞态中落败，或引用了陈旧的版本号；请重新读取后重试。 */
 export class MaintenanceConflict extends Error {
   readonly status = 409;
 
@@ -28,8 +28,8 @@ export class MaintenanceConflict extends Error {
 }
 
 /**
- * Database-authoritative wall time in milliseconds, read after any row lock the caller holds.
- * Fails closed when the control row is missing: without it there is no state to vouch for.
+ * 以毫秒为单位的数据库权威物理时间，在调用方持有行锁后读取。
+ * 当控制行不存在时故障阻断报错：失去控制行就无法为系统状态提供可信担保。
  */
 async function databaseNow(executor: QueryDatabase): Promise<number> {
   const [row] = await executor
@@ -40,7 +40,7 @@ async function databaseNow(executor: QueryDatabase): Promise<number> {
   return Math.floor(row.now);
 }
 
-/** The control row locked `FOR SHARE` (readers that must not race a transition) or `FOR UPDATE`. */
+/** 以 `FOR SHARE`（不可与状态转换发生竞态的读取方）或 `FOR UPDATE` 模式锁定控制行。 */
 async function lockControl(tx: Transaction, mode: 'share' | 'update'): Promise<RuntimeControlRow> {
   const query = tx.select().from(runtimeControl).limit(1);
   const [row] = await (mode === 'share' ? query.for('share') : query.for('update'));
@@ -49,8 +49,8 @@ async function lockControl(tx: Transaction, mode: 'share' | 'update'): Promise<R
 }
 
 /**
- * The maintenance pointer as it is committed right now — no lock, one MVCC read. Safe to call
- * with an open transaction (an in-transaction admission re-check) or the plain database.
+ * 当前已提交的维护状态指针——无行锁，单次 MVCC 快照读。
+ * 可在开启的事务中安全调用（用于事务内再次校验准入），亦可直接传入纯数据库实例。
  */
 export async function readMaintenance(executor: QueryDatabase): Promise<MaintenanceInfo> {
   const [row] = await executor
@@ -66,9 +66,8 @@ export async function readMaintenance(executor: QueryDatabase): Promise<Maintena
 }
 
 /**
- * Everything that still blocks reopening, counted under the control-row lock. The lock is what
- * makes the answer trustworthy: admissions (`FOR SHARE`) wait for it, so a match cannot start
- * between the counts and the verdict.
+ * 在控制行锁保护下统计仍阻碍恢复开放的一切未结项。通过行锁保证统计结果绝对可信：
+ * 准入操作（`FOR SHARE`）会等待此锁，因此在统计计数与最终裁定之间绝不可能有对局乘隙开启。
  */
 export async function inspectMaintenance(database: Database): Promise<DrainStatus> {
   return database.transaction(async (tx) => {
@@ -92,9 +91,9 @@ export async function inspectMaintenance(database: Database): Promise<DrainStatu
       .select({ total: sql<number>`count(*)::int` })
       .from(rooms)
       .where(sql`${rooms.persistence} in ('saving', 'error')`);
-    // Idle sockets and lobby rooms are deliberately not blockers — draining stops NEW work.
-    // A null owner is known state (nothing to vouch for); a lapsed lease without graceful
-    // release is unknown state and blocks readiness until it is renewed or released.
+    // 空闲连接和处于大厅的房间故意不作为阻碍项——排空是为了阻止新工作的产生。
+    // 属主为空属于已知确定状态（无需提供运行时担保）；租约失效但未优雅释放属于未知异常状态，
+    // 在其重新续约或显式释放前阻断排空就绪。
     const runtimeKnown =
       control.runtime_id === null || (control.lease_until !== null && control.lease_until > now);
     return {
@@ -119,10 +118,9 @@ export async function inspectMaintenance(database: Database): Promise<DrainStatu
 }
 
 /**
- * Enters draining: revision CAS under `FOR UPDATE`, mode flipped, revision bumped, and every
- * still-waiting queue ticket deleted (they are intents, not user data, and each would otherwise
- * block the drain barrier forever). Entering while already draining, or against a stale
- * revision, is refused — the caller re-reads and decides, nobody wins by accident.
+ * 进入排空维护：在 `FOR UPDATE` 下进行版本 CAS 比对、翻转模式、自增版本号，并删除所有仍处于等待中的队列票据
+ * （它们属于瞬时意图而非用户持久资产，否则会使排空屏障永远无法通过）。
+ * 当已处于排空维护状态，或基于陈旧版本号操作时，均会被拒绝——调用方必须重新读取再做决策，绝不允许意外胜出。
  */
 export async function enterMaintenance(
   database: Database,
@@ -148,11 +146,10 @@ export async function enterMaintenance(
 }
 
 /**
- * Leaves draining — the one way maintenance ever opens. Under the same `FOR UPDATE` as the flip
- * it requires: the revision CAS, a live runtime lease, and that lease's exact `runtime_epoch` as
- * the caller's proof of WHICH runtime is being resumed. Without the epoch proof a stale operator
- * could reopen maintenance for a successor runtime it never inspected; with it, only an operator
- * that observed the current runtime healthy can resume.
+ * 退出排空状态——系统重新开放的唯一途径。与进入维护时保持相同的 `FOR UPDATE` 行锁，
+ * 且必须满足：版本 CAS 正确、存在存活的运行时租约、以及传入该租约确切的 `runtime_epoch` 作为
+ * 调用方证明其所恢复的具体是哪一代运行时的凭据。若无世代号证明，过期的运维请求可能会误将系统开放给
+ * 一个从未巡检过的后继运行时；有了它，只有亲眼观察到当前运行时健康的运维操作方能恢复开放。
  */
 export async function leaveMaintenance(
   database: Database,
@@ -188,10 +185,9 @@ export async function leaveMaintenance(
 }
 
 /**
- * The durable admission check inside a mutation transaction: `FOR SHARE` on the control row (so
- * a concurrent enter/leave waits for this transaction instead of racing it) and a fail-closed
- * verdict — missing control row or draining mode both refuse. This is the first lock a room or
- * matchmaking transaction takes; rooms and tickets come after it, never before.
+ * 状态变更事务内部的持久化准入校验：在控制行上加 `FOR SHARE` 共享锁（使得并发的进入/退出维护操作
+ * 必须等待本事务完成，而不会产生竞态），并在缺失控制行或处于排空维护模式时故障阻断拒绝。
+ * 这是房间或匹配事务获取的第一个锁；房间行与票据行只能在它之后加锁，绝不能在此之前。
  */
 export async function assertAdmission(tx: Transaction): Promise<void> {
   const control = await lockControl(tx, 'share');
@@ -201,9 +197,8 @@ export async function assertAdmission(tx: Transaction): Promise<void> {
 }
 
 /**
- * Runs `fn` inside an admission transaction: the control row is share-locked for the whole
- * callback, so new resources commit only under a mode the database vouched for atomically.
- * Room creation and matchmaking pairing both go through this shape (directly or inline).
+ * 在准入事务中执行 `fn`：控制行在整个回调期间保持共享锁定，因此新资源的提交必定处于数据库原子担保的模式之下。
+ * 房间创建与对局匹配配对均采用这种模式（直接调用或内联实现）。
  */
 export function withAdmission<T>(
   database: Database,

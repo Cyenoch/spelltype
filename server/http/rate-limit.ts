@@ -2,15 +2,15 @@ import { HTTPException } from 'hono/http-exception';
 import type { AuthRateLimit, ServerConfig } from '../config';
 
 /**
- * The deployment's authentication budget. `readServerConfig` derives it from
- * `AUTH_RATE_LIMIT_ATTEMPTS` / `AUTH_RATE_LIMIT_WINDOW_MS` (default 10 per 60 seconds); the e2e
- * harness raises it so test flows never trip the limiter.
+ * 当前部署的身份验证速率配额。`readServerConfig` 从
+ * `AUTH_RATE_LIMIT_ATTEMPTS` / `AUTH_RATE_LIMIT_WINDOW_MS`（默认为每 60 秒 10 次）中派生该配置；
+ * 端到端（e2e）测试套件会调高该值，避免自动化测试流程误触限流。
  */
 export function authRateLimits(config: ServerConfig): AuthRateLimit {
   return config.authLimits;
 }
 
-/** How many distinct clients one limiter tracks before eviction; storage is bounded, not unbounded. */
+/** 单个限流器在触发驱逐前最多可追踪的不同客户端数量；存储空间是有界的，而非无限制增长。 */
 const MAX_TRACKED_CLIENTS = 10_000;
 
 interface WindowHit {
@@ -19,8 +19,8 @@ interface WindowHit {
 }
 
 /**
- * The native authentication limiter, replacing the platform rate-limit binding: a fixed-window
- * counter per `scope:client` key with hard-bounded storage.
+ * 原生身份验证限流器，用于替代平台的限流绑定机制：针对 `scope:client` 维度的键采用固定窗口计数器，
+ * 并对存储容量施加严格上限。
  */
 export interface AuthRateLimiter {
   limit(scope: string, client: string): void;
@@ -44,8 +44,7 @@ export function createAuthRateLimiter(limits: AuthRateLimit): AuthRateLimiter {
         if (hits.size >= MAX_TRACKED_CLIENTS) {
           prune(now);
           if (hits.size >= MAX_TRACKED_CLIENTS) {
-            // Still full: drop the window that expires soonest so a long abuse campaign cannot
-            // evict honest clients from tracking.
+            // 依然处于满载状态：淘汰最早过期的窗口，防止长时间的恶意刷量攻击将正常客户端挤出追踪列表。
             let oldestKey = key;
             let oldestResetAt = Number.MAX_SAFE_INTEGER;
             for (const [candidate, value] of hits) {
@@ -68,7 +67,7 @@ export function createAuthRateLimiter(limits: AuthRateLimit): AuthRateLimiter {
   };
 }
 
-/** Explicitly configured headers are trusted; the ingress must prevent client spoofing. */
+/** 仅信任显式配置的请求头；入口网关层必须负责防止客户端伪造请求头。 */
 export function rateLimitKey(
   peerAddress: string | undefined,
   headerValue: string | undefined,

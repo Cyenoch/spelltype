@@ -21,14 +21,13 @@ import type { RoomSocket } from '../contracts';
 import type { Transaction } from '../db';
 import { participantKind } from './opponents';
 
-/** The frames whose only actor is the lobby: readiness, the host's start, a rematch and a leave. */
+/** 仅针对大厅生效的数据帧：准备、房主开始、再来一局以及离开。 */
 export type LobbyFrame = Extract<ClientMessage, { type: 'ready' | 'start' | 'rematch' | 'leave' }>;
 
 /**
- * Tells a socket about a refused new match. Maintenance admission is read
- * inside the caller's transaction, so the refusal and the state it guards
- * commit (or refuse) together — and nothing else in the branch was durable
- * yet, so the rollback carries no loss.
+ * 向套接字通知新对局被拒绝。维护准入在调用方的事务内读取，
+ * 因此拒绝响应与它所保护的状态会一起提交（或一起拒绝）——
+ * 且该分支中尚无其他已持久化的变动，因此回滚不会造成数据丢失。
  */
 function sendAdmissionRefusal(socket: RoomSocket, error: unknown): boolean {
   if (!(error instanceof MaintenanceError)) return false;
@@ -37,8 +36,8 @@ function sendAdmissionRefusal(socket: RoomSocket, error: unknown): boolean {
 }
 
 /**
- * Every lobby decision a seat can make. Each branch answers the socket itself and ends with the
- * room's own snapshot fan-out, so a caller never has to remember to push one.
+ * 席位可在大厅作出的所有决策。每个分支自行回复套接字，
+ * 并以向房间广播快照结束，调用方无需额外记住推送快照。
  */
 export async function handleLobbyFrame(
   scope: RoomScope,
@@ -62,8 +61,8 @@ export async function handleLobbyFrame(
     case 'start': {
       try {
         await scope.transact(async (tx) => {
-          // Admission first: a draining server starts no new match, and the
-          // refusal leaves the room exactly as it was.
+          // 准入优先：排空（draining）状态的服务器不开始新对局，
+          // 且拒绝后房间状态保持完全不变。
           await assertAdmission(tx);
           const fresh = await getRoom(tx, scope.roomId);
           if (!fresh) {
@@ -82,7 +81,7 @@ export async function handleLobbyFrame(
     case 'rematch': {
       try {
         await scope.transact(async (tx) => {
-          // Same gate as a first start: a rematch is a new match.
+          // 与首次开始相同的限制门控：再来一局属于全新的对局。
           await assertAdmission(tx);
           const fresh = await getRoom(tx, scope.roomId);
           if (!fresh) {
@@ -109,7 +108,7 @@ export async function handleLobbyFrame(
   }
 }
 
-/** The host's start branch: every readiness rule, then the transactional match start. */
+/** 房主开始对局分支：校验所有就绪规则，然后事务性开始对局。 */
 async function hostStartTx(
   tx: Transaction,
   scope: RoomScope,
@@ -137,8 +136,8 @@ async function hostStartTx(
   const roster = await listPlayers(tx, scope.roomId);
   const online = onlineUserIds(roster, await currentConns(tx, scope.roomId, scope.registry));
   for (const row of roster) if (participantKind(room, row) !== 'human') online.add(row.user_id);
-  // Reserved invitees that never connected are released at lock time; a
-  // player who actually joined is never dropped silently.
+  // 从未连接的预留受邀者在锁定对局时被释放；
+  // 实际已加入的玩家绝不会被静默移除。
   const missing = roster.filter((row) => row.seated === 1 && !online.has(row.user_id));
   if (missing.length > 0) {
     sendTo(socket, {
@@ -156,12 +155,12 @@ async function hostStartTx(
     sendTo(socket, { type: 'error', message: '还有玩家尚未准备。' });
     return;
   }
-  // A refused start records its reason on the room row, and the snapshot
-  // below carries it to every seat either way.
+  // 被拒绝的开始操作会将其原因记录在房间数据行上，
+  // 下方的快照无论如何都会将该错误同步给每个席位。
   await startMatchTx(tx, scope.roomId, room, inputPolicyMode);
 }
 
-/** Returns a settled room to an open lobby for the next match. */
+/** 将已结算的房间恢复为开放大厅以进行下一场对局。 */
 async function rematchTx(tx: Transaction, scope: RoomScope): Promise<void> {
   await resetPlayersForMatch(tx, scope.roomId);
   await clearReady(tx, scope.roomId);
@@ -181,8 +180,8 @@ async function rematchTx(tx: Transaction, scope: RoomScope): Promise<void> {
     generation_claim: null,
     opponent_next_at: null,
   });
-  // Seats that were held through the match expire again, so an absent
-  // player cannot block the next start; the connected ones keep theirs.
+  // 在对局期间被保留的席位重新启用过期计时，防止离开的玩家阻塞下一次开始；
+  // 保持连接的玩家则维持其席位。
   const roster = await listPlayers(tx, scope.roomId);
   const room = await getRoom(tx, scope.roomId);
   if (!room) throw new Error('room:not_found');

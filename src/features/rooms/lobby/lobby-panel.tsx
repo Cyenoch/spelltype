@@ -15,20 +15,18 @@ export interface LobbyActions {
 }
 
 /**
- * Whether a seat counts as present for the lobby's readiness rules. A synthetic
- * opponent is seated by the server and always available — the lobby never waits
- * on a socket, a readiness gesture or a reconnect from it.
+ * 根据大厅的准备规则判定席位是否算作在场。非真人对手由服务端安排且始终可用——
+ * 大厅绝不需要等待其 WebSocket 连接、手动准备手势或断线重连。
  */
 export function seatPresent(player: Player): boolean {
   return player.connected || player.kind !== 'human';
 }
 
 /**
- * Mirrors the room's authoritative rule: still in the open lobby (never while
- * the spellbook is being prepared), at least two present players, no seated
- * human player offline, and every non-host player ready. A quick room under a
- * live reservation starts itself and refuses a manual start. A maintenance
- * window blocks the start itself, not the room.
+ * 严格对齐房间权威规则：仍处于开放大厅阶段（绝不能在准备咒文书期间开战）、
+ * 至少两位在场玩家、无任何已入座的人类玩家处于离线状态，且所有非房主玩家均已准备。
+ * 处于有效预留期的快速匹配房间会自动开战，拒绝手动点击开战。
+ * 维护窗口仅阻断开始对局本身，不影响房间存在。
  */
 function canStart(snapshot: RoomSnapshot, admissionBlocked: boolean): boolean {
   if (snapshot.phase !== 'lobby' || admissionBlocked) return false;
@@ -43,10 +41,9 @@ function joinedNames(players: { username: string }[]): string {
 }
 
 /**
- * The one status sentence: what the room is doing and, if it is waiting, who it
- * is waiting for. A quick room never waits for a host's start — it arms itself
- * the moment both reserved seats are online — and generation hands over to the
- * opening countdown on its own.
+ * 统一的状态提示语：房间当前在做什么，以及如果处于等待状态，正在等待谁。
+ * 快速匹配房间绝不等待房主手动开始——双方预留席位均在线时自动启动——
+ * 且咒文书生成完成后会自动交接进入开场倒计时。
  */
 function startHint(snapshot: RoomSnapshot, isHost: boolean, admissionBlocked: boolean): string {
   if (snapshot.phase === 'generating') {
@@ -69,27 +66,25 @@ function startHint(snapshot: RoomSnapshot, isHost: boolean, admissionBlocked: bo
     (player) => player.id !== snapshot.hostId && !player.ready,
   );
   if (waitingReady.length > 0) return `还需要这些玩家准备：${joinedNames(waitingReady)}。`;
-  // A quick room here is one whose generation failed or whose match ended:
-  // the host restarts it by hand, exactly like a private room.
+  // 此处的快速房间指生成失败或对局刚结束的房间：
+  // 由房主手动重新开局，与自定义私密房间规则相同。
   if (!isHost) return '所有人已准备，等待房主开始对局。';
   return snapshot.mode === 'quick' ? '准备就绪，重新开始对决吧。' : '准备就绪，开始对决吧。';
 }
 
 /**
- * Lobby / preparation stage: the duel stage the queue screen promised — large
- * portraits on opposing sides around the central sigil — plus a compact brief
- * of room facts — the room ID doubles as the invite code, one tap copies it —
- * and one focused action row. Quick-match
- * rooms say plainly that they start themselves, and the reservation expiry
- * keeps an abandoned opponent an explained situation, not a dead end.
+ * 大厅/准备阶段面板：匹配界面所承诺的决斗舞台——
+ * 左右两侧环绕中央印记的大型头像，加上紧凑的房间属性简报——
+ * 房间 ID 兼作邀请码，点击一次即可复制——以及聚焦的操作按钮行。
+ * 快速匹配房间会明确提示其自动开始特性，且预留到期倒计时能让被弃置的对手状态得到合理解释，避免出现死局。
  */
 export function LobbyPanel(props: {
   snapshot: RoomSnapshot;
   selfId: string;
   reservationRemainingMs: number | null;
-  /** A maintenance window (or unknown service status) blocks starting, not the room. */
+  /** 维护窗口（或未知服务状态）仅阻断开始开战，不影响大厅交互。 */
   admissionBlocked: boolean;
-  /** The lobby stays mounted for the whole room; combat simply hides it. */
+  /** 大厅在整个房间生命周期内保持挂载；进入战斗时仅将其隐藏。 */
   hidden: boolean;
   actions: LobbyActions;
 }) {
@@ -107,10 +102,10 @@ export function LobbyPanel(props: {
     props.snapshot.reservationExpiresAt !== null &&
     props.snapshot.players.filter(seatPresent).length < 2;
   const generating = createMemo(() => props.snapshot.phase === 'generating');
-  /** The stage is "working" while an opponent is pending or the book cooks. */
+  /** 在等待对手入房或正在烘焙咒文书时，舞台处于“工作中”的活跃状态。 */
   const stageLive = createMemo(() => generating() || quickWaiting());
 
-  /** A quick room under a live reservation starts itself; no button exists for it. */
+  /** 处于有效预留期的快速匹配房间会自动开局；不需要也不展示开始按钮。 */
   const startVisible = () => {
     if (!isHost()) return false;
     if (props.snapshot.mode === 'quick') {
@@ -131,13 +126,13 @@ export function LobbyPanel(props: {
       : '对手未能及时进入，请离开后重新匹配。';
   };
 
-  /** Every seat except the viewer's own stands on the rival side. */
+  /** 除用户自身席位外，所有其他席位均位于对手侧。 */
   const rivalSlots = () =>
     Array.from({ length: capacity() }, (_, slot) => slot).filter((slot) => slot !== self()?.slot);
   const playerAt = (slot: number) =>
     props.snapshot.players.find((candidate) => candidate.slot === slot);
   const rivalOccupied = () => rivalSlots().filter((slot) => Boolean(playerAt(slot))).length;
-  /** A lone rival gets the duel portrait; extra rivals and empty slots read compact. */
+  /** 单个对手展示大型决斗头像；多个对手及空闲席位以紧凑行卡片形式展示。 */
   const rivalCompact = (slot: number) =>
     playerAt(slot) ? rivalOccupied() > 1 : props.snapshot.mode !== 'quick';
   const emblemCaption = createMemo(() =>

@@ -1,20 +1,17 @@
-// Produces the standard dist/ payload baked into the application image:
+// 生成打包进应用镜像的标准 dist/ 产物：
 //
-//   dist/client/            Vite frontend output, served from `/`
-//   dist/server/index.js    Bun bundle of server/index.ts (app entry)
-//   dist/server/migrate.js  Bun bundle of server/migrate.ts (one-shot migration entry)
+//   dist/client/            Vite 前端构建产物，托管于 `/`
+//   dist/server/index.js    server/index.ts 的 Bun 打包文件（应用入口）
+//   dist/server/migrate.js  server/migrate.ts 的 Bun 打包文件（单次迁移入口）
 //
-// The build identity is SPELLTYPE_BUILD_ID when the environment pins it (the
-// Dockerfile passes the BUILD_ID build arg this way), otherwise it is
-// generated once per invocation. It is informational only: it is compiled in
-// as the __SPELLTYPE_BUILD_ID__ macro and reported by /health and /api/status
-// so an operator can prove which build a container runs. It is never used for
-// routing or authorization, and there is no release manifest.
+// 当环境变量固定 SPELLTYPE_BUILD_ID 时（Dockerfile 以此方式传入 BUILD_ID 构建参数），
+// 构建标识即为该值；否则每次调用单独生成。该标识仅供参考：
+// 它作为 __SPELLTYPE_BUILD_ID__ 宏编译进代码，并由 /health 和 /api/status 上报，
+// 以便运维人员确认容器运行的具体构建版本。它绝不用于路由或鉴权，且不存在发布清单。
 //
-// A failed build leaves no dist/ behind, so a half-built tree can never
-// become a deployment candidate.
+// 构建失败时不会残留 dist/，因此未构建完成的目录树绝不可能成为部署候选版本。
 //
-// Run with the Bun runtime: bun scripts/build.mjs
+// 使用 Bun 运行时执行：bun scripts/build.mjs
 
 import { randomBytes } from 'node:crypto';
 import { rename, rm } from 'node:fs/promises';
@@ -33,8 +30,8 @@ async function runtimeExternals() {
 }
 
 /**
- * Builds the deployable dist/ tree. Returns { buildId }.
- * Throws after removing dist/ when any step fails.
+ * 构建可部署的 dist/ 目录树。返回 { buildId }。
+ * 任何步骤失败时，会在删除 dist/ 后抛出异常。
  */
 export async function build({ log = () => {} } = {}) {
   const pinned = process.env.SPELLTYPE_BUILD_ID?.trim() || undefined;
@@ -66,9 +63,8 @@ export async function build({ log = () => {} } = {}) {
       format: 'esm',
       splitting: false,
       sourcemap: 'none',
-      // The compiled server entries carry the build identity reported by
-      // /health and /api/status; the deploy CLI proves the candidate's
-      // identity with `--check` entries before draining.
+      // 编译后的服务端入口携带由 /health 与 /api/status 上报的构建标识；
+      // 部署 CLI 在执行 drain 之前，会通过 `--check` 入口验证候选版本的标识。
       define: { __SPELLTYPE_BUILD_ID__: JSON.stringify(buildId) },
       external: await runtimeExternals(),
     });
@@ -76,8 +72,8 @@ export async function build({ log = () => {} } = {}) {
       for (const entry of serverBundle.logs) log(String(entry));
       throw new Error('Bun.build failed for the server entries');
     }
-    // The host-side maintenance entry compiles to a fixed output name
-    // (dist/server/maintenance.js) regardless of its source file name.
+    // 宿主机侧的维护入口编译为固定输出文件名
+    // (dist/server/maintenance.js)，与其源文件名无关。
     const maintenanceBundle = await Bun.build({
       entrypoints: [join(root, 'server', 'maintenance-cli.ts')],
       outdir: serverDir,

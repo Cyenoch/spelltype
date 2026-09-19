@@ -1,10 +1,9 @@
 /**
- * The lobby shares the queue screen's visual lineage: the same cinematic arena
- * stage, the same round duelist portraits flanking a central sigil, and the
- * same composed motion vocabulary — a state class applies an animation, and the
- * reduced-motion preference drops the animation name entirely. Where the queue
- * searched for a rival behind a scanning veil, the lobby shows the rivals it
- * found, their readiness, and the shared spellbook being prepared.
+ * 准备大厅沿用了匹配页面的视觉血统：相同的影院级竞技场舞台、
+ * 簇拥中央印记的双方圆形决斗者头像，以及相同的组合式动画规范——
+ * 状态类名负责应用对应动画，系统的减少动态效果偏好则完全移除动画名称。
+ * 匹配界面是在扫描面纱后寻找对手，而大厅则展示已就位的对手、
+ * 他们的准备状态，以及正在准备中的共享咒文书。
  */
 import * as stylex from '@stylexjs/stylex';
 
@@ -43,7 +42,7 @@ const sweep = stylex.keyframes({
 });
 
 export const styles = stylex.create({
-  /* ------------------------------------------------------------ stage --- */
+  /* ------------------------------------------------------------ 舞台 --- */
 
   stage: {
     position: 'relative',
@@ -82,7 +81,7 @@ export const styles = stylex.create({
     '@media (max-width: 720px)': { gridTemplateAreas: '"self center" "rival rival"' },
   },
 
-  /* Faint arena ring, so the stage reads as a place rather than a card. */
+  /* 隐约的竞技场光环，使舞台呈现为一个具体场景而非扁平卡片。 */
   stageRing: {
     '::after': {
       content: '""',
@@ -100,8 +99,7 @@ export const styles = stylex.create({
     },
   },
 
-  /* The travelling sheen while the room is still working: waiting for the
-     reserved opponent, or preparing the shared spellbook. */
+  /* 房间进行工作时的流动光泽：等待预留对手进房，或正在准备共享咒文书。 */
   stageLive: {
     '::before': {
       content: '""',
@@ -121,7 +119,7 @@ export const styles = stylex.create({
     },
   },
 
-  /* ------------------------------------------------------------- sides --- */
+  /* ------------------------------------------------------------- 阵营侧 --- */
 
   side: {
     position: 'relative',
@@ -152,7 +150,7 @@ export const styles = stylex.create({
     },
   },
 
-  /* ------------------------------------------------------------ emblem --- */
+  /* ------------------------------------------------------------ 中央徽记 --- */
 
   center: {
     position: 'relative',
@@ -196,7 +194,7 @@ export const styles = stylex.create({
     '@media (prefers-reduced-motion: reduce)': { animationName: 'none' },
   },
 
-  /* The comet arc: the visible "the spellbook is being written" signal. */
+  /* 彗星光弧：视觉上呈现“正在撰写咒文书”的动态信号。 */
   ringSweep: {
     top: '6%',
     right: '6%',
@@ -243,8 +241,8 @@ export const styles = stylex.create({
     '@media (prefers-reduced-motion: reduce)': { animationName: 'none' },
   },
 
-  /* Orbiting motes: each wrapper spans the ring so its own rotation moves the
-     dot around the centre instead of around itself. */
+  /* 环绕微粒：每个包裹层跨越整个圆环，使其自身旋转带动微粒围绕中心公转，
+     而非仅自身自转。 */
   mote: {
     position: 'absolute',
     top: 0,
@@ -278,7 +276,7 @@ export const styles = stylex.create({
   moteB: { transform: 'rotate(128deg)' },
   moteC: { transform: 'rotate(246deg)' },
 
-  /* A soft glow behind the crest; opacity-only so centring survives the pulse. */
+  /* 徽记背后的柔和光晕；仅调节透明度，避免呼吸脉冲影响居中定位。 */
   spark: {
     position: 'absolute',
     top: '50%',
@@ -343,7 +341,7 @@ export const styles = stylex.create({
     backgroundRepeat: 'no-repeat, repeat',
   },
 
-  /* ------------------------------------------------------------- seats --- */
+  /* ------------------------------------------------------------- 席位卡片 --- */
 
   card: {
     display: 'flex',
@@ -355,9 +353,8 @@ export const styles = stylex.create({
     textAlign: 'center',
   },
 
-  /* Extra rivals and open invitation slots read as a row, so three of them
-     never outgrow the stage. A quiet stone inset keeps their text legible on
-     the arena art without framing the big duel portraits twice. */
+  /* 多出的对手与空闲邀请席位横向排布成一行，确保 3 个席位也不会超出舞台尺寸。
+     低调的石质内凹底座确保文字在竞技场背景画上清晰可读，同时避免重复框住大型决斗头像。 */
   cardCompact: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -409,8 +406,8 @@ export const styles = stylex.create({
     boxShadow: '0 0 34px rgba(255, 215, 154, 0.18), inset 0 0 30px rgba(255, 215, 154, 0.12)',
   },
 
-  /* Readiness is the one thing the ring colour says; identity lives in the
-     tags. Composed last so it wins over the self accent. */
+  /* 圆环颜色专用于表达准备状态；身份标识由标签承载。
+     样式最后组合，优先级高于自身高亮色。 */
   artReady: {
     borderColor: 'rgba(100, 230, 176, 0.6)',
     boxShadow: '0 0 30px rgba(100, 230, 176, 0.26), inset 0 0 24px rgba(100, 230, 176, 0.14)',
@@ -431,7 +428,7 @@ export const styles = stylex.create({
     objectFit: 'cover',
   },
 
-  /* The reserved opponent nobody has met yet: a veiled sigil, never a portrait. */
+  /* 尚未进房的预留对手：显示带有遮罩的印记，绝不使用虚构头像。 */
   crestVeiled: {
     width: '58%',
     height: '58%',
@@ -597,12 +594,12 @@ export const styles = stylex.create({
     backgroundSize: 'auto, 256px 256px',
     backgroundRepeat: 'no-repeat, repeat',
   },
-  /** Deliberately quiet: a synthetic opponent is stated once, never dressed up as a rival human. */
+  /** 刻意保持低调：非真人对手明确标注一次即可，绝不伪装成人类对手。 */
   badgeSynthetic: {
     color: 'var(--ink-faint)',
   },
 
-  /* ------------------------------------------------------------- brief --- */
+  /* ------------------------------------------------------------- 房间简报 --- */
 
   brief: {
     marginBottom: 0,
@@ -622,8 +619,8 @@ export const styles = stylex.create({
     margin: '0 0 12px',
   },
 
-  /* Room facts stay one quiet strip: the room id lives here, small and
-     secondary, instead of dominating a header line. */
+  /* 房间属性信息保持单行低调展示：房间 ID 放置于此作为次要信息，
+     而非占据整个显眼的标题行。 */
   facts: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -662,7 +659,7 @@ export const styles = stylex.create({
     userSelect: 'all',
   },
 
-  /** The invite row inside the facts: code first, copy action beside it. */
+  /** 属性信息内的邀请行：先展示房间号，紧接着是复制操作按钮。 */
   roomIdCell: {
     display: 'flex',
     alignItems: 'center',

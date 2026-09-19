@@ -13,11 +13,10 @@ const MOTE_FLOOR = 220;
 const MAX_PARALLAX = 16;
 
 /**
- * Transparent battlefield atmosphere over the arena's shared DOM backdrop:
- * haze, drifting sigils, a rune floor and foreground motes. The header and
- * fighters use one continuous background rather than two independently cropped
- * images. Atmospheric depth comes from parallax; geometry is drawn at layout
- * time and only transformed per frame.
+ * 覆盖在竞技场共用 DOM 背景之上的透明战场氛围层：
+ * 雾气、漂浮的符印、符文地面与前景微尘。顶部信息栏与斗士使用同一张连续背景，
+ * 而非两张各自裁切的图片。空间纵深感来自视差；几何图形在布局时一次性绘制，
+ * 之后每帧只做变换。
  */
 export class Arena {
   readonly back = new Container();
@@ -46,9 +45,9 @@ export class Arena {
     this.motes = motes;
     this.reduced = reduced;
 
-    // The rim is an atmosphere readout, dark with no danger and no final seconds.
-    // Its own steady state is `0`, so it must not sit at the default alpha of 1
-    // and paint the vignette bars before anything has called update().
+    // 边框是一条氛围读数：无危险、无终局读秒时为暗色。
+    // 其自身的稳定状态是 `0`，因此不能停留在默认的 alpha=1 上，
+    // 否则在任何 update() 调用之前就会把暗角条绘制出来。
     this.rim.alpha = 0;
     this.floorRune = new Sprite(textures.ring);
     this.floorRune.anchor.set(0.5);
@@ -121,17 +120,17 @@ export class Arena {
     }
   }
 
-  /** 0..1: how close the local player is to elimination. */
+  /** 0..1：本地玩家距离被淘汰的接近程度。 */
   setDanger(level: number): void {
     this.danger = Math.max(0, Math.min(1, level));
   }
 
-  /** Turns the arena rim warm while the match clock runs out. */
+  /** 对局时钟即将走完时，让竞技场边框转为暖色。 */
   setFinalSeconds(active: boolean): void {
     this.finalSeconds = active;
   }
 
-  /** Normalised pointer position, -1..1 on both axes. */
+  /** 归一化后的指针位置，两轴取值均为 -1..1。 */
   setFocus(x: number, y: number): void {
     this.focusX = Math.max(-1, Math.min(1, x));
     this.focusY = Math.max(-1, Math.min(1, y));
@@ -175,14 +174,14 @@ export class Arena {
     this.motes.update(deltaMS);
   }
 
-  /** Deterministic teardown: the three layers own every graphic the arena made. */
+  /** 确定性销毁：三个图层拥有竞技场创建的所有图形对象。 */
   destroy(): void {
     this.back.destroy({ children: true });
     this.floor.destroy({ children: true });
     this.fore.destroy({ children: true });
   }
 
-  /** Ambient dust in front of the fighters; the only arena animation in reduced motion is off. */
+  /** 斗士前方的环境浮尘；减弱动效模式下竞技场唯一的动画即此处的关闭。 */
   private spawnMotes(deltaMS: number, reduced: boolean): void {
     if (reduced) return;
     this.moteClock += deltaMS;

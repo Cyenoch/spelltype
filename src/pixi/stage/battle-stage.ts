@@ -18,12 +18,12 @@ import { createStageAssets } from './assets';
 import type { Element, RoomSnapshot } from '../../../shared/protocol';
 
 /**
- * The live battle arena.
+ * 实时的战斗竞技场。
  *
- * `update` is fed the authoritative snapshot and `typing` the confirmed local
- * prefix; neither of them decides anything about damage. Hits are drawn from
- * `CombatEvent`s, deduplicated per match by `(matchId, seq)`, so a reconnect
- * that re-delivers the room's event ring never replays an old attack.
+ * `update` 接收权威快照，`typing` 接收本地已确认的前缀；
+ * 二者都不决定任何与伤害有关的内容。命中源自 `CombatEvent`，
+ * 并在每场对局内按 `(matchId, seq)` 去重，
+ * 因此重新下发房间事件环的重连绝不会重放旧攻击。
  */
 export interface BattleStage {
   update(snapshot: RoomSnapshot, selfId: string): void;
@@ -32,7 +32,7 @@ export interface BattleStage {
 }
 
 const SLOT_COUNT = 4;
-/** Frame clamp: a backgrounded tab must not teleport every effect on return. */
+/** 帧时长钳制：被切到后台的标签页返回时，不得让所有效果瞬移。 */
 const MAX_FRAME_MS = 48;
 
 export async function createBattleStage(host: HTMLElement): Promise<BattleStage> {
@@ -41,9 +41,9 @@ export async function createBattleStage(host: HTMLElement): Promise<BattleStage>
   const assets = createStageAssets();
 
   /**
-   * Art bootstrap. The renderer goes down before the art does: a texture source
-   * destroyed while the live application still has it bound to a shader is what
-   * makes Pixi warn about a resource being destroyed while still bound.
+   * 美术资源引导。渲染器先于美术资源关闭：
+   * 在运行中的应用仍把某张纹理源绑定到着色器时就销毁它，
+   * 正是会让 Pixi 警告「资源已销毁却仍处于绑定状态」的原因。
    */
   const loadArt = async (): Promise<FxTextures> => {
     try {
@@ -100,8 +100,8 @@ export async function createBattleStage(host: HTMLElement): Promise<BattleStage>
   const seating = createSeating(fighters);
   const glyphs = createGlyphLayer(fx.air, shapes, assets);
   const aim = createAimLayer(seating, shapes, assets);
-  // The targeting tether sits behind the fighters so it never draws across a
-  // character: it is read in the gap between them, the way a real sight line is.
+  // 目标连接光束位于斗士之后，因此绝不会横穿角色绘制：
+  // 它在两人之间的空隙中被读取，就像真实的瞄准视线。
   world.addChild(arena.back, arena.floor, fx.ground, aim.view, fighterLayer, fx.air, arena.fore);
 
   const advance = (deltaMS: number): void => {
@@ -110,7 +110,7 @@ export async function createBattleStage(host: HTMLElement): Promise<BattleStage>
     glyphs.update(deltaMS);
   };
 
-  /** Drops every live effect and particle: the arena is left showing nothing. */
+  /** 丢弃所有存活中的效果与粒子：竞技场随即呈现为空场景。 */
   const clearEffects = (): void => {
     fx.clear();
     for (const pool of Object.values(pools)) pool.clear();
@@ -172,11 +172,10 @@ export async function createBattleStage(host: HTMLElement): Promise<BattleStage>
     for (let slot = 0; slot < SLOT_COUNT; slot += 1) {
       if (match.occupancy[slot] !== null) present.push(slot);
     }
-    // The viewer reads themselves leftmost — the same order the DOM overhead
-    // labels use (`visualSeatOrder` in battle-view). Column order is purely
-    // visual: slots, targeting and events keep their authoritative identities,
-    // and every anchor (chest, feet bar, tether, projectile) reads back through
-    // `seating` by slot.
+    // 观察者自己读作最左侧 —— 与 DOM 顶部标签所用的顺序一致
+    // （battle-view 中的 `visualSeatOrder`）。列顺序纯属视觉层面：
+    // 席位、目标与事件保持各自的权威身份，而每个锚点（胸口、脚部进度条、
+    // 连接光束、弹道）都通过 `seating` 按席位反查。
     const selfSlot = match.selfSlot;
     if (selfSlot >= 0) {
       present.sort((left, right) =>
@@ -203,8 +202,8 @@ export async function createBattleStage(host: HTMLElement): Promise<BattleStage>
     aim.pulse(clock, match.selfProgress, match.phase === 'playing');
     aim.spin(delta);
     choreography.update(delta, match.phase, match.occupancy, match.chargeElement);
-    // The TickerPlugin renders this same frame right after this callback, so a
-    // ticker-driven frame is reported here and nowhere else.
+    // TickerPlugin 会在该回调之后立即渲染同一帧，
+    // 因此帧循环驱动的帧只在此处计数，别处不再重复。
     frameCount += 1;
     host.dataset.frames = String(frameCount);
   };
@@ -224,8 +223,8 @@ export async function createBattleStage(host: HTMLElement): Promise<BattleStage>
     choreography.stopSettle();
     if (isReduced) {
       app.stop();
-      // Finish confirmed hits before changing modes; dropping in-flight bolts
-      // would lose their impact and deferred elimination feedback.
+      // 在切换模式之前先结算已确认的命中；丢弃在途弹道会丢失其命中效果
+      // 与被推迟的淘汰反馈。
       fx.update(2400);
     }
     reduced = isReduced;
@@ -280,8 +279,8 @@ export async function createBattleStage(host: HTMLElement): Promise<BattleStage>
       for (const pool of Object.values(pools)) pool.destroy();
       motes.destroy();
       arena.destroy();
-      // Owned textures go only after the renderer: a source destroyed while the
-      // live application still has it bound to a shader is what Pixi warns about.
+      // 自有纹理只在渲染器之后销毁：在运行中的应用仍将其绑定到着色器时销毁纹理源，
+      // 正是 Pixi 会发出警告的情形。
       stageApp.destroy();
       destroyFxTextures(shapes);
       assets.dispose();

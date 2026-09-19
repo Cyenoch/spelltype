@@ -1,16 +1,15 @@
 /**
- * Deterministic DeepSeek-compatible HTTP fixture.
+ * 确定性的 DeepSeek 兼容 HTTP 测试夹具。
  *
- * Test-only infrastructure: never imported by product code. The harness composes the server's
- * `GenerateSpells` seam with `generateSpellSet` fed by `tests/support/test-provider.ts`, which
- * builds the real `@ai-sdk/deepseek` provider with `baseURL` pointed here. Generation therefore
- * travels the real SDK network and structured-output path; only the remote peer is local and
- * deterministic. The book itself is built in `fixture-generation.ts`.
+ * 仅作为测试端基础设施：绝不被产品代码引用。
+ * 测试脚手架通过 `tests/support/test-provider.ts` 提供的 `generateSpellSet` 组装服务端的 `GenerateSpells` 接缝，
+ * 后者构建真实的 `@ai-sdk/deepseek` provider 并将 `baseURL` 指向此处。
+ * 因此，咒文生成流程走的是真实的 SDK 网络与结构化输出路径；仅有远程对端被替换为本地确定性实现。
+ * 法术书本身在 `fixture-generation.ts` 中构建。
  *
- * The fixture answers one shape: a full valid spell book for the band the room's own prompt
- * declares. That is the only response the retained scenarios need — generation *failures* are
- * covered by the validation unit tests (`tests/unit/generation-schema.spec.ts`) rather than by
- * driving the retry policy through a browser.
+ * 测试夹具响应固定的数据结构：针对房间提示词声明的长度区间返回一本完整且合规的法术书。
+ * 这也是当前测试场景所需要的唯一响应 —— 生成失败相关的场景已由校验单元测试（`tests/unit/generation-schema.spec.ts`）覆盖，
+ * 无需在浏览器端驱动重试策略。
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -26,23 +25,23 @@ export interface FixtureRequestLog {
   index: number;
   at: number;
   model: string;
-  /** Truncated prompt text, so a spec can see the theme that reached the model. */
+  /** 截断后的提示词文本，便于测试用例查看到达模型的具体主题。 */
   prompt: string;
-  /** Whether the SDK's injected JSON schema was found, i.e. the structured-output path ran. */
+  /** 是否检测到了 SDK 注入的 JSON schema，即结构化输出路径是否成功运行。 */
   schemaDetected: boolean;
-  /** Length contract the fixture followed for this request. */
+  /** 本次请求测试夹具遵循的长度区间契约。 */
   lengthRange: [number, number];
-  /** Spells actually returned by this request. */
+  /** 本次请求实际返回的法术。 */
   returnedCount: number;
   distinctTexts: boolean;
-  /** Index into `generations` of the payload this request produced. */
+  /** 本次请求产生的载荷在 `generations` 中的索引。 */
   generationIndex: number;
 }
 
 export interface FixtureState {
   requests: FixtureRequestLog[];
   generations: FixtureGeneration[];
-  /** Test-only upstream latency, reset between scenarios. Product code never reads it. */
+  /** 仅用于测试的上游网络延迟，在测试场景之间重置。产品代码绝不读取该值。 */
   delayMs: number;
 }
 
@@ -104,8 +103,7 @@ async function readBody(request: IncomingMessage): Promise<string> {
 }
 
 /**
- * Serves one generation: the request is logged (so a spec can read back the prompt the room sent)
- * and answered with a book built from it.
+ * 处理单次生成请求：记录请求详情（以便测试用例回溯房间发送的提示词），并以基于该请求构建的法术书作为响应。
  */
 async function handleCompletion(
   response: ServerResponse,
@@ -168,7 +166,7 @@ function handleControl(
 }
 
 export interface FixtureServer {
-  /** The DeepSeek-compatible base URL the test provider points at. */
+  /** 测试提供者所指向的 DeepSeek 兼容基础 URL。 */
   url: string;
   origin: string;
   close(): Promise<void>;
@@ -176,9 +174,8 @@ export interface FixtureServer {
 
 export interface FixtureServerOptions {
   /**
-   * Fixture-only control channel under `/__harness/*`, used to restart the application runtime
-   * against the same database and verify recovery of committed room state.
-   * Return `undefined` for unknown paths.
+   * 挂载在 `/__harness/*` 下的仅用于测试夹具的控制通道，用于在相同数据库上重启应用运行时
+   * 并验证已提交房间状态的恢复。未知路径返回 `undefined`。
    */
   control?: (path: string, body: unknown) => Promise<unknown>;
 }

@@ -1,14 +1,11 @@
 /**
- * The one global maintenance window, driven end to end through the admin console and observed
- * exactly as a player does.
+ * 全局唯一定期维护窗口，通过管理员控制台端到端驱动，并完全从玩家视角进行观测。
  *
- * Draining is durable database state, not a per-page flag: entering it from the console must
- * reach every open page through the status poll — the shell explains the window, every entrance
- * that could start a match goes dark, and everything a player already owns keeps working: the
- * live socket, typing, manual leave and queue cancellation. Resuming flips every page back
- * without anyone reloading. The console itself is admin-only (session role; the API re-checks on
- * every call), quotes the revision it acts on (CAS), and a status outage on the player side is
- * the honest "unknown": new starts fail closed there too, and recover on their own.
+ * 排空中状态是持久化数据库状态，而非页面级标志：从控制台进入该状态后，必须通过状态轮询同步至每个已打开的页面 ——
+ * 页面外壳展示维护说明，所有可能开启新对局的入口均置灰停用，而玩家已拥有的所有资源保持可用：
+ * 活动中的 socket、打字、手动离场和排队取消。恢复开放会在无需刷新的情况下将所有页面还原。
+ * 控制台自身仅限管理员访问（会话角色；API 每次调用均重新校验），带有执行操作时的修订号（CAS）；
+ * 玩家侧的状态接口中断如实展示为“状态未知”：此时新对局同样失败关闭，并在恢复后自行重新开放。
  */
 import { expect, type Page } from '@playwright/test';
 import { test } from '../support/test';
@@ -27,7 +24,7 @@ test.beforeEach(async () => {
   await fixture().reset();
 });
 
-/** Parks a value on the window that only a full reload could erase. */
+/** 在 window 上植入一个只有完整刷新页面才会清除的标记值。 */
 async function plantReloadMarker(page: Page): Promise<void> {
   await page.evaluate(() => {
     (window as MarkerWindow).__maintenanceMarker = 'alive';
@@ -38,7 +35,7 @@ function readReloadMarker(page: Page): Promise<string | undefined> {
   return page.evaluate(() => (window as MarkerWindow).__maintenanceMarker);
 }
 
-/** Opens the console in an admin session and drives one transition through the real UI (CAS). */
+/** 在管理员会话中打开控制台，并通过真实 UI 驱动一次状态转换（CAS）。 */
 async function driveConsole(
   admin: Session,
   action: 'admin-drain' | 'admin-resume',
@@ -62,7 +59,7 @@ test('维护控制台：管理员进入与结束维护，玩家页面随之开�
 
   await driveConsole(admin, 'admin-drain', 'draining');
   try {
-    // The status poll (~15s worst case) carries the window to the open page.
+    // 状态轮询（最差情况约 15 秒）将维护窗口信息同步到已打开的页面。
     const banner = player.page.getByTestId('maintenance-banner');
     await expect(banner).toBeVisible({ timeout: 25_000 });
     await expect(banner).toContainText('系统维护中');
@@ -75,7 +72,7 @@ test('维护控制台：管理员进入与结束维护，玩家页面随之开�
       'draining',
     );
 
-    // Resuming must reach the very same page: no reload, no manual action.
+    // 恢复开放必须触达同一个页面：无需重新加载，无需手动干预。
     await plantReloadMarker(player.page);
     await driveConsole(admin, 'admin-resume', 'open');
     await expect(banner).toBeHidden({ timeout: 25_000 });
@@ -83,7 +80,7 @@ test('维护控制台：管理员进入与结束维护，玩家页面随之开�
     await expect(player.page.getByTestId('home-service-notice')).toBeHidden();
     expect(await readReloadMarker(player.page)).toBe('alive');
   } finally {
-    // Recovery path if an assertion above died mid-window.
+    // 若上方断言在中途挂掉的兜底恢复路径。
     await driveConsole(admin, 'admin-resume', 'open');
   }
   await admin.context.close();
@@ -99,7 +96,7 @@ test('控制台按钮随维护状态切换，重复操作不可用', async ({ br
   await expect(admin.page.getByTestId('admin-resume')).toBeDisabled();
   await expect(admin.page.getByTestId('admin-drain')).toBeEnabled();
 
-  // While draining, the console mirrors the blocked state instead of the open one.
+  // 排空中状态下，控制台反映阻止状态而非开放状态。
   await admin.page.getByTestId('admin-drain').click();
   await expect(mode).toHaveAttribute('data-mode', 'draining', { timeout: 20_000 });
   await expect(admin.page.getByTestId('admin-drain')).toBeDisabled();
@@ -121,14 +118,14 @@ test('排队遇到维护：排队如实终止，取消仍可用', async ({ brows
 
   await driveConsole(admin, 'admin-drain', 'draining');
   try {
-    // The next poll is refused: the search is over, honestly explained.
+    // 下一次轮询被拒绝：匹配如实终止并展示说明。
     const state = first.page.getByTestId('queue-state');
     await expect(state).toHaveAttribute('data-state', 'maintenance', { timeout: 25_000 });
     await expect(state).toContainText('维护中');
-    // While maintenance holds, the page cannot pretend the search may continue.
+    // 维护期间，页面不能假装搜索仍在继续。
     await expect(first.page.getByTestId('queue-requeue')).toBeHidden();
 
-    // Cancellation works during maintenance — nothing left to cancel is still a success.
+    // 维护期间取消操作依然可用 —— 即使无可取消项也如实返回成功。
     await first.page.getByTestId('queue-cancel').click();
     await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'cancelled', {
       timeout: 20_000,
@@ -146,14 +143,14 @@ test('服务状态不可知时同样关闭新入口：恢复后自动放开', as
 
   await session.page.route('**/api/status', (route) => route.abort('connectionfailed'));
   try {
-    // A failed status lookup is "unknown", and unknown fails closed.
+    // 状态查询失败即为“未知状态”，未知状态一律失败关闭。
     const banner = session.page.getByTestId('status-unavailable-banner');
     await expect(banner).toBeVisible({ timeout: 25_000 });
     await expect(banner).toContainText('暂时无法获取服务状态');
     await expect(session.page.getByTestId('home-quick-start')).toBeDisabled();
     await expect(session.page.getByTestId('home-create')).toBeDisabled();
 
-    // Recovery is the poll's job too: the same page reopens without a reload.
+    // 恢复同样由轮询负责：同一个页面无需刷新即可重新开放。
     await session.page.unroute('**/api/status');
     await expect(banner).toBeHidden({ timeout: 25_000 });
     await expect(session.page.getByTestId('home-quick-start')).toBeEnabled({ timeout: 25_000 });
@@ -174,8 +171,8 @@ test('维护不打断进行中的对局：输入继续、离开可用，再来�
 
   await driveConsole(admin, 'admin-drain', 'draining');
   try {
-    // The live socket stays open and the field keeps working: the match is not
-    // interrupted, and the page is never reloaded out from under the player.
+    // 活动 socket 保持打开，输入框保持可用：比赛未被打断，
+    // 也绝不会在玩家毫不知情的情况下刷新页面。
     await plantReloadMarker(room.host.page);
     await expect(room.host.page.getByTestId('maintenance-banner')).toBeVisible({
       timeout: 25_000,
@@ -187,7 +184,7 @@ test('维护不打断进行中的对局：输入继续、离开可用，再来�
     await completeSpell(room.host.page);
     expect(await readReloadMarker(room.host.page)).toBe('alive');
 
-    // Leaving is always available — also mid-combat during maintenance.
+    // 离开随时可用 —— 即使在维护期间的战斗中途也同样可用。
     const leave = await gameJson<{ left: boolean }>(
       room.guest.context,
       `/rooms/${room.roomId}/leave`,
@@ -196,13 +193,13 @@ test('维护不打断进行中的对局：输入继续、离开可用，再来�
     expect(leave.status).toBe(200);
     expect(leave.body.left).toBe(true);
 
-    // The host's match settles; the next match is paused, not the page.
+    // 房主的比赛正常结算；暂停的是下一局对局，而非页面本身。
     await expect(room.host.page.getByTestId('view-results')).toBeVisible({ timeout: 30_000 });
     await expect(room.host.page.getByTestId('rematch')).toBeDisabled();
     await expect(room.host.page.getByTestId('final-leave')).toBeEnabled();
     expect(await readReloadMarker(room.host.page)).toBe('alive');
 
-    // Resuming re-enables the rematch on the very same page.
+    // 恢复开放将在完全相同的页面上重新启用重赛功能。
     await driveConsole(admin, 'admin-resume', 'open');
     await expect(room.host.page.getByTestId('rematch')).toBeEnabled({ timeout: 25_000 });
     expect(await readReloadMarker(room.host.page)).toBe('alive');
@@ -217,14 +214,14 @@ test('维护不打断进行中的对局：输入继续、离开可用，再来�
 test('维护控制台只属于管理员：入口隐藏、直达被拒、接口拒绝非管理员', async ({ browser }) => {
   const player = await signedInContext(browser, 'notadmin');
 
-  // The navigation hides the console; a direct visit bounces back home.
+  // 导航栏隐藏控制台；直接访问会跳回主页。
   await openHome(player.page);
   await expect(player.page.getByTestId('nav-admin')).toHaveCount(0);
   await gotoApp(player.page, '/admin/maintenance');
   await expect(player.page.getByTestId('view-home')).toBeVisible();
   await expect(player.page.getByTestId('view-admin-maintenance')).toHaveCount(0);
 
-  // The server is the authority: the console API refuses a plain user twice over.
+  // 服务端是最终权威：控制台 API 严格拒绝普通用户。
   expect((await apiJson(player.context, '/api/admin/maintenance')).status).toBe(403);
   expect(
     (
@@ -236,7 +233,7 @@ test('维护控制台只属于管理员：入口隐藏、直达被拒、接口�
   ).toBe(403);
   await player.context.close();
 
-  // A guest is refused before the role is even considered.
+  // 访客在核验角色之前就被直接拒绝。
   const anonymous = await browser.newContext();
   expect((await apiJson(anonymous, '/api/admin/maintenance')).status).toBe(401);
   await anonymous.close();

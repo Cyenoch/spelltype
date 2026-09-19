@@ -239,7 +239,6 @@ export async function startHarness(): Promise<Harness> {
 
     const makeConfig = (): ServerConfig => ({
       buildId: TEST_BUILD_ID,
-      autoMigrate: false, // The harness migrates through its own openDatabase call.
       databaseUrl,
       hostname: '127.0.0.1',
       port: apiPort,

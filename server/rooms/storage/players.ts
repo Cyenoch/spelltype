@@ -5,9 +5,9 @@ import type { RoomQuery } from './query';
 import { INITIAL_HEALTH, MAX_PRIVATE_PLAYERS } from '../../../shared/protocol';
 
 /**
- * Columns a seat patch may name; a seat's identity and join time are fixed once it is taken.
- * The `input_*`/`draft_epoch` columns are the input gate's per-seat eligibility and metrics —
- * written by combat judging, the countdown transition and the match reset, never injected.
+ * 席位补丁可命名的字段；席位的身份与加入时间在入座后即固定。
+ * `input_*`/`draft_epoch` 字段是输入限制门控针对每个席位的资格与指标 ——
+ * 由战斗裁决、倒计时流转与比赛重置逻辑写入，绝不可外部注入。
  */
 const PLAYER_PATCH_COLUMNS = [
   'slot',
@@ -42,7 +42,7 @@ const PLAYER_PATCH_COLUMNS = [
 
 export type PlayerPatch = Partial<Pick<PlayerRow, (typeof PLAYER_PATCH_COLUMNS)[number]>>;
 
-/** Every seat of one room, in stable seat order. */
+/** 获取单个房间的所有席位，按稳定的席位序号升序排列。 */
 export async function listPlayers(db: RoomQuery, roomId: string): Promise<PlayerRow[]> {
   return db.select().from(players).where(eq(players.room_id, roomId)).orderBy(asc(players.slot));
 }
@@ -69,8 +69,8 @@ export async function countPlayers(db: RoomQuery, roomId: string): Promise<numbe
 }
 
 /**
- * Creates a seat in the lowest free slot. Returns the seat, or `null` when the table is full.
- * The insert is a no-op for a seat this account already holds, so a retried join never errors.
+ * 在序号最小的空闲槽位创建席位。返回该席位，若牌桌已满则返回 `null`。
+ * 对于该账户已持有的席位，插入操作为空操作，因此重试加入绝不报错。
  */
 export async function insertPlayer(
   db: RoomQuery,
@@ -106,8 +106,8 @@ export async function insertPlayer(
 }
 
 /**
- * Applies a patch over the known columns only, so a caller can never inject a column. Fields left
- * `undefined` are cleared to `null`, exactly like the transitions that reset them.
+ * 仅针对已知字段应用更新补丁，调用方绝不能注入非法字段。
+ * 值为 `undefined` 的字段被重置为 `null`，完全符合重置它们的阶段流转行为。
  */
 export async function updatePlayer(
   db: RoomQuery,
@@ -135,16 +135,15 @@ export async function deleteAllPlayers(db: RoomQuery, roomId: string): Promise<v
   await db.delete(players).where(eq(players.room_id, roomId));
 }
 
-/** Releases seats that were reserved for a match but never used. */
+/** 释放曾为比赛预留但从未实际使用的席位。 */
 export async function deleteReservedSeats(db: RoomQuery, roomId: string): Promise<void> {
   await db.delete(players).where(and(eq(players.room_id, roomId), eq(players.seated, 0)));
 }
 
 /**
- * Re-arms seat expiry when the room is back in an open lobby: seats whose player
- * is not connected now expire, connected seats do not. Without this a seat that
- * was held through a finished match (expiry cleared while the roster was locked)
- * would block the next start forever.
+ * 当房间回到开放大厅时重新挂载席位过期时间：玩家未连接的席位现在开始计时过期，
+ * 已连接的席位则不过期。若无此机制，已完结对局中保留的席位（在花名册锁定期间清除了过期时间）
+ * 将会永远阻塞下一次对局开始。
  */
 export async function armLobbySeatExpiry(
   db: RoomQuery,
@@ -166,7 +165,7 @@ export async function armLobbySeatExpiry(
     .where(and(eq(players.room_id, roomId), inArray(players.user_id, [...connectedIds])));
 }
 
-/** Releases every expired seat; returns how many seats were freed. */
+/** 释放所有已过期的席位；返回释放的席位数量。 */
 export async function expireSeats(db: RoomQuery, roomId: string, now: number): Promise<number> {
   const removed = await db
     .delete(players)
@@ -182,10 +181,9 @@ export async function expireSeats(db: RoomQuery, roomId: string, now: number): P
 }
 
 /**
- * Puts every seat back to a fresh pre-match state: full health, first spell,
- * empty draft, zero aggregates and cleared input eligibility. Called when a
- * match starts, so a previous match's numbers — gate hits, recoveries,
- * overloads and any lingering eligibility — can never leak into the next one.
+ * 将所有席位重置为赛前全新状态：满血、首个法术、空草稿、统计汇总清零并清除打字资格。
+ * 在比赛开始时调用，确保上一场比赛的数据 —— 门控触发、恢复次数、超载次数以及任何残留的资格 ——
+ * 绝不会泄漏到下一场比赛中。
  */
 export async function resetPlayersForMatch(db: RoomQuery, roomId: string): Promise<void> {
   await db
@@ -218,7 +216,7 @@ export async function resetPlayersForMatch(db: RoomQuery, roomId: string): Promi
     .where(eq(players.room_id, roomId));
 }
 
-/** Clears readiness for a fresh lobby; a failed generation keeps it. */
+/** 为全新的大厅清除就绪状态；题目生成失败时保持原就绪状态。 */
 export async function clearReady(db: RoomQuery, roomId: string): Promise<void> {
   await db.update(players).set({ ready: 0 }).where(eq(players.room_id, roomId));
 }

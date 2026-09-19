@@ -46,7 +46,7 @@ function requireBridge(config: ServerConfig) {
   return config.wechatBridge;
 }
 
-/** The bridge owns WeChat credentials; only its signed identity reaches this server. */
+/** 微信凭据由桥接服务保管；本服务仅接收其签名的身份信息。 */
 function verifyRelay(token: string, config: ServerConfig, now: number) {
   const bridge = requireBridge(config);
   if (token.length > 8192) throw invalidLogin();
@@ -102,7 +102,7 @@ export async function beginWechatLogin(
   return { state, url: url.href };
 }
 
-/** Consume browser state even on failure, so failed callbacks cannot be retried with another identity. */
+/** 即使发生错误也须作废浏览器端的状态标识，防止失败的回调被冒用其他身份重试。 */
 export async function consumeWechatAttempt(database: Database, state: string) {
   const [attempt] = await database
     .delete(wechatLoginAttempts)
@@ -117,7 +117,7 @@ export async function consumeWechatAttempt(database: Database, state: string) {
   return attempt;
 }
 
-/** A relay jti can issue at most one session, including across processes and concurrent callbacks. */
+/** 中继令牌的 jti 在所有进程和并发回调中最多只能签发一次会话。 */
 export async function finishWechatLogin(database: Database, config: ServerConfig, token: string) {
   const now = Date.now();
   const payload = verifyRelay(token, config, now);

@@ -83,10 +83,9 @@ export interface OpenDatabaseOptions {
    */
   migrationsFolder?: string;
   /**
-   * Apply pending migrations on open (default `true` — the dev/test posture). Production passes
-   * `false`: the app must never move the schema on boot. Even then the open is not a silent
-   * rubber stamp — the applied migration level is validated against the shipped folder and a
-   * stale or diverged schema fails closed.
+   * Apply pending migrations on open (default `true`, including production startup). Maintenance
+   * commands pass `false` to check the schema without changing it. Both modes validate the shipped
+   * migration prefix and fail closed on stale or diverged history.
    */
   migrate?: boolean;
 }
@@ -108,7 +107,7 @@ const DEFAULT_MIGRATIONS_FOLDER = path.resolve(
 /**
  * The sha256 of every migration file this build ships, in journal order. The migrator records the
  * same hashes in `drizzle.__drizzle_migrations`, so an exact per-entry comparison decides whether
- * a `migrate: false` open describes the same schema as this build.
+ * an open contains the complete migration prefix required by this build.
  */
 function shippedMigrationHashes(migrationsFolder: string): string[] {
   const journal = JSON.parse(
@@ -151,8 +150,7 @@ function assertMigrationLevelMatches(applied: string[], shipped: string[]): void
   if (applied.length < shipped.length) {
     throw new DatabaseMigrationError(
       `The database is missing migrations this build requires: ${applied.length} of ` +
-        `${shipped.length} applied. Run the production migration entry before starting the ` +
-        'application; the application itself never migrates.',
+        `${shipped.length} applied. Apply pending migrations before opening with migrate: false.`,
     );
   }
   for (let i = 0; i < shipped.length; i += 1) {
@@ -166,8 +164,8 @@ function assertMigrationLevelMatches(applied: string[], shipped: string[]): void
 }
 
 /**
- * Opens the database and resolves only when it is usable: migrations applied (dev default) or the
- * applied level proven current (production). Both drivers run the same generated migration set,
+ * Opens the database and resolves only when it is usable: pending migrations applied by default,
+ * then the shipped migration prefix validated. Both drivers run the same generated migration set,
  * and both paths fail closed: a malformed URL, a contested PGlite directory, a failed migration
  * or a stale schema never resolves into a half-ready database.
  */
@@ -205,21 +203,18 @@ async function openPostgres(
     await runPostgresMigrations(connectionString, migrationsFolder);
   }
   const appSql = new SQL(connectionString);
-  if (!migrate) {
-    try {
-      assertMigrationLevelMatches(
-        await appliedMigrationHashesPostgres(appSql),
-        shippedMigrationHashes(migrationsFolder),
-      );
-    } catch (error) {
-      await appSql.end().catch(() => {});
-      if (error instanceof DatabaseMigrationError) throw error;
-      throw new DatabaseMigrationError(
-        'The migration bookkeeping (drizzle.__drizzle_migrations) is unreadable or missing; ' +
-          'the database has never been migrated. Run the production migration entry first.',
-        { cause: error },
-      );
-    }
+  try {
+    assertMigrationLevelMatches(
+      await appliedMigrationHashesPostgres(appSql),
+      shippedMigrationHashes(migrationsFolder),
+    );
+  } catch (error) {
+    await appSql.end().catch(() => {});
+    if (error instanceof DatabaseMigrationError) throw error;
+    throw new DatabaseMigrationError(
+      'The migration bookkeeping (drizzle.__drizzle_migrations) is unreadable or missing.',
+      { cause: error },
+    );
   }
   return {
     db: drizzleForBunSql(appSql, { schema }),
@@ -295,12 +290,11 @@ async function openPglite(
     const db = drizzleForPglite(client, { schema });
     if (migrate) {
       await migratePglite(db, { migrationsFolder });
-    } else {
-      assertMigrationLevelMatches(
-        await appliedMigrationHashesPglite(client),
-        shippedMigrationHashes(migrationsFolder),
-      );
     }
+    assertMigrationLevelMatches(
+      await appliedMigrationHashesPglite(client),
+      shippedMigrationHashes(migrationsFolder),
+    );
     const openedClient = client;
     const openedClaim = claim;
     return {

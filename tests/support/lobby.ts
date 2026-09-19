@@ -1,7 +1,6 @@
 /**
- * The private room as a player sees it: the create form, the room ID invite code, the seats,
- * readiness and the host's start, plus the seating helpers that assemble a real room out of
- * fresh accounts.
+ * 玩家视角下的私人房间：创建表单、房间 ID 邀请码、席位、准备状态与房主开局，
+ * 以及将新账号组装入真实房间的入座辅助函数。
  */
 import { expect, type Browser, type Page } from '@playwright/test';
 import { gotoApp } from './app';
@@ -26,9 +25,8 @@ export async function createRoom(
 }
 
 /**
- * Occupied seats only. The lobby always renders its full capacity (2 for quick, 4 for a
- * private room) and marks empty ones with an empty `data-user`, so seating assertions must
- * never count bare `lobby-slot` nodes.
+ * 仅已占用的席位。大厅始终渲染其完整容量（快速匹配为 2，私人房间为 4），
+ * 并将空位标记为空的 `data-user`，因此席位断言决不能直接统计光秃秃的 `lobby-slot` 节点。
  */
 export function occupiedSeats(page: Page) {
   return page.locator('[data-testid="lobby-slot"][data-user]:not([data-user=""])');
@@ -38,14 +36,14 @@ export function occupiedSeat(page: Page, username: string) {
   return occupiedSeats(page).filter({ hasText: username });
 }
 
-/** Waits until the lobby shows exactly these occupied seats (by username text). */
+/** 等待直到大厅按用户名文本展示指定的已占用席位。 */
 export async function waitForLobbyPlayers(
   page: Page,
   usernames: string[],
   timeout = 30_000,
 ): Promise<void> {
-  // The seat label of the viewer's own account carries a （你） suffix; empty seats are
-  // excluded by the occupied-seat selector rather than by matching their wording.
+  // 查看者自身账号的席位标签带有 （你） 后缀；
+  // 空席位通过已占用席位选择器排除，而不是通过匹配文案排除。
   await expect
     .poll(
       async () =>
@@ -66,7 +64,7 @@ export async function setReady(page: Page, ready = true): Promise<void> {
   await expect(button).toHaveAttribute('aria-pressed', String(ready));
 }
 
-/** Host clicks start; the battle panel mounting is what "the match started" means. */
+/** 房主点击开始；战斗面板挂载即代表“比赛开始”。 */
 export async function startMatch(page: Page): Promise<void> {
   await page.getByTestId('lobby-start').click();
   await expect(page.getByTestId('battle-panel')).toBeVisible({ timeout: 30_000 });
@@ -101,7 +99,7 @@ async function seatPlayers(browser: Browser, count: number, options: RoomOptions
   return { sessions, socketCaptures, roomId };
 }
 
-/** Creates a private room with `count` signed-in players (guests already ready). */
+/** 创建一个拥有 `count` 名已登录玩家的私人房间（访客已处于准备状态）。 */
 export async function seatedRoom(browser: Browser, count: number, options: RoomOptions = {}) {
   const { sessions, socketCaptures, roomId } = await seatPlayers(browser, count, options);
   const [host, ...guests] = sessions;
@@ -115,7 +113,7 @@ export async function seatedRoom(browser: Browser, count: number, options: RoomO
   };
 }
 
-/** Creates a private room with two signed-in players (guest already ready) and returns it. */
+/** 创建一个拥有两名已登录玩家的私人房间（访客已处于准备状态）并返回。 */
 export async function twoPlayerRoom(
   browser: Browser,
   options: RoomOptions = {},

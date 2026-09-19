@@ -54,8 +54,8 @@ function RootLayout() {
   const context = Route.useRouteContext();
   const search = Route.useSearch();
   const location = useLocation();
-  // Where the player is decides how the banners may act: a running match or a
-  // live queue is never refreshed out from under them.
+  // 玩家当前所在区域决定了横幅的行为：绝不在玩家处于进行中的对局
+  // 或匹配队列时强制刷新页面。
   const zone = (): Zone => {
     if (location().pathname === '/' && search().room) return 'room';
     if (location().pathname === '/match') return 'queue';
@@ -73,13 +73,13 @@ function RootLayout() {
   );
 }
 
-/** Where the player is, as far as refresh safety is concerned. */
+/** 玩家当前所处区域（就安全刷新机制而言）。 */
 type Zone = 'room' | 'queue' | 'free';
 
 function RouteError(props: ErrorComponentProps) {
   const router = useRouter();
   const location = useLocation();
-  // Same rule as the banners: an explicit refresh happens outside rooms and queues.
+  // 规则同横幅：显式刷新仅在房间和排队队列之外触发。
   const inRoom = () => location().pathname === '/' && Boolean(location().search.room);
   const inQueue = () => location().pathname === '/match';
   const blocked = () => inRoom() || inQueue();

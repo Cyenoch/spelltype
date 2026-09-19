@@ -10,7 +10,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-test('only an absent maintenance credential disables automation; malformed configuration fails', async () => {
+test('仅在未提供运维凭证时禁用自动化，格式错误的配置直接报错', async () => {
   expect((await readServerConfig({})).maintenanceToken).toBeNull();
   await rejects(readServerConfig({ MAINTENANCE_TOKEN: '' }), /64 lowercase hexadecimal/);
   await rejects(
@@ -19,7 +19,7 @@ test('only an absent maintenance credential disables automation; malformed confi
   );
 });
 
-test('mounted secrets work but ambiguous inline and file credentials are rejected', async () => {
+test('支持挂载的机密文件，但拒绝同时以行内和文件形式提供凭据产生二义性', async () => {
   const root = await mkdtemp(join(tmpdir(), 'spelltype-config-'));
   roots.push(root);
   const filename = join(root, 'maintenance-token');
@@ -34,7 +34,7 @@ test('mounted secrets work but ambiguous inline and file credentials are rejecte
   );
 });
 
-test('the WeChat bridge env triple resolves with an inline or file-backed app key', async () => {
+test('微信网桥环境变量三元组支持通过行内或文件形式解析应用密钥', async () => {
   const root = await mkdtemp(join(tmpdir(), 'spelltype-config-'));
   roots.push(root);
   const filename = join(root, 'bridge-app-key');
@@ -63,7 +63,7 @@ test('the WeChat bridge env triple resolves with an inline or file-backed app ke
   );
 });
 
-test('partial or malformed WeChat bridge credentials refuse to boot', async () => {
+test('不完整或格式错误的微信网桥凭据拒绝启动', async () => {
   // 不配置桥接在开发环境就是合法的禁用。
   expect((await readServerConfig({})).wechatBridge).toBeNull();
   await rejects(readServerConfig({ WECHAT_BRIDGE_BASE_URL: 'https://bridge.example' }));

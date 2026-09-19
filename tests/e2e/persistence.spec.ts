@@ -1,16 +1,14 @@
 /**
- * Result persistence: the terminal transition and the result rows commit together or not at all,
- * and the accepted cast commits earlier still — its intent is durable across failed settlements
- * and restarts, so the recovery never needs a resend.
+ * 战绩持久化：终局状态转换与结果行要么同时提交，要么完全不提交，
+ * 且被接受的施法意图更早提交 —— 其意图在结算失败与服务重启中保持持久化，
+ * 因此恢复时绝无需重新发送。
  *
- * A completion commits the cast intent (the room's one open 100ms volley) and the spell cursor in
- * one transaction; damage, elimination, the result rows, the terminal phase and the intent's
- * removal share one later transaction. The fault is injected through the owning server's Drizzle
- * instance (harness-owned, never a public test endpoint) by renaming the `results` table: the
- * settlement attempt cannot write its rows and rolls back whole — HP and terminal never move
- * while the accepted intent stays. The broken state is then driven through a real server
- * restart, and once the sink heals the room's own retry finishes the match without any further
- * input, storing exactly one row per player.
+ * 一次施法完成会在单次事务中提交施法意图（房间当前开放的 100ms 齐射排期行）和法术游标；
+ * 随后的另一次事务则统一处理伤害、淘汰、结果行、终局状态以及意图的移除。
+ * 故障通过宿主服务端的 Drizzle 实例（脚手架持有，绝非公开测试端点）重命名 `results` 表来注入：
+ * 结算尝试无法写入行并发生整体回滚 —— 只要被接受的意图仍在，生命值与终局状态绝不变更。
+ * 该损坏状态随后经历真实的服务端重启，一旦存储层恢复，房间自有的重试机制无需任何额外输入即可完成对局，
+ * 且每位玩家恰好持久化存储一行记录。
  */
 import { expect, type BrowserContext } from '@playwright/test';
 import { eq } from 'drizzle-orm';
@@ -54,20 +52,20 @@ test.beforeEach(async () => {
   await fixture().reset();
 });
 
-/** Snapshot reader local to this spec: the authoritative room view of one participant. */
+/** 本测试文件专用的快照读取器：单个参赛者视角的房间权威视图。 */
 async function roomSnapshotOf(context: BrowserContext, roomId: string): Promise<RoomSnapshot> {
   const response = await gameJson<RoomSnapshot>(context, `/rooms/${roomId}`);
   expect(response.status).toBe(200);
   return response.body;
 }
 
-/** The room's one durable volley row — the accepted cast intent between cast and batch. */
+/** 房间唯一的持久化齐射排期行 —— 施法与批次落地之间已接受的施法意图。 */
 async function durableVolley(roomId: string): Promise<VolleyRow | null> {
   const rows = await testDb().select().from(combatVolleys).where(eq(combatVolleys.room_id, roomId));
   return rows[0] ?? null;
 }
 
-/** The room row's persisted next wake-up — the durable clock a failed settle re-arms. */
+/** 房间行持久化的下次唤醒时刻 —— 结算失败重新加锁重试的持久化闹钟。 */
 async function nextAlarmAt(roomId: string): Promise<number | null> {
   const rows = await testDb()
     .select({ at: rooms.next_alarm_at })
@@ -87,11 +85,9 @@ test('结算与战绩同事务：写入失败整体回滚不结算，重启后�
   await Promise.all([waitForCombat(host.page), waitForCombat(guest.page)]);
   const liveMatchId = await battleMatchId(host.page);
 
-  // Whittle the guest down with committed volleys. Every cast's power is read from the spell the
-  // host is actually on (4 damage per code point), and each volley is observed on the guest's
-  // authoritative HP before the next cast, so the loop never races its own pending damage. It
-  // stops the moment the NEXT accepted cast is guaranteed lethal: 0 < hp ≤ power of the open
-  // spell, so the killing input is the only blow left.
+  // 通过已提交的齐射逐步削减访客血量。每次施法的威力均根据房主实际所处的法术读取（每码点 4 伤害），
+  // 且每次齐射在下一次施法前均通过访客的权威 HP 予以确认，因此循环绝不会与自身未决的伤害产生竞态。
+  // 当下一次被接受的施法确定足以致死时停下：0 < hp ≤ 当前法术威力，从而确保击杀输入是最后唯一的一击。
   const guestHp = async () =>
     snapshotPlayer(await roomSnapshotOf(host.context, room.roomId), guestIdentity).hp;
   let hpBefore = await guestHp();
@@ -111,7 +107,7 @@ test('结算与战绩同事务：写入失败整体回滚不结算，重启后�
   expect(lethalPower).toBeGreaterThan(0);
   expect(hpBefore).toBeLessThanOrEqual(lethalPower);
 
-  // Damage the sink before the match can settle, so the settlement attempt really fails.
+  // 在比赛可能结算前破坏结果表，使得结算尝试切实失败。
   expect(await resultsSinkIsBroken()).toBe(false);
   await breakResultsSink();
 
@@ -119,18 +115,16 @@ test('结算与战绩同事务：写入失败整体回滚不结算，重启后�
   const killingIndex = await selfSpellIndex(host.page);
 
   try {
-    // Exactly one eligible lethal input: the completion waits out the spell's own input gate, so
-    // it is accepted. Acceptance and cursor commit durably ahead of any damage — the killing
-    // volley's settlement then fails whole, and nothing about it lands.
+    // 恰好一次合规的致死输入：施法完成等待法术自有的输入门禁放行，因此被正常接受。
+    // 接受与游标推进持久化提交于任何伤害之前 —— 随后致死齐射的结算整体失败，没有任何效果落地。
     await completeSpell(host.page);
     const acceptedSpells = spells + 1;
     expect(await selfSpellsCast(host.page)).toBe(acceptedSpells);
     expect(await selfSpellIndex(host.page)).toBe(killingIndex + 1);
     expect(await battlePhase(host.page)).toBe('playing');
 
-    // The accepted intent is durable and names exactly this killing cast; the durable wake-up
-    // moves past the batch boundary only once a failed settle re-armed the retry clock, and HP,
-    // phase and persistence show that nothing of the volley committed.
+    // 被接受的意图保持持久化且明确指向该致死施法；持久化唤醒时间在结算失败重新设定重试闹钟后
+    // 移至批次边界之后，生命值、阶段和 persistence 均表明齐射没有任何部分发生提交。
     await expect.poll(async () => durableVolley(room.roomId), { timeout: 20_000 }).not.toBeNull();
     const volley = (await durableVolley(room.roomId))!;
     expect(volley.match_id).toBe(liveMatchId);
@@ -145,9 +139,8 @@ test('结算与战绩同事务：写入失败整体回滚不结算，重启后�
     expect((await durableVolley(room.roomId))!.casts).toEqual(volley.casts);
     expect((await roomSnapshotOf(host.context, room.roomId)).persistence).toBe('idle');
 
-    // The unsettled match is held by the room, so a server restart must not lose it: the match
-    // comes back live with the same deadline and HP, the durable intent unchanged, and the
-    // client already past the accepted cast — there is nothing left to resubmit.
+    // 未结算的比赛由房间保留，因此服务端重启绝不能丢失它：比赛恢复为活动状态，
+    // 拥有相同的截止时刻与生命值，持久化意图未变，客户端已越过已接受的施法 —— 无需重复提交任何内容。
     const combatDeadline = await deadline(host.page);
     await harness().restartServer();
     await gotoApp(host.page, `/?room=${room.roomId}`);
@@ -164,21 +157,20 @@ test('结算与战绩同事务：写入失败整体回滚不结算，重启后�
     expect(restored.ends_at).toBe(volley.ends_at);
     expect(restored.casts).toEqual(volley.casts);
   } finally {
-    // The injected fault must never outlive this test, wherever it failed above.
+    // 无论上方何处发生失败，注入的故障绝不能遗留到本测试之外。
     if (await resultsSinkIsBroken()) await restoreResultsSink();
   }
   expect(await resultsSinkIsBroken()).toBe(false);
 
-  // With the sink healed the room's own retry lands the durable volley — no further input — and
-  // the terminal phase and every row commit together. Nobody marks a settled match as unsynced
-  // afterwards, and no second killing cast was ever accepted.
+  // 存储层恢复后，房间自有的重试使持久化齐射落地 —— 无需额外输入 ——
+  // 且终局阶段与每一行数据同时提交。事后没有任何逻辑将已结算比赛标记为未同步，也绝没有第二次接受致死施法。
   await waitForMatchEnd(host.page);
   expect(await endReason(host.page)).toBe('elimination');
   await expect.poll(() => saveStatus(host.page), { timeout: 60_000 }).toBe('saved');
   expect(await selfSpellsCast(host.page)).toBe(spells + 1);
 
-  // The stored row is the board the player saw, and it is stored once: the rolled-back attempts
-  // left nothing behind, and the settled match records exactly one row per player.
+  // 持久化存储的行即为玩家所看到的结算看板，且仅存储一次：回滚的尝试未留下任何痕迹，
+  // 已结算对决为每位玩家恰好记录一行数据。
   const rows = await finalRows(host.page);
   const hostRow = rowFor(rows, hostIdentity)!;
   const allRows = await resultRowsFor(liveMatchId);
@@ -187,8 +179,8 @@ test('结算与战绩同事务：写入失败整体回滚不结算，重启后�
   const settledGuestRows = allRows.filter((row) => row.user_id === guestIdentity.userId);
   expect(settledHostRows).toHaveLength(1);
   expect(settledGuestRows).toHaveLength(1);
-  // The host is the survivor: their stored health is the health the board showed, while the one
-  // durable killing volley is the guest's zero — accepted exactly once, landed exactly once.
+  // 房主为幸存者：其存储的血量即为结算板上展示的血量，而单次持久化的致死齐射使访客归零 ——
+  // 恰好接受一次，恰好落地一次。
   expect(settledHostRows[0].hp_remaining).toBe(hostRow.hp);
   expect(settledHostRows[0].hp_remaining).toBeGreaterThan(0);
   expect(settledGuestRows[0].hp_remaining).toBe(0);

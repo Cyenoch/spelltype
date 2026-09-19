@@ -1,11 +1,10 @@
 /**
- * The one notification settings surface, reused by /me (full panel) and the queue
- * page (compact row). There is no separate settings page: the queue page shows the
- * same enable affordance until the user has turned reminders on.
+ * 统一的通知设置交互界面，复用于 /me（完整面板）及匹配队列页面（紧凑单行）。
+ * 不存在单独的设置页面：匹配页面会持续展示相同的开启引导，直到用户开启对局提醒。
  *
- * The enable handler must run directly from the click: `enable()` places the
- * permission request before its first await, so the browser still counts the
- * gesture. Nothing here ever requests permission on mount or on render.
+ * 开启通知的处理函数必须直接从点击事件中触发：`enable()` 在首次 await 之前
+ * 立即发起权限请求，以确保浏览器将其识别为合法的用户手势交互。
+ * 此处绝不在挂载或渲染时主动索取通知权限。
  */
 import { Show, type JSX } from 'solid-js';
 import * as stylex from '@stylexjs/stylex';
@@ -30,8 +29,7 @@ function settingsState(service: NotificationService): 'unsupported' | 'denied' |
 export function NotificationSettings(props: { ctx: AppContext; compact?: boolean }): JSX.Element {
   const service = props.ctx.notifications;
   const state = () => settingsState(service);
-  // The queue page only hosts an actionable affordance: hide it once enabled, or
-  // where the environment can never deliver notifications at all.
+  // 匹配队列页面仅展示可操作的引导行：一旦开启，或环境完全不支持通知时则自动隐藏。
   const visible = () => !props.compact || state() === 'off' || state() === 'denied';
 
   return (

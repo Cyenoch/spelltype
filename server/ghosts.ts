@@ -12,10 +12,9 @@ import { charCount, inputNotBefore, spellAt } from './scoring';
 export type { GhostRow, ReplayCast } from './db/schema';
 
 /**
- * Fingerprint of every rule a recorded trace replays under: the wire spell shape, the input
- * floor the pacing was judged against, and the health/damage constants the casts were scored
- * by. Selection serves only the current fingerprint, so a protocol or rules bump invalidates
- * recorded ghosts without rewriting them — they simply stop being chosen.
+ * 录制的对局轨迹所依赖的各项规则指纹：包括传输层法术结构、判定节奏的输入底线，
+ * 以及施法结算时使用的生命值/伤害常量。选录时仅匹配当前的指纹，因此协议或规则的升级
+ * 会使已录制的幽灵自动失效而无需重写——它们只是不再被选中。
  */
 export const GHOST_RULES_VERSION = [
   'ghosts.v1',
@@ -26,13 +25,12 @@ export const GHOST_RULES_VERSION = [
   String(DAMAGE_PER_CHARACTER),
 ].join('+');
 
-/** Selection scans only this many newest compatible ghosts, never the whole table. */
+/** 选录时仅扫描最新且兼容的若干条幽灵数据，绝不扫描全表。 */
 const SELECTION_POOL = 50;
 
 /**
- * Reads one ghost by id, or `null` when no such ghost — or only an incompatible recording —
- * exists. Safe to invoke per due cast: a primary-key lookup plus the version filter, with no
- * payload decoding beyond what the caller needs anyway.
+ * 根据 ID 读取一条幽灵数据；若不存在或录制数据不兼容，则返回 `null`。
+ * 可按施法时机安全调用：仅为主键查询附加版本过滤，且不会进行超出调用方所需范围的载荷解码。
  */
 export async function getGhost(db: QueryDatabase, id: string): Promise<GhostRow | null> {
   const rows = await db
@@ -44,11 +42,10 @@ export async function getGhost(db: QueryDatabase, id: string): Promise<GhostRow 
 }
 
 /**
- * Picks a recorded opponent for the given account: newest-first over a bounded, indexed pool of
- * current-compatible ghosts, never the caller's own recordings, then uniformly at random within
- * that pool. The pool query reads candidate ids only, so the one chosen row's book and cast
- * payloads are decoded once, for the ghost actually served. `null` when nothing qualifies — the
- * caller falls back to a Bot instead.
+ * 为指定账户挑选录制的幽灵对手：在受限且建立索引的最新兼容幽灵池中按从新到旧筛选，
+ * 排除该用户自己的录制，并在候选池中均匀随机选取。该池查询仅读取候选 ID，
+ * 因此仅对最终选中的单行数据解码其法术书和施法载荷。若无符合条件的数据则返回 `null`，
+ * 调用方会回退到 Bot 机器人。
  */
 export async function chooseGhost(tx: QueryDatabase, userId: string): Promise<GhostRow | null> {
   const candidates = await tx
@@ -62,11 +59,10 @@ export async function chooseGhost(tx: QueryDatabase, userId: string): Promise<Gh
 }
 
 /**
- * Records one accepted cast of a live human match inside the caller's accepted-cast transaction.
- * `player` is the seat row before its cursor advances — `player.spell_index` is the cast's own
- * book cursor — and `now` the accepted completion's absolute ms, stored as an offset from the
- * match's `started_at`. Ghost and bot rooms record nothing, and a replayed acceptance is
- * absorbed by the cast's primary key instead of failing the cast.
+ * 在调用方的施法确认事务中，记录真人对局中一次已确认的施法。
+ * `player` 是光标前进前的玩家席位行（`player.spell_index` 即本次施法在法术书中的光标位置），
+ * `now` 为确认完成时的绝对毫秒时间戳，保存为相对于对局 `started_at` 的偏移量。
+ * 幽灵和机器人房间不记录任何内容，重复的确认则会被施法主键忽略，避免导致施法失败。
  */
 export async function recordCastTx(
   tx: QueryDatabase,
@@ -89,11 +85,9 @@ export async function recordCastTx(
 }
 
 /**
- * Archives the finished match's human traces as immutable ghosts and drops the room's temporary
- * cast rows, all inside the caller's finish transaction. Every human seat whose trace qualifies
- * becomes its own ghost; a trace that fails any check is skipped, never half-kept, and its rows
- * are deleted with the rest so nothing non-qualifying lingers. Ghost and bot rooms recorded
- * nothing, so they only pay the cleanup delete.
+ * 在调用方的对局结束事务中，将已完赛对局的真人轨迹归档为不可变的幽灵，并清理房间的临时施法行。
+ * 每个轨迹合格的真人席位都会成为独立的幽灵；若有任何检查不通过则跳过该轨迹（绝不半途保留），
+ * 其对应的数据行也会一并删除，确保不留下不合规数据。幽灵与机器人房间没有录制数据，只需执行清理删除。
  */
 export async function publishGhostsTx(
   tx: QueryDatabase,
@@ -102,8 +96,8 @@ export async function publishGhostsTx(
 ): Promise<void> {
   const matchId = room.match_id;
   const startedAt = room.started_at;
-  // Only a human room under exactly the policy ghosts replay under — current version, current
-  // floor — can produce a trustworthy trace; anything else only pays the cleanup delete.
+  // 仅在完全遵循幽灵回放策略（当前版本、当前输入底线）的真人房间中，才能产出可信的轨迹；
+  // 其他情况仅需执行清理删除。
   if (
     room.opponent_kind === 'human' &&
     matchId !== null &&
@@ -123,9 +117,8 @@ export async function publishGhostsTx(
 }
 
 /**
- * Decodes the room's immutable source book, refusing anything but a non-empty array of complete
- * spells: a trace replays against exactly the book it was typed on, and an archive row is built
- * once — never repaired later.
+ * 解码房间不可变的源法术书，仅接受非空且包含完整法术的数组：
+ * 轨迹只能针对其最初输入时的完全相同的法术书进行回放，归档行一旦构建便不可更改，后续绝不进行修补。
  */
 function archiveBook(room: RoomRow): Spell[] | null {
   if (room.spell_book === null) return null;
@@ -153,10 +146,9 @@ function archiveBook(room: RoomRow): Spell[] | null {
 }
 
 /**
- * Publishes one seat's trace when it qualifies: the seat must have dealt at least one full
- * opponent's health of actual damage, and its recorded casts must be the complete contiguous
- * book prefix, paced no faster than the current input floor allows, and bounded by the match's
- * own clock. Any failed check silently skips the seat.
+ * 在席位轨迹达标时发布为幽灵：该席位必须造成至少相当于一名对手满血的实际伤害，
+ * 且其记录的施法必须是法术书完整连续的前缀、输入节奏不得快于当前输入底线允许的极值，
+ * 并受对局自身时钟的限制。任何一项检查未通过都会静默跳过该席位。
  */
 async function publishSeatTx(
   tx: QueryDatabase,
@@ -173,8 +165,8 @@ async function publishSeatTx(
     .where(and(eq(ghostCasts.match_id, matchId), eq(ghostCasts.user_id, player.user_id)))
     .orderBy(asc(ghostCasts.spell_index));
   if (rows.length === 0 || rows.length !== player.spells_cast) return;
-  // The match's own clock bounds the trace: a fallen seat stopped at its elimination, a
-  // survivor at the whistle. Damage past that bound is a corrupted trace, not a fast one.
+  // 对局自身的时钟限制了轨迹的上限：阵亡席位截止于其阵亡时刻，幸存者截止于哨声吹响时刻。
+  // 超过该界限的伤害属于损坏的轨迹，而非手速极快。
   const latestAt = (player.eliminated_at ?? room.deadline) - startedAt;
   const casts: ReplayCast[] = [];
   let openedAt = 0;

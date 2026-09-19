@@ -2,7 +2,7 @@ import { queryOptions } from '@tanstack/solid-query';
 import { parseResponse } from 'hono/client';
 import { client } from './client';
 
-/** The session is the one entry the shell always reads: a guest is a 200 with `user: null`. */
+/** 会话是外层壳组件始终读取的唯一入口：访客身份返回 200 且 `user: null`。 */
 export const sessionOptions = queryOptions({
   queryKey: ['session'],
   queryFn: ({ signal }) => parseResponse(client.api.session.$get({}, { init: { signal } })),
@@ -19,7 +19,7 @@ export const profileOptions = (userId: string) =>
     retry: false,
   });
 
-/** Public homepage counters; guests read them too, so the poll never depends on a session. */
+/** 首页公开的活动计数；访客亦可读取，因此该轮询绝不依赖登录会话。 */
 export const activityOptions = queryOptions({
   queryKey: ['activity'],
   queryFn: ({ signal }) => parseResponse(client.api.activity.$get({}, { init: { signal } })),

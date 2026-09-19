@@ -1,11 +1,9 @@
 /**
- * Combat rules unit tests — the numbers the room is authoritative for, without a room.
+ * 战斗规则单元测试 —— 脱离房间实体直接测试房间所权威负责的核心数值。
  *
- * Only the rules a plausible bug would silently break: code-point accounting, the edit-diff that
- * turns a typed snapshot into attempts/errors/progress, competition ranks and the two aggregate
- * figures that reach the results table. Targeting itself is no longer a scoring concern: a cast's
- * power goes to every other living player, and the batched application of that rule is covered by
- * the room-level volley regression suite.
+ * 仅测试潜在 bug 会静默破坏的规则：码点统计、将打字快照转化为尝试数/错误数/进度的编辑差量算法、
+ * 竞技名次计算以及最终落库到 results 表的两个聚合指标。
+ * 目标选择本身不再属于计分关注点：一次施法的威力会作用于其他所有存活玩家，该规则的批量执行已由房间级齐射回归测试套件全面覆盖。
  */
 import { describe, expect, it } from 'bun:test';
 import {

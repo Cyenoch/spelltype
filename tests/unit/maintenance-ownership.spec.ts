@@ -1,17 +1,12 @@
 /**
- * The one global runtime ownership lease on real PGlite — where write fencing lives.
+ * 真实 PGlite 上的全局运行时所有权租约 —— 实现写入隔离与写屏障的关键。
  *
- * Pinned here, because these failures corrupt live games:
- *  - acquiring bumps the epoch and claims a lease; a duplicate acquire while the lease is live is
- *    refused as busy, never raced;
- *  - `assert` is the write fence: after the lease lapses or is taken over by a successor, the
- *    old owner's writes throw `RuntimeOwnershipLostError` and fire `onLost` exactly once;
- *  - the heartbeat only RENEWS — a lapsed lease is never resurrected, and a late beat never
- *    extends a successor's lease;
- *  - `close` releases only the owner's own lease, is idempotent, and leaves a successor's lease
- *    untouched;
- *  - the ownership record is durable row state: a "restart" (a fresh acquire after the old lease
- *    died) takes over with a strictly higher epoch, so stale epochs can never win.
+ * 此处固化的关键行为如下（这些故障会导致线上运行中的对局受损）：
+ *  - 获取租约会递增纪元世代并认领租约；在租约有效期间重复获取会被作为繁忙状态拒绝，绝不产生竞态；
+ *  - `assert` 构成了写屏障：当租约过期或被后继者接管后，旧所有者的写入操作将抛出 `RuntimeOwnershipLostError`，并精确触发一次 `onLost` 回调；
+ *  - 心跳仅用于续租 —— 过期的租约绝不会被心跳复活，且迟到的心跳绝不能延长后继者的租约；
+ *  - `close` 仅释放所有者自身的租约，具备幂等性，且绝不影响后继者的租约；
+ *  - 所有权记录是持久化的行状态：“重启”（旧租约失效后的重新获取）会以严格递增的世代接管，旧世代绝不可能竞争获胜。
  */
 import { afterEach, describe, expect, it, setDefaultTimeout } from 'bun:test';
 import { rejects } from 'node:assert/strict';
@@ -25,7 +20,7 @@ import {
 import { inspectMaintenance } from '../../server/maintenance/control';
 
 const TIMEOUT = 120_000;
-// Every test here boots a real WASM Postgres; the runner's 5s default is not enough.
+// 这里的每个测试都会启动真实的 WASM Postgres；测试运行器默认的 5 秒超时时间不够。
 setDefaultTimeout(TIMEOUT);
 
 const opened: OpenedDatabase[] = [];
@@ -46,7 +41,7 @@ async function freshDb(): Promise<Database> {
   return openedDb.db;
 }
 
-/** Keeps handles so afterEach stands every heartbeat down, even mid-test-failure. */
+/** 保存实例引用，以便 afterEach 即使在测试失败时也能优雅关闭所有心跳定时器。 */
 async function acquire(db: Database, options?: Parameters<typeof acquireRuntime>[1]) {
   const ownership = await acquireRuntime(db, options);
   owned.push(ownership);
@@ -61,7 +56,7 @@ async function leaseRow(db: Database) {
 }
 
 describe('acquireRuntime', () => {
-  it('claims the singleton lease and reports the epoch the row now carries', async () => {
+  it('认领单例租约并返回该行当前携带的纪元世代', async () => {
     const db = await freshDb();
     const ownership = await acquire(db, { heartbeatMs: 60_000 });
 
@@ -73,7 +68,7 @@ describe('acquireRuntime', () => {
     expect((await inspectMaintenance(db)).runtimeEpoch).toBe(1);
   });
 
-  it('refuses a duplicate acquire while the lease is live, without touching the row', async () => {
+  it('在租约依然有效时拒绝重复获取，且不修改数据行', async () => {
     const db = await freshDb();
     await acquire(db, { heartbeatMs: 60_000 });
     const before = await leaseRow(db);
@@ -87,10 +82,10 @@ describe('acquireRuntime', () => {
     expect(await leaseRow(db)).toEqual(before);
   });
 
-  it('takes over an expired lease with the next epoch — restart durability', async () => {
+  it('以递增世代接管已过期的租约 —— 验证重启的持久性', async () => {
     const db = await freshDb();
     await acquire(db, { leaseMs: 40, heartbeatMs: 60_000 });
-    await sleep(80); // first owner vanishes without close(); the lease dies on the DB clock
+    await sleep(80); // 首个所有者在未调用 close() 的情况下消失；租约在数据库时钟上自然死亡
 
     const successor = await acquire(db, { heartbeatMs: 60_000 });
     expect(successor.epoch).toBe(2);
@@ -100,8 +95,8 @@ describe('acquireRuntime', () => {
   });
 });
 
-describe('the assert write fence', () => {
-  it('fences a lapsed owner: the write throws, onLost fires once', async () => {
+describe('assert 写屏障机制', () => {
+  it('隔离已失效的所有者：写入抛出异常，onLost 精确触发一次', async () => {
     const db = await freshDb();
     const lost: number[] = [];
     const ownership = await acquire(db, {
@@ -109,7 +104,7 @@ describe('the assert write fence', () => {
       heartbeatMs: 60_000,
       onLost: () => lost.push(ownership.epoch),
     });
-    await sleep(80); // lease lapses; the owner does not notice until it tries to write
+    await sleep(80); // 租约失效；所有者在尝试执行写操作之前尚未察觉
 
     let failure: unknown;
     await db.transaction(async (tx) => {
@@ -120,12 +115,12 @@ describe('the assert write fence', () => {
       }
     });
     expect(failure).toBeInstanceOf(RuntimeOwnershipLostError);
-    // onLost fires from the failed fence, and repeated failed fences stay one signal.
+    // onLost 由屏障校验失败触发，多次重复屏障失败依然只保留单个信号。
     await db.transaction(async (tx) => ownership.assert(tx).catch(() => {}));
     expect(lost).toEqual([1]);
   });
 
-  it('fences the old owner against a successor takeover', async () => {
+  it('在后继者接管后对旧所有者施加写屏障隔离', async () => {
     const db = await freshDb();
     const old = await acquire(db, { leaseMs: 40, heartbeatMs: 60_000 });
     await sleep(80);
@@ -138,11 +133,11 @@ describe('the assert write fence', () => {
   });
 });
 
-describe('heartbeat renew-only semantics', () => {
-  it('keeps a healthy owner alive past the first lease window', async () => {
+describe('心跳仅续约语义', () => {
+  it('保持健康的所有者持续存活并跨越初始租约周期', async () => {
     const db = await freshDb();
     const ownership = await acquire(db, { leaseMs: 80, heartbeatMs: 20 });
-    await sleep(200); // several beats: each renews before the 80ms lease can lapse
+    await sleep(200); // 多次心跳：每次都在 80ms 租约失效前完成续约
 
     const row = await leaseRow(db);
     expect(row.runtime_id).not.toBeNull();
@@ -152,32 +147,32 @@ describe('heartbeat renew-only semantics', () => {
     });
   });
 
-  it('never resurrects a lapsed lease, and never extends a successor’s lease', async () => {
+  it('绝不复活已过期的租约，且绝不延长后继者的租约', async () => {
     const db = await freshDb();
     const lost: number[] = [];
     const lapsed = await acquire(db, {
       leaseMs: 40,
-      heartbeatMs: 100, // the first beat lands after the 40ms lease has already lapsed
+      heartbeatMs: 100, // 首次心跳在 40ms 租约已失效后才到达
       onLost: () => lost.push(lapsed.epoch),
     });
-    await sleep(350); // beat at ~100ms refuses to renew the lapsed lease and fires onLost
+    await sleep(350); // 约 100ms 时到达的心跳拒绝为失效租约续期并触发 onLost
     expect(lost).toEqual([1]);
 
     const rowAfterLoss = await leaseRow(db);
-    expect(rowAfterLoss.lease_until).toBeLessThan(Date.now()); // not resurrected
+    expect(rowAfterLoss.lease_until).toBeLessThan(Date.now()); // 未被复活
 
     await acquire(db, { heartbeatMs: 60_000 });
     const successorRow = await leaseRow(db);
-    await sleep(300); // any beat after the loss is a no-op; the successor's lease stays intact
+    await sleep(300); // 失去所有权后的任何心跳均为空操作；后继者的租约保持完好
     const afterBeat = await leaseRow(db);
-    expect(afterBeat.runtime_id).toBe(successorRow.runtime_id); // successor's token untouched
+    expect(afterBeat.runtime_id).toBe(successorRow.runtime_id); // 后继者的 token 未受影响
     expect(afterBeat.runtime_epoch).toBe(2);
-    expect(afterBeat.lease_until).toBe(successorRow.lease_until); // not extended by the dead beat
+    expect(afterBeat.lease_until).toBe(successorRow.lease_until); // 未被已死的心跳延期
   });
 });
 
-describe('close', () => {
-  it('refuses new writes as soon as close starts, even while lease release is blocked', async () => {
+describe('close 关闭逻辑', () => {
+  it('在 close 开始执行后立即拒绝新写入，即便租约释放仍在阻塞中', async () => {
     const db = await freshDb();
     const ownership = await acquire(db, { heartbeatMs: 60_000 });
     let closing: Promise<void> | undefined;
@@ -192,7 +187,7 @@ describe('close', () => {
     }
   });
 
-  it('releases the lease, keeps the epoch, and is idempotent', async () => {
+  it('释放租约，保留纪元历史，且具备幂等性', async () => {
     const db = await freshDb();
     const ownership = await acquire(db, { heartbeatMs: 60_000 });
     await ownership.close();
@@ -201,10 +196,10 @@ describe('close', () => {
     const row = await leaseRow(db);
     expect(row.runtime_id).toBeNull();
     expect(row.lease_until).toBeNull();
-    expect(row.runtime_epoch).toBe(1); // history is never rewritten
+    expect(row.runtime_epoch).toBe(1); // 历史纪元从不重写
   });
 
-  it('never touches a successor’s lease', async () => {
+  it('绝不改动后继者的租约', async () => {
     const db = await freshDb();
     const old = await acquire(db, { leaseMs: 40, heartbeatMs: 60_000 });
     await sleep(80);
@@ -217,7 +212,7 @@ describe('close', () => {
     expect(row.lease_until).toBeGreaterThan(Date.now());
   });
 
-  it('gives the next clean start a fresh epoch: a stand-down owner never resumes silently', async () => {
+  it('为下一次正常启动分配全新纪元：主动退出的所有者绝不静默恢复', async () => {
     const db = await freshDb();
     const first = await acquire(db, { heartbeatMs: 60_000 });
     await first.close();

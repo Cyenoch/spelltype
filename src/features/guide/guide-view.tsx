@@ -5,7 +5,7 @@ import { ui } from '../../ui/primitives';
 import { MatchFacts } from '../home/home-view';
 import { styles } from '../home/home.styles';
 
-/** Player-facing rules, separate from the compact homepage primer. */
+/** 面向玩家的规则详解页面，独立于首页紧凑的新手简引。 */
 export function GuideView() {
   return (
     <section class={stylex.props(styles.guide).className} data-testid="view-guide">

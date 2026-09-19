@@ -1,8 +1,8 @@
 /**
- * The worker shares a database, so closing a browser is not enough to hand over to the next
- * test: disconnected private matches still block retirement, and quick seats still occupy the
- * queue. Observe membership through the harness's database, but release it only through the
- * public cancel/leave endpoints. No database state is deleted or rewritten by cleanup.
+ * 多个 worker 共享同一个数据库，因此仅关闭浏览器不足以顺利交接到下一个测试：
+ * 断开连接的私人对局仍会阻碍退出，快速对局席位仍会占用队列。
+ * 通过测试脚手架的数据库观测成员状态，但仅通过公开的 cancel/leave 接口予以释放。
+ * 清理过程绝不直接在数据库中删除或改写状态。
  */
 import { and, eq, gt, inArray, or } from 'drizzle-orm';
 import { expect, request, type APIRequestContext, type BrowserContext } from '@playwright/test';
@@ -17,7 +17,7 @@ interface TrackedAccount {
 }
 const tracked: TrackedAccount[] = [];
 
-/** Retains the session cookie even when the spec closes its browser context. */
+/** 即使测试用例关闭了其浏览器上下文，也保留会话 Cookie。 */
 export async function trackAccountForQueueCleanup(
   context: BrowserContext,
   baseUrl: string,
@@ -32,12 +32,12 @@ export async function trackAccountForQueueCleanup(
   tracked.push({ api, browser: context });
 }
 
-/** Releases each account's own seats; an authorization or server refusal is never success. */
+/** 释放每个账号自有的席位；鉴权失败或服务端拒绝绝不算作清理成功。 */
 export async function cleanupTrackedQueues(): Promise<void> {
   const accounts = tracked.splice(0);
   const failures: unknown[] = [];
   try {
-    // Stop polling before cancellation, otherwise a still-open queue could immediately rejoin.
+    // 取消前停止轮询，否则仍处于打开状态的队列可能立即重新加入。
     for (const browser of new Set(accounts.map((account) => account.browser))) {
       await browser.close();
     }
@@ -52,7 +52,7 @@ export async function cleanupTrackedQueues(): Promise<void> {
         if (session.status() !== 200)
           throw new Error(`account cleanup: GET /api/session returned ${session.status()}`);
         const { user } = (await session.json()) as SessionInfo;
-        if (!user) continue; // Revoked sessions cannot perform further authenticated operations.
+        if (!user) continue; // 已吊销的会话无法继续执行受认证操作。
 
         const cancel = await api.delete(new URL('/api/match', appUrl).href, {
           headers: { origin: appUrl },
@@ -62,8 +62,8 @@ export async function cleanupTrackedQueues(): Promise<void> {
         if (typeof (await cancel.json()).cancelled !== 'boolean')
           throw new Error('account cleanup: cancellation response has no boolean result');
 
-        // cancelled:false is truthful for a started match. Leave actual membership — including
-        // private rooms with no ticket — through the room's own public leave endpoint.
+        // 对于已开局的比赛，cancelled:false 是诚实的判定。
+        // 通过房间自有的公开离开接口退出真实的成员状态（包括没有匹配票据的私人房间）。
         const memberships = await testDb()
           .select({ id: rooms.id })
           .from(rooms)
@@ -80,8 +80,8 @@ export async function cleanupTrackedQueues(): Promise<void> {
         failures.push(error);
       }
     }
-    // A pre-combat forfeit is durable immediately, but generation/countdown completes through
-    // the runtime's existing transition. Observe that settlement with the suite's normal limit.
+    // 战前认输立即持久化，但生成/倒计时阶段需通过运行时已有的状态转换完成结算。
+    // 使用测试套件常规的时间上限观测该结算。
     if (failures.length === 0)
       await expect
         .poll(() => testDb().select({ id: rooms.id }).from(rooms).where(activeRoom))

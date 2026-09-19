@@ -29,35 +29,30 @@ import type { MaintenanceMode } from '../../shared/maintenance';
 import { INITIAL_HEALTH } from '../../shared/protocol';
 
 /**
- * The whole long-term database: WeChat-auth accounts and login state, sessions, rooms, seats and
- * match tickets — plus the one `runtime_control` row that owns maintenance mode and the global
- * runtime lease.
+ * 完整的持久化数据库：微信认证账户与登录状态、会话、房间、席位和
+ * 匹配票据——以及用于掌控维护模式和全局运行时租约的唯一单例行 `runtime_control`。
  *
- * PostgreSQL and development PGlite share this Drizzle schema and generated migrations. Rooms,
- * players and global queue tickets share a database so pairing and seat creation commit together.
+ * PostgreSQL 和本地开发用的 PGlite 共享这套 Drizzle schema 以及生成的迁移脚本。房间、
+ * 玩家以及全局队列票据保存在同一数据库中，确保匹配配对与席位创建能原子提交。
  *
- * Conventions:
- * - Property names are snake_case to match the existing domain row vocabulary; table exports are
- *   camelCase.
- * - Every millisecond timestamp and deadline is `bigint(..., { mode: 'number' })` — the same
- *   integer-milliseconds contract the room timers always had, safe in PG because epoch ms fits a
- *   double.
- * - Small state vocabularies (phases, modes, ticket states) are `text` with `CHECK` constraints and
- *   typed in TypeScript, matching how the domain already treated them; no PostgreSQL enum types.
- * - `locked`/`seated`/`ready` keep the historical 0/1 integer convention instead of booleans.
- * - Serialized domain JSON (`spell_book`, `events_json`) stays in `text` columns; no second
- *   database or outbox exists to emulate the old object storage.
+ * 设计约定：
+ * - 属性名采用 snake_case 以匹配现有的领域行词汇；导出的表名为 camelCase。
+ * - 所有毫秒时间戳和截止时间均为 `bigint(..., { mode: 'number' })`——延续房间计时器一直采用的
+ *   整数毫秒约定，在 PG 中足够安全，因为 epoch ms 完全能放入 double 中。
+ * - 小型状态词汇表（阶段、模式、票据状态）使用带有 `CHECK` 约束的 `text`，并在 TypeScript 中进行类型约束，
+ *   保持与原有领域逻辑一致；不使用 PostgreSQL 自定义 enum 类型。
+ * - `locked`/`seated`/`ready` 保留历史上的 0/1 整数约定，而非布尔类型。
+ * - 序列化的领域 JSON（`spell_book`, `events_json`）保存在 `text` 列中；不存在第二个数据库或发件箱来模拟以前的对象存储。
  */
 
-/** Millisecond epoch column: the domain's one time unit. */
+/** 毫秒级时间戳列：领域唯一的标准时间单位。 */
 const ms = (name: string) => bigint(name, { mode: 'number' });
 
 export type MatchTicketState = 'waiting' | 'matched';
 
 /**
- * One WeChat identity's account. `username` is the display nickname from the bridge profile and is
- * deliberately non-unique; `wechat_identity` (`union:<unionid>` or `open:<openid>`/`mp:<openid>`)
- * is the one stable, unique credential.
+ * 微信身份账户。`username` 是来自桥接资料的显示昵称，特意允许重复；
+ * `wechat_identity`（`union:<unionid>` 或 `open:<openid>`/`mp:<openid>`）是唯一稳定且唯一的凭证。
  */
 export const accounts = pgTable(
   'accounts',
@@ -65,14 +60,14 @@ export const accounts = pgTable(
     id: text('id').primaryKey(),
     username: text('username').notNull(),
     wechat_identity: text('wechat_identity').notNull().unique(),
-    /** Management role (`user` by default; `admin` may use the maintenance tooling). Game-wire data never carries it. */
+    /** 管理角色（默认为 `user`；`admin` 可使用维护工具）。游戏通信数据中从不携带此项。 */
     role: text('role').$type<AccountRole>().notNull().default('user'),
     created_at: ms('created_at').notNull(),
   },
   (t) => [check('accounts_role', sql`${t.role} in ('user','admin')`)],
 );
 
-/** Only the digest of a session token is stored, never the token itself. */
+/** 仅存储会话令牌的摘要（哈希），从不直接存储令牌明文。 */
 export const sessions = pgTable(
   'sessions',
   {
@@ -86,10 +81,9 @@ export const sessions = pgTable(
 );
 
 /**
- * One outbound WeChat OAuth attempt. The SHA-256 of the `state` parameter (also stored raw in the
- * `spelltype_wechat_state` cookie) is the single-use key, so a callback only completes when its
- * state was issued here, is unexpired, and the row is deleted in the same transaction. `room_id`
- * carries the optional invite the login started from.
+ * 单次发起的微信 OAuth 尝试。`state` 参数的 SHA-256（其明文也保存在 `spelltype_wechat_state` cookie 中）
+ * 作为单次有效的主键，因此仅当回调携带的状态由此处签发、尚未过期并在同一事务中被删除时，回调才算成功。
+ * `room_id` 记录该次登录所由发起的房间邀请（可选）。
  */
 export const wechatLoginAttempts = pgTable('wechat_login_attempts', {
   state_hash: text('state_hash').primaryKey(),
@@ -98,9 +92,8 @@ export const wechatLoginAttempts = pgTable('wechat_login_attempts', {
 });
 
 /**
- * Bridge relay-token `jti`s already redeemed at the callback. Storing them until the token's own
- * expiry makes a replayed callback token provably single-use even if the login attempt row is
- * already gone.
+ * 已经在回调时兑现过的桥接中继令牌 `jti`。将其持久化存储直到令牌自身的过期时间，
+ * 即使登录尝试记录已从数据库删除，也能证明被重放的回调令牌已被单次使用。
  */
 export const wechatRelayTokens = pgTable('wechat_relay_tokens', {
   jti: text('jti').primaryKey(),
@@ -108,24 +101,23 @@ export const wechatRelayTokens = pgTable('wechat_relay_tokens', {
 });
 
 /**
- * The one global control row: maintenance mode, its CAS revision, and the single runtime
- * ownership lease. Every admission decision, every state transition and every write fence in the
- * game serializes through this row, so it is deliberately tiny — one row, locked in one of two
- * modes (`FOR SHARE` for readers/admission, `FOR UPDATE` for transitions).
+ * 全局唯一的控制单例行：维护模式、其 CAS 版本号以及单运行时的所有权租约。
+ * 游戏中的每一次准入判定、每一次状态流转和每一次写入栅障都会经由此行串行化，因此该行经过精心设计，
+ * 极致小巧——只有一行，以两种锁模式之一锁定（用于读取/准入的 `FOR SHARE`，用于状态变更的 `FOR UPDATE`）。
  */
 export const runtimeControl = pgTable(
   'runtime_control',
   {
     singleton: integer('singleton').primaryKey().default(1),
     mode: text('mode').$type<MaintenanceMode>().notNull(),
-    /** CAS token for maintenance transitions; bumped on every committed change. */
+    /** 维护状态流转的 CAS 令牌；每次提交变更时自增。 */
     revision: integer('revision').notNull().default(0),
     updated_at: ms('updated_at').notNull(),
-    /** The current runtime owner's token; `null` when no runtime holds the lease. */
+    /** 当前运行时所有者的标识令牌；无运行时持有租约时为 `null`。 */
     runtime_id: text('runtime_id'),
-    /** Monotonic ownership generation, bumped on every fresh claim or takeover. */
+    /** 单调递增的所有权世代号，在每次全新申领或接管租约时递增。 */
     runtime_epoch: integer('runtime_epoch').notNull().default(0),
-    /** Database-clock deadline after which the lease is considered lapsed. */
+    /** 依据数据库系统时钟判定的截止时间，超过该时间租约被视作失效。 */
     lease_until: ms('lease_until'),
   },
   (t) => [
@@ -134,7 +126,7 @@ export const runtimeControl = pgTable(
   ],
 );
 
-/** One room: live match state. Maintenance is global, so rooms carry no flag of their own. */
+/** 单个房间：对局实时状态。维护状态是全局的，因此房间自身不包含维护标志。 */
 export const rooms = pgTable(
   'rooms',
   {
@@ -144,23 +136,23 @@ export const rooms = pgTable(
     theme: text('theme').notNull(),
     difficulty: text('difficulty').$type<Difficulty>().notNull(),
     phase: text('phase').$type<Phase>().notNull(),
-    /** Opening countdown end, then the single combat end; `0` in phases with no clock. */
+    /** 开场倒计时结束时间，其后为战斗结束时间；无计时器阶段为 `0`。 */
     deadline: ms('deadline').notNull().default(0),
     started_at: ms('started_at'),
     ended_at: ms('ended_at'),
     end_reason: text('end_reason').$type<EndReason>(),
     match_id: text('match_id'),
-    /** What the non-host seat holds: a human, a replayed recorded ghost, or a generated bot. */
+    /** 非房主席位容纳的对手类型：真人玩家、录制重放的重影对手（ghost）或生成的机器人。 */
     opponent_kind: text('opponent_kind').$type<OpponentKind>().notNull().default('human'),
-    /** The replayed ghost row when `opponent_kind` is `ghost`; `null` for every other room. */
+    /** 当 `opponent_kind` 为 `ghost` 时的重影对手记录行；其他所有房间均为 `null`。 */
     ghost_id: text('ghost_id'),
-    /** Durable ms deadline of the opponent's next scheduled cast; `null` when none is due. */
+    /** 对手下一次预定施法的持久化截止时间毫秒数；无预定施法时为 `null`。 */
     opponent_next_at: ms('opponent_next_at'),
-    /** The match's generated, ordered spell book, shared by every seat. */
+    /** 本局生成的有序法术书，供所有席位共享。 */
     spell_book: text('spell_book'),
-    /** Bounded recent-damage ring, oldest first, as JSON. */
+    /** 有界伤害历史环形缓冲区，按时间从旧到新排列，以 JSON 格式存储。 */
     events_json: text('events_json').notNull().default('[]'),
-    /** Sequence of the newest event in the ring; `(match_id, seq)` is what clients dedupe on. */
+    /** 环形缓冲区中最新事件的序列号；客户端据以通过 `(match_id, seq)` 进行去重。 */
     event_seq: integer('event_seq').notNull().default(0),
     error: text('error'),
     generation_token: text('generation_token'),
@@ -178,7 +170,7 @@ export const rooms = pgTable(
     persistence: text('persistence').$type<Persistence>().notNull().default('idle'),
     persist_attempts: integer('persist_attempts').notNull().default(0),
     persist_retry_at: ms('persist_retry_at'),
-    /** Next durable deadline the owning runtime must wake for; recovered at process startup. */
+    /** 归属运行时必须唤醒的下一个持久化截止时间；在进程启动时恢复。 */
     next_alarm_at: ms('next_alarm_at'),
     created_at: ms('created_at').notNull(),
     updated_at: ms('updated_at').notNull(),
@@ -207,7 +199,7 @@ export const rooms = pgTable(
   ],
 );
 
-/** One seat. A reserved seat exists before its account ever connects. */
+/** 单个席位。预留席位在其账户连接前就已存在。 */
 export const players = pgTable(
   'players',
   {
@@ -220,18 +212,18 @@ export const players = pgTable(
     joined_at: ms('joined_at').notNull(),
     slot_expires_at: ms('slot_expires_at'),
     conn_id: text('conn_id'),
-    /** 1 once the account actually connected; reserved invitees stay 0. */
+    /** 账户实际建立连接后置为 1；预留的受邀席位保持为 0。 */
     seated: integer('seated').notNull().default(0),
     ready: integer('ready').notNull().default(0),
-    /** Longest accepted prefix of this player's current spell. */
+    /** 当前玩家对当前法术所输入的最长匹配前缀长度。 */
     progress: integer('progress').notNull().default(0),
-    /** Private, monotonic, zero-based cursor into the shared spell book. */
+    /** 玩家私有的、单调递增的共享法术书从零索引起始光标。 */
     spell_index: integer('spell_index').notNull().default(0),
     spells_cast: integer('spells_cast').notNull().default(0),
     hp: doublePrecision('hp').notNull().default(INITIAL_HEALTH),
     max_hp: integer('max_hp').notNull().default(INITIAL_HEALTH),
     damage_dealt: doublePrecision('damage_dealt').notNull().default(0),
-    /** Confirmed characters of completed spells; the live prefix is not included. */
+    /** 已完成法术的确认字符数；不计入当前正在输入的实时前缀。 */
     correct_chars: integer('correct_chars').notNull().default(0),
     attempt_total: integer('attempt_total').notNull().default(0),
     error_total: integer('error_total').notNull().default(0),
@@ -257,7 +249,7 @@ export const players = pgTable(
 );
 
 /**
- * One finished match's row for one account, committed atomically with the terminal room state.
+ * 单场已结束比赛中单个账户的结算结果行，与房间终态原子提交。
  */
 export const results = pgTable(
   'results',
@@ -268,19 +260,19 @@ export const results = pgTable(
       .notNull()
       .references(() => rooms.id),
     theme: text('theme').notNull(),
-    /** The kind of opponent this account faced; rows from before ghosts existed are `human`. */
+    /** 该账户在本局面对的对手类型；重影系统诞生前的历史数据记为 `human`。 */
     opponent_kind: text('opponent_kind').$type<OpponentKind>().notNull().default('human'),
-    /** Damage this account dealt to opponents over the match. */
+    /** 本局比赛中该账户对对手造成的伤害总量。 */
     damage_dealt: doublePrecision('damage_dealt').notNull(),
-    /** Health left when the match settled (0 when this account was eliminated). */
+    /** 对局结算时剩余的生命值（该账户被击杀淘汰时为 0）。 */
     hp_remaining: doublePrecision('hp_remaining').notNull(),
     spells_cast: integer('spells_cast').notNull(),
     correct_chars: integer('correct_chars').notNull(),
-    /** Active combat time only, never lobby/generation/countdown. */
+    /** 仅包含有效战斗时间，不包含大厅等待、生成或倒计时时间。 */
     duration_ms: integer('duration_ms').notNull(),
     rank: integer('rank').notNull(),
     cpm: integer('cpm').notNull(),
-    /** `null` when the account produced no counted keystroke: there is no honest 0% or 100% value. */
+    /** 该账户未产生任何有效按键时为 `null`：此时不存在诚实的 0% 或 100% 准确率。 */
     accuracy: real('accuracy'),
     created_at: ms('created_at').notNull(),
     input_policy_version: text('input_policy_version').notNull().default('legacy-unmeasured'),
@@ -293,7 +285,7 @@ export const results = pgTable(
     input_min_completion_ratio: doublePrecision('input_min_completion_ratio'),
   },
   (t) => [
-    // The primary key makes a retried write idempotent.
+    // 主键保证重试写入具有幂等性。
     primaryKey({ columns: [t.match_id, t.user_id] }),
     check('results_opponent_kind', sql`${t.opponent_kind} in ('human','ghost','bot')`),
     index('results_user_recent_idx').on(t.user_id, t.created_at.desc()),
@@ -301,9 +293,8 @@ export const results = pgTable(
 );
 
 /**
- * One account's explicit manual departure from this room. `match_id` names the match that was
- * abandoned; it is `null` when membership was released before a match existed, which makes the row
- * an idempotency marker only.
+ * 账户主动退出当前房间的手动离场记录。`match_id` 标明被中途放弃的对局；
+ * 若在对局产生前便释放席位，该值为 `null`，此时本行仅充当幂等标记。
  */
 export const departures = pgTable(
   'departures',
@@ -319,8 +310,8 @@ export const departures = pgTable(
 );
 
 /**
- * Live room seats owned by a session, so revoking the session can also close those sockets. Only
- * the token digest appears here, exactly as in `sessions`; never the token itself.
+ * 会话所持有的活跃房间席位，以便在撤销会话时能一并关闭对应的套接字连接。
+ * 此处仅保存令牌摘要（哈希），与 `sessions` 表一致；从不保存令牌明文。
  */
 export const roomSessions = pgTable(
   'room_sessions',
@@ -339,9 +330,8 @@ export const roomSessions = pgTable(
 );
 
 /**
- * The one shared matchmaking table: an account's single ticket doubles as the global occupancy
- * record, so "does this account already hold a seat somewhere" is a primary-key lookup and pairing
- * plus room initialization can commit in one transaction.
+ * 共享匹配表：单个账户的单张票据兼作全局占位记录，因此“该账户是否已在某处占用席位”
+ * 是单次主键查询，配对与房间初始化得以在单个事务内原子完成。
  */
 export const matchTickets = pgTable(
   'match_tickets',
@@ -359,7 +349,7 @@ export const matchTickets = pgTable(
   },
   (t) => [
     check('match_tickets_state', sql`${t.state} in ('waiting','matched')`),
-    // Waiting-ticket sweeps (maintenance entry) and per-account TTL refreshes are the hot paths.
+    // 扫描等待中的票据（进入维护模式时）和基于账户的 TTL 刷新属于高频热点路径。
     index('match_tickets_state_idx').on(t.state),
     index('match_tickets_expires_at_idx').on(t.expires_at),
   ],
@@ -372,7 +362,7 @@ export interface PendingCast {
   power: number;
 }
 
-/** Accepted cast intent survives a failed settlement or runtime restart. */
+/** 已接受的施法意图，在结算失败或运行时重启时仍能留存。 */
 export const combatVolleys = pgTable('combat_volleys', {
   room_id: text('room_id')
     .primaryKey()
@@ -383,7 +373,7 @@ export const combatVolleys = pgTable('combat_volleys', {
   casts: jsonb('casts').$type<PendingCast[]>().notNull(),
 });
 
-/** One globally shared preset book and its fenced refresh lease. */
+/** 全局共享的单个预设法术书及其带锁刷新的租约。 */
 export const spellBookCache = pgTable('spell_book_cache', {
   theme: text('theme').primaryKey(),
   book: jsonb('book').$type<Spell[]>(),
@@ -393,9 +383,8 @@ export const spellBookCache = pgTable('spell_book_cache', {
 });
 
 /**
- * One replayed cast of a recorded opponent trace. `at` is the completion's offset in ms from the
- * match's `started_at` (the raw absolute wall clock is never kept), and `spellIndex` is the cast's
- * own cursor into the shared book — the shape `Runtime` replays one due cast from.
+ * 录制的对手轨迹中的单次重放施法。`at` 是施法完成时间相对于比赛 `started_at` 的毫秒偏移
+ * （从不保留绝对物理挂钟时间），`spellIndex` 是该施法在共享法术书内的光标——即 `Runtime` 重放预定施法所需的数据结构。
  */
 export interface ReplayCast {
   at: number;
@@ -403,39 +392,38 @@ export interface ReplayCast {
 }
 
 /**
- * One recorded opponent: a human seat's complete accepted-cast trace from one finished human
- * match, archived immutably the moment that match settles. `rules_version` fingerprints every
- * rule the trace replays under, so selection serves only current-compatible rows and a protocol
- * or rules change invalidates old ghosts without touching them.
+ * 单条已录制的对手轨迹：来自一场已结束真人对局的真人席位完整已确认施法轨迹，
+ * 在该对局结算完成的瞬间不可变归档。`rules_version` 对该轨迹重放所依据的每条规则进行指纹标记，
+ * 使得筛选时只取与当前版本兼容的行，协议或规则变更无需修改历史重影即可使其自动失效。
  */
 export const ghosts = pgTable(
   'ghosts',
   {
     id: text('id').primaryKey(),
-    /** The account whose play was recorded; selection never serves a source their own ghost. */
+    /** 游戏过程被录制的来源账户；筛选时从不向本人发放其自身的重影。 */
     source_user_id: text('source_user_id')
       .notNull()
       .references(() => accounts.id),
     theme: text('theme').notNull(),
-    /** The match's complete generated book; the trace only replays against exactly it. */
+    /** 该对局生成的完整法术书；轨迹仅在该法术书下严密重放。 */
     book: jsonb('book').$type<Spell[]>().notNull(),
-    /** The accepted casts, ordered by `spellIndex` from 0 with no gaps. */
+    /** 已确认的施法列表，按 `spellIndex` 从 0 开始无空缺严格排序。 */
     casts: jsonb('casts').$type<ReplayCast[]>().notNull(),
-    /** The rule fingerprint the trace was recorded under. */
+    /** 录制该轨迹时依据的规则指纹。 */
     rules_version: text('rules_version').notNull(),
     created_at: ms('created_at').notNull(),
   },
   (t) => [
     index('ghosts_source_idx').on(t.source_user_id),
-    // Selection scans one version's rows newest-first and stops at a bounded pool.
+    // 筛选操作按规则版本由新到旧扫描行，并在达到限定容量池时停止。
     index('ghosts_selection_idx').on(t.rules_version, t.created_at),
   ],
 );
 
 /**
- * One accepted cast of a live human match, kept until that match settles: publication turns a
- * qualifying trace into a `ghosts` row and deletes the room's rows in the same transaction, so
- * nothing non-qualifying lingers. An abandoned room loses its rows through the room cascade.
+ * 真人对局中单次被接受的施法，一直保留至该比赛结算：归档发布时会将合格的轨迹转入
+ * `ghosts` 表，并在同一事务中删除该房间的所有行，确保不留存任何不合格记录。
+ * 被中途放弃的房间则通过房间级联删除清理其数据行。
  */
 export const ghostCasts = pgTable(
   'ghost_casts',
@@ -445,20 +433,20 @@ export const ghostCasts = pgTable(
       .references(() => rooms.id, { onDelete: 'cascade' }),
     match_id: text('match_id').notNull(),
     user_id: text('user_id').notNull(),
-    /** Zero-based cursor of the cast's spell in the shared book. */
+    /** 该法术在共享法术书中的从零开始光标位置。 */
     spell_index: integer('spell_index').notNull(),
-    /** Cast completion, in ms since the match's `started_at`. */
+    /** 施法完成时间，相对于比赛 `started_at` 的毫秒数。 */
     at: ms('at').notNull(),
   },
   (t) => [
-    // One row per accepted cast; a replayed accepted-cast transaction is absorbed, not doubled.
+    // 每次被接受的施法对应一行；重放已确认的施法事务会被吸收而不会重复插入。
     primaryKey({ columns: [t.match_id, t.user_id, t.spell_index] }),
-    // Publication and cleanup always read or delete one room's trace whole.
+    // 发布与清理操作始终按房间完整读取或删除整个轨迹。
     index('ghost_casts_room_idx').on(t.room_id),
   ],
 );
 
-/** The drizzle schema object every driver instance is bound to. */
+/** 驱动实例绑定的 Drizzle schema 导出对象。 */
 export const schema = {
   accounts,
   sessions,
@@ -479,7 +467,7 @@ export const schema = {
 
 export type DatabaseSchema = typeof schema;
 
-// Row shapes, named for the domain vocabulary the ports carry over from the object storage era.
+// 数据行类型，沿用对象存储时代领域端口保留下来的领域命名规范。
 export type AccountRow = typeof accounts.$inferSelect;
 export type AccountInsert = typeof accounts.$inferInsert;
 export type SessionRow = typeof sessions.$inferSelect;

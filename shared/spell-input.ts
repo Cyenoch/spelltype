@@ -1,4 +1,4 @@
-/** Keyboard equivalents only: letters, case, spaces and punctuation meaning stay exact. */
+/** 仅针对键盘等价标点：字母、大小写、空格与标点原义保持严格一致。 */
 const PUNCTUATION: Readonly<Record<string, string>> = {
   '！': '!',
   '～': '~',
@@ -36,7 +36,7 @@ const PUNCTUATION: Readonly<Record<string, string>> = {
   '＿': '_',
 };
 
-/** Correct equivalent punctuation to the target, without changing code-point positions. */
+/** 将等价标点校正为目标标点，不改变码点位置。 */
 export function normalizeSpellInput(text: string, target: string): string {
   let result = '';
   let copied = 0;

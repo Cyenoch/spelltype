@@ -5,19 +5,19 @@ import type { RoomQuery } from './query';
 
 export type { PendingCast } from '../../db/schema';
 
-/** The one open 100ms combat window of a room: every accepted cast waiting for its batch boundary. */
+/** 房间打开的单个 100ms 战斗窗口：包含所有已接受并等待其批次边界的施法。 */
 export interface PendingVolley {
   matchId: string;
   endsAt: number;
-  /** The seats the window's damage may land on, frozen at the first cast. */
+  /** 该窗口伤害可能波及的席位名单，在首次施法时冻结。 */
   roster: string[];
   casts: PendingCast[];
 }
 
 /**
- * Reads the room's one open volley, or `null` when no window is open. Only one
- * window can exist per room, so overdue damage is applied before any new input
- * is accepted. Works identically on a plain database and on a transaction.
+ * 读取房间当前打开的单个齐射窗口，若无打开窗口则返回 `null`。
+ * 每个房间同时只能存在一个窗口，因此逾期的伤害会在接受任何新输入之前结算。
+ * 在普通数据库实例和事务上的表现完全一致。
  */
 export async function readVolley(db: RoomQuery, roomId: string): Promise<PendingVolley | null> {
   const rows = await db
@@ -31,10 +31,10 @@ export async function readVolley(db: RoomQuery, roomId: string): Promise<Pending
 }
 
 /**
- * The caller advances the spell cursor in the same transaction as this durable
- * commitment: either the cast intent and the cursor land together or neither
- * does. A pending window's identity fields are immutable — only the cast list
- * grows — so a late writer can never move an already-accepted batch boundary.
+ * 调用方在该持久化提交的同一个事务内推进法术光标：
+ * 施法意图与光标要么一起生效，要么均不生效。
+ * 挂起窗口的标识字段是不可变的 —— 仅有施法列表会增长 ——
+ * 因此后写入的操作绝不可能修改已被接受的批次边界。
  */
 export async function queueCast(
   db: RoomQuery,
@@ -58,7 +58,7 @@ export async function queueCast(
     });
 }
 
-/** Clears the room's volley, in the same transaction that applied its damage. */
+/** 清除房间的齐射窗口，在结算其伤害的同一个事务中执行。 */
 export async function clearVolley(db: RoomQuery, roomId: string): Promise<void> {
   await db.delete(combatVolleys).where(eq(combatVolleys.room_id, roomId));
 }

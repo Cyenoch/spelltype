@@ -2,27 +2,27 @@ import { MAX_MESSAGE_BYTES } from '../../shared/protocol';
 import type { Phase } from '../../shared/protocol';
 import type { RoomRow } from '../db/schema';
 
-/** A never-connected/disconnected lobby seat is reclaimable this long after it went idle. */
+/** 从未连接/断开连接的大厅席位在闲置达到此时间后可被回收。 */
 export const SEAT_TTL_MS = 120_000;
-/** A private match needs two connected players willing to start. */
+/** 私人对局需要两名已连接且愿意开始的玩家。 */
 export const MIN_PLAYERS = 2;
-/** One catch-up pass performs at most this many due transitions, so a long outage cannot loop forever. */
+/** 单次追赶处理最多执行此数量的到期流转，防止长期停机导致死循环。 */
 export const MAX_CATCHUP_STEPS = 32;
-/** A JS string this many UTF-16 units long is always <= MAX_MESSAGE_BYTES UTF-8 bytes. */
+/** 此 UTF-16 长度的 JS 字符串必然 <= MAX_MESSAGE_BYTES UTF-8 字节。 */
 export const MESSAGE_LENGTH_FAST_PATH = Math.floor(MAX_MESSAGE_BYTES / 3);
-/** Coalesced snapshots from a human typist stay far below this. */
+/** 真人打字员合并后的快照频率远低于此数值。 */
 export const INPUTS_PER_SECOND = 60;
 
 /**
- * The input-time policy every measured match is stamped with. Raising or lowering the floor below
- * is a new version, never a silent rewrite: the version is frozen onto the room row, the result
- * rows and every snapshot for the life of the match.
+ * 每一场计分比赛所标记的打字时间策略。提高或降低下方底线
+ * 均属于全新版本，绝非静默修改：版本号在比赛生命周期内冻结在房间数据行、
+ * 结果数据行以及每一个快照中。
  */
 export const INPUT_POLICY_VERSION = 'ascii-floor-v1';
-/** Real milliseconds one target code point costs before that spell's completion may count. */
+/** 在该法术完成计算前，每个目标码点所需的实际毫秒数。 */
 export const INPUT_MIN_MS_PER_CODE_POINT = 35;
 
-/** Phases whose `deadline` is an authoritative clock: the opening countdown, then the single combat end. */
+/** 其 `deadline` 作为权威时钟的阶段：开局倒计时，以及随后的单次战斗终点。 */
 export const TIMED_PHASES: Record<Phase, boolean> = {
   lobby: false,
   generating: false,
@@ -31,7 +31,7 @@ export const TIMED_PHASES: Record<Phase, boolean> = {
   finished: false,
 };
 
-/** Phases in which a match is being formed or fought: generation, the opening countdown and combat. */
+/** 正在生成或进行比赛的阶段：生成中、开局倒计时与战斗中。 */
 export const MATCH_ACTIVE: Record<Phase, boolean> = {
   lobby: false,
   generating: true,
@@ -40,7 +40,7 @@ export const MATCH_ACTIVE: Record<Phase, boolean> = {
   finished: false,
 };
 
-/** Phases in which the shared spell book is published to every seat. */
+/** 共享法术书向每个席位公开展示的阶段。 */
 export const BOOK_PHASES: Record<Phase, boolean> = {
   lobby: false,
   generating: false,
@@ -50,17 +50,17 @@ export const BOOK_PHASES: Record<Phase, boolean> = {
 };
 
 /**
- * True while this room is a duel a spectator could watch right now: the combat phase is live and
- * its single deadline has not passed. Lobby, generation, countdown, a settled match and a deadline
- * the runtime has not caught up with yet are all excluded — the clock decides, never the timer.
+ * 当该房间处于观众当前可实时观看的决斗状态时返回 true：战斗阶段处于活跃中且
+ * 其唯一截止时间尚未过去。大厅、生成中、倒计时、已结算比赛以及运行时尚未追赶上的截止时间
+ * 均被排除 —— 由时钟决定，绝不由本地定时器决定。
  */
 export function duelIsOngoing(room: RoomRow, now: number): boolean {
   return room.phase === 'playing' && room.deadline > now;
 }
 
 /**
- * A quick reservation is live only until its deadline: the clock decides, so a
- * delayed catch-up can never let a late player join or start on a dead ticket.
+ * 快速预留仅在其截止时间之前有效：由时钟决定，因此
+ * 延迟的追赶处理绝不会让迟到的玩家加入或基于失效的凭证开始游戏。
  */
 export function reservationIsLive(room: RoomRow, now: number): boolean {
   return (
@@ -72,9 +72,8 @@ export function reservationIsLive(room: RoomRow, now: number): boolean {
 }
 
 /**
- * True once a quick pairing can no longer be joined at all: cancelled, expired
- * by its own clock, or consumed by a match. A stale locator must read the same
- * refusal the room's own handshake would give.
+ * 当快速配对完全无法再被加入时返回 true：已取消、自身时钟超时、
+ * 或已被对局消耗。过期的定位器必须读取到与房间自身握手完全相同的拒绝响应。
  */
 export function reservationIsGone(room: RoomRow, now: number): boolean {
   return (

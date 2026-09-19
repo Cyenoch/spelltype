@@ -21,32 +21,27 @@ export interface RoomConnectionHandlers {
   onReconnectAttempt(attempt: number, delayMs: number): void;
 }
 
-/** Client-local code for dropping a socket that went silent (never sent by the server). */
+/** 客户端本地关闭码，用于主动断开无响应的 Socket（服务端绝不发送此码）。 */
 const CLOSE_STALE = 4009;
 
 const PING_INTERVAL_MS = 20_000;
 const STALE_AFTER_MS = 70_000;
 const MAX_BACKOFF_MS = 8_000;
 /**
- * Floor for reconnecting after an input-overload reset (close 4004): every
- * reconnect trigger — timer, retryNow, online, visibility — waits out the same
- * deadline before a new socket may even be attempted, so a focus event cannot
- * outrun the backoff and hammer the room again.
+ * 输入过载重置（关闭码 4004）后的重连保护下限时间：
+ * 所有重连触发器（定时器、retryNow、上线事件、页面可见性）在尝试建立新 Socket 前，
+ * 均须等待该保护期限结束，防止获焦事件打破退避机制反复冲击房间。
  */
 const OVERLOAD_RECONNECT_FLOOR_MS = 1_000;
 
 /**
- * One authenticated socket per room, at the stable `/api/rooms/:id/ws` path.
- * It reconnects on its own (the server replaces the old connection with the
- * new one and replays authoritative state), keeps the server clock calibrated
- * from pongs, and never treats a rejected session or a vanished room as a
- * transient failure.
+ * 每个房间唯一的已认证 WebSocket 连接，位于固定的 `/api/rooms/:id/ws` 路径。
+ * 它能够自动重连（服务端会使用新连接替换旧连接并回放权威状态），
+ * 通过 pong 消息持续校准服务端时钟，且绝不会把被拒绝的会话或已销毁的房间视为临时偶发故障。
  *
- * The socket is created with the wire protocol subprotocol: a server that no
- * longer speaks this page's version refuses the handshake, and the diagnosis
- * that follows turns that into an explicit refresh state instead of a
- * reconnect loop. A protocol-mismatch close (4003) is terminal on its own;
- * an input-overload close (4004) reconnects, but never sooner than the floor.
+ * Socket 创建时声明了线协议子协议：若服务端不再支持当前页面的协议版本，
+ * 会在握手阶段直接拒绝，随后的诊断逻辑会将其转为明确的页面刷新提示，而非陷入死循环重连。
+ * 协议版本不匹配关闭（4003）自身即属于终态；输入过载关闭（4004）会重新连接，但绝不会早于保护下限时间。
  */
 export class RoomConnection {
   private socket: WebSocket | null = null;
@@ -58,13 +53,12 @@ export class RoomConnection {
   private reconnectTimer: number | null = null;
   private pingTimer: number | null = null;
   private lastMessageAt = 0;
-  /** Earliest instant a new socket may be opened; nonzero only after an overload reset. */
+  /** 允许打开新 Socket 的最早时刻；仅在过载重置后为非零时间戳。 */
   private reconnectNotBefore = 0;
   /**
-   * Connection generation: bumped by every new socket and by termination. An
-   * async diagnosis captured the token when it started; a result that comes
-   * back under a different token belongs to a connection that no longer exists
-   * and is dropped instead of clobbering the newer socket's state.
+   * 连接代数纪元（generation）：每次创建新 Socket 或主动终止连接时递增。
+   * 异步诊断逻辑在启动时会捕获当前的 token；若返回结果时的 token 与之不一致，
+   * 说明该结果属于已销毁的连接，直接废弃以防覆盖新 Socket 的状态。
    */
   private generation = 0;
 
@@ -86,7 +80,7 @@ export class RoomConnection {
     void this.connect();
   }
 
-  /** Returns false when the socket is not open — the caller keeps the message in the UI. */
+  /** 当 Socket 未就绪时返回 false——由调用方负责在 UI 中保留该待发消息。 */
   send(message: ClientMessage): boolean {
     if (this.socket?.readyState !== WebSocket.OPEN) return false;
     try {
@@ -122,8 +116,8 @@ export class RoomConnection {
 
   private readonly handleOffline = (): void => {
     if (this.stopped) return;
-    // Offline does not reliably close an existing WebSocket. Retaining it would
-    // block every online/visibility retry and prevent authoritative draft recovery.
+    // 设备离线并不能可靠触发已有 WebSocket 的 close 事件。保留废弃 Socket
+    // 会阻碍网络恢复/页面可见时的重试，并妨碍权威草稿的恢复。
     const socket = this.socket;
     this.socket = null;
     this.generation += 1;
@@ -140,8 +134,8 @@ export class RoomConnection {
 
   private async connect(): Promise<void> {
     if (this.stopped || this.socket) return;
-    // The overload floor is enforced here, not just in the retry scheduler, so
-    // no trigger (online, visibility, manual open) can open a socket early.
+    // 此处强制校验过载保护下限，而不仅在重试调度器中校验，
+    // 确保任何触发源（上线、可见性变更、手动 open）都无法提前发起连接。
     if (Date.now() < this.reconnectNotBefore) {
       this.scheduleReconnect();
       return;
@@ -149,9 +143,8 @@ export class RoomConnection {
     this.setState(this.everOpened ? 'reconnecting' : 'connecting');
 
     const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // The stable path carries no client identity: the wire protocol subprotocol
-    // is the whole handshake declaration, and the server refuses a handshake
-    // that does not speak its version.
+    // 固定路径本身不携带客户端身份信息：线协议子协议包含了完整的握手版本声明，
+    // 若服务端版本与客户端不匹配，会在握手阶段直接拒绝。
     const url = `${scheme}//${location.host}/api/rooms/${encodeURIComponent(this.roomId)}/ws`;
 
     let socket: WebSocket;
@@ -192,7 +185,7 @@ export class RoomConnection {
     });
 
     socket.addEventListener('error', () => {
-      // The close handler drives reconnection; errors alone are not actionable.
+      // close 事件处理器负责驱动重连逻辑；单凭 error 事件本身无法采取有效行动。
     });
 
     socket.addEventListener('close', (event) => {
@@ -206,7 +199,7 @@ export class RoomConnection {
       const info = closeInfo(event.code, event.reason || '');
       this.openIsReconnect = false;
       if (info.protocolMismatch) {
-        // Terminal: this page's wire version is gone. No trigger may reopen.
+        // 终态：当前页面的线协议版本已被服务端弃用。禁止任何触发源重连。
         this.stopped = true;
         this.generation += 1;
         this.teardownTimers();
@@ -215,8 +208,8 @@ export class RoomConnection {
         return;
       }
       if (info.inputOverload) {
-        // Reconnect, but never inside the same quota window: the floor holds
-        // against the scheduler below and against every direct trigger.
+        // 允许重连，但绝不能落在同一配额时间窗口内：保护下限
+        // 会同时对下方的调度器和所有直接触发源生效。
         this.reconnectNotBefore = Date.now() + OVERLOAD_RECONNECT_FLOOR_MS;
         this.handlers.onClosed(info);
         this.scheduleReconnect();
@@ -228,14 +221,13 @@ export class RoomConnection {
         return;
       }
       if (event.code === WS_CLOSE_RESTART) {
-        // Recoverable server restart: back off and reconnect. A close that was
-        // actually the room ending arrives with its own terminal code instead.
+        // 可恢复的服务端重启：执行退避并重连。
+        // 若房间真正结束，服务端会以专用的终态关闭码关闭连接。
         this.scheduleReconnect();
         return;
       }
-      // Unknown failure (a rejected handshake surfaces as 1006 with no reason):
-      // ask the API whether the session, the room, or the protocol is still
-      // usable on this side before retrying.
+      // 未知失败（握手被拒绝通常表现为无原因的 1006 异常关闭）：
+      // 在盲目重试前，先调用 API 诊断当前会话、房间或协议是否依然可用。
       void this.retryAfterDiagnosis(info);
     });
   }

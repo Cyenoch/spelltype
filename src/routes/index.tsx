@@ -11,9 +11,8 @@ export const Route = createFileRoute('/')({
   loaderDeps: ({ search }) => ({ roomId: search.room }),
   loader: async ({ deps, context, abortController }): Promise<RoomLoad | null> => {
     if (!deps.roomId || !context.app.session.user) return null;
-    // The room lives on this very server: one authoritative read over the
-    // stable API decides everything. A rejected session is its own verdict,
-    // and a protocol refusal is answered by the room surface's refresh action.
+    // 房间由当前服务器直接托管：通过稳定的 API 进行一次权威读取即可决定一切。
+    // 会话被拒绝是明确的判定结果，而协议版本拒绝则由房间界面的刷新操作处理。
     try {
       const snapshot = await parseResponse(
         client.api.rooms[':roomId'].$get(

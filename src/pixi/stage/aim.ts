@@ -6,16 +6,16 @@ import type { Seating } from './seating';
 import type { StageAssets } from './assets';
 import type { Element, Player, RoomSnapshot } from '../../../shared/protocol';
 
-/** Motes drawn between the caster and each locked target. */
+/** 绘制在施法者与每个锁定目标之间的微尘数量。 */
 const AIM_MOTES = 4;
 
-/** The targeting readout: the tethers to every locked target and the caster's emblem. */
+/** 目标指示读数：通往每个锁定目标的连接光束，以及施法者的徽记。 */
 export interface AimLayer {
-  /** The tether and the emblem; the stage places this in the scene graph. */
+  /** 连接光束与徽记；舞台将其放入场景图。 */
   readonly view: Container;
   /**
-   * Redraws the tethers; unchanged targeting short-circuits, and `force` bypasses
-   * that check for callers that know the geometry moved.
+   * 重绘连接光束；目标未变化时会短路，而 `force` 可绕开该检查，
+   * 供已知几何发生变化的调用方使用。
    */
   drawAim(
     selfSlot: number,
@@ -24,19 +24,19 @@ export interface AimLayer {
     element: Element,
     force?: boolean,
   ): void;
-  /** The caster's emblem: the spell sigil for the current cast, or the element rune. */
+  /** 施法者的徽记：当前施法的咒文符印，或该元素的符文。 */
   drawEmblem(element: Element, index: number, phase: RoomSnapshot['phase'], selfSlot: number): void;
-  /** Pulses the tethers with the caster's charge while the match is live. */
+  /** 对局进行中时，让连接光束随施法者的蓄力脉动。 */
   pulse(clock: number, progress: number, playing: boolean): void;
-  /** Spins the emblem; a hidden emblem does not move. */
+  /** 让徽记旋转；隐藏状态下的徽记不会移动。 */
   spin(deltaMS: number): void;
   clear(): void;
 }
 
 /**
- * Every seat the caster's next cast lands on: all other living players. The
- * caster themselves and anyone already eliminated are never targeted, so a
- * downed viewer draws nothing and a dead seat keeps no reticle.
+ * 施法者下一次施法会命中的所有席位：其他所有存活玩家。
+ * 施法者本人与任何已被淘汰者绝不会成为目标，
+ * 因此倒下的观察者不会绘制任何内容，已阵亡的席位也不会残留准星。
  */
 function aimSlots(selfSlot: number, occupancy: readonly (Player | null)[]): number[] {
   if (selfSlot < 0) return [];
@@ -80,8 +80,8 @@ export function createAimLayer(
       if (targetSlots.length === 0 || phase !== 'playing') return;
       seating.chest(selfSlot, stance);
       const color = ELEMENT_COLORS[element];
-      // One tether per living opponent: the whole field reads as the cast's
-      // landing zone, because the room splits every cast across all of them.
+      // 每个存活对手一条连接光束：整个场地读起来就是本次施法的落点区域，
+      // 因为房间会把每一次施法分摊到他们所有人身上。
       for (const targetSlot of targetSlots) {
         seating.chest(targetSlot, target);
         const dx = target.x - stance.x;
@@ -89,8 +89,8 @@ export function createAimLayer(
         if (Math.hypot(dx, dy) < 1) continue;
 
         const targetY = seating.geometry[targetSlot].feetY - 2;
-        // A few glowing motes rather than a rule: they fade with distance, so the
-        // tether reads as magic drifting towards the locked target.
+        // 几颗发光微尘，而不是一条直线：它们随距离淡出，
+        // 使这条连接读起来像魔法飘向锁定目标。
         for (let index = 0; index < AIM_MOTES; index += 1) {
           const at = (index + 1) / (AIM_MOTES + 1);
           const strength = 1 - at * 0.7;
@@ -100,8 +100,8 @@ export function createAimLayer(
           tether.circle(x, y, 1.9).fill({ color, alpha: 0.34 * strength });
         }
 
-        // The lock marker owns the target's ground ring, so it reads as a
-        // deliberate targeting reticle rather than a stray circle near their feet.
+        // 锁定标记接管目标脚下的地面光环，使它读起来像刻意的瞄准准星，
+        // 而不是脚边一个随意画出的圆圈。
         tether.ellipse(target.x, targetY, 46, 15).stroke({ width: 2, color, alpha: 0.55 });
         tether.ellipse(target.x, targetY, 34, 11).stroke({ width: 1, color, alpha: 0.4 });
         for (let index = 0; index < 4; index += 1) {
@@ -122,8 +122,8 @@ export function createAimLayer(
         emblem.texture = icon;
         emblem.tint = 0xffffff;
       } else {
-        // The generated spell sigil is fetched on demand; until it lands (or if it
-        // never does) the element rune stands in for it.
+        // 生成的咒文符印是按需获取的；在它到达之前（或始终未到达时），
+        // 用该元素的符文顶替。
         emblem.texture = textures.rune[element];
         emblem.tint = ELEMENT_COLORS[element];
       }
@@ -131,8 +131,8 @@ export function createAimLayer(
       if (selfSlot < 0) return;
       const seat = seating.geometry[selfSlot];
       if (!seat.present) return;
-      // Behind the caster's own body, so it reads as a casting halo instead of a
-      // wireframe drawn over their face.
+      // 位于施法者自身身体之后，使它读起来像施法光晕，
+      // 而不是画在脸上的线框图。
       emblem.position.set(seat.x, seat.feetY - seat.height * 0.66);
       const size = seat.height * 0.42;
       emblem.width = size;

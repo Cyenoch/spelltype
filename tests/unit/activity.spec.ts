@@ -106,7 +106,6 @@ async function seedTicket(
 function testApp(databaseHandle: Database) {
   const config: ServerConfig = {
     buildId: 'unit-test',
-    autoMigrate: false,
     databaseUrl: 'pglite://:memory:',
     hostname: '127.0.0.1',
     port: 0,

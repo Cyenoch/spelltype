@@ -13,16 +13,16 @@ export const elementSchema = z.enum(['arcane', 'fire', 'ice', 'storm'], {
 });
 export const roomModeSchema = z.enum(['private', 'quick'], { error: '房间模式不正确' });
 export const createRoomSchema = z.object({ theme: themeSchema });
-/** Room identity: 24 lowercase hex characters. */
+/** 房间标识：24 位小写十六进制字符。 */
 export const roomIdSchema = z.string().regex(/^[0-9a-f]{24}$/, '房间不存在');
 
-/** An account as it crosses the wire: an id and a display name, never a secret. */
+/** 跨网络传输时的账户数据：仅包含 ID 和显示名称，绝不包含敏感信息。 */
 export const userSchema = z.object({ id: z.string().min(1), username: z.string() });
 
 /**
- * One client frame on the room socket. Unknown fields are dropped, and `input` carries the replay
- * guards the room checks: `matchId` rejects packets from an earlier match and `spellIndex` rejects
- * any stale or repeated packet, so a resent completion can never deal damage twice.
+ * 房间 WebSocket 上的单帧客户端消息。未知字段会被丢弃，`input` 携带房间校验所需的重放防护：
+ * `matchId` 用于拒绝上一场对局的数据包，`spellIndex` 用于拒绝过期或重复的数据包，
+ * 确保重复发送的完成输入绝不会造成二次伤害。
  */
 export const clientMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('ready'), ready: z.boolean() }),
@@ -40,16 +40,14 @@ export const clientMessageSchema = z.discriminatedUnion('type', [
 ]);
 
 /**
- * The payload that creates a room. It is the room's own admission rule, so it is checked here rather
- * than trusted from the caller: one host, unique reserved seats, never more than a full table, and a
- * quick match that reserves exactly one partner.
+ * 创建房间的载荷数据。这是房间自身的准入规则，因此在此处进行校验，而非盲目信任调用方：
+ * 包含一名房主、各预留席位不重复、总人数不超过一桌上限，且快速匹配恰好预留一名对手。
  */
 export const roomInitSchema = z
   .object({
     id: roomIdSchema,
     host: userSchema,
-    // A stored theme is replayed to every seat and into the generation prompt, so the room refuses
-    // control characters on top of the shared theme rule.
+    // 保存的主题会广播给所有席位并注入生成提示词，因此房间在通用主题规则之上拒绝控制字符。
     theme: themeSchema.refine((value) => {
       for (const character of value) {
         const code = character.codePointAt(0)!;
@@ -58,7 +56,7 @@ export const roomInitSchema = z
       return true;
     }, '主题包含不可用字符'),
     mode: roomModeSchema,
-    /** Present for quick matches: the partner alone, or both matched accounts. */
+    /** 快速匹配时存在：可仅为对手，或包含两名匹配到的账户。 */
     reserved: z.array(userSchema).optional(),
   })
   .superRefine((init, ctx) => {
@@ -66,7 +64,7 @@ export const roomInitSchema = z
     if (new Set(reserved.map((entry) => entry.id)).size !== reserved.length) {
       ctx.addIssue({ code: 'custom', message: '预留席位重复', path: ['reserved'] });
     }
-    // The host is implicit in `reserved`, so repeating it is not a second seat.
+    // 房主已隐式包含在 `reserved` 逻辑中，重复传入不会重复占用席位。
     const roster = 1 + reserved.filter((entry) => entry.id !== init.host.id).length;
     if (roster > MAX_PRIVATE_PLAYERS)
       ctx.addIssue({ code: 'custom', message: '席位过多', path: ['reserved'] });

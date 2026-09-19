@@ -17,9 +17,8 @@ import type { HistoryCellAttrs } from './profile-view.table';
 const NO_ATTRS: HistoryCellAttrs = {};
 
 /**
- * The history window the API returned for one account: sorting, filtering and
- * paging happen in the browser over exactly those rows, so nothing here
- * re-queries the server.
+ * API 为单个账户返回的历史战绩窗口：排序、过滤和分页均在浏览器端直接针对这批数据行进行，
+ * 因此此处绝不会向服务端重复发起查询。
  */
 export function ProfileHistory(props: { history: MatchResult[] }) {
   const table = createTable({

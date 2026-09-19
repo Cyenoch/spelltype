@@ -531,7 +531,6 @@ async function testApp(
 ): Promise<HonoLike> {
   const config: ServerConfig = {
     buildId: 'wechat-test',
-    autoMigrate: true,
     databaseUrl: 'pglite://:memory:',
     hostname: '127.0.0.1',
     port: 0,

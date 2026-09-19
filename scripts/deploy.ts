@@ -1,19 +1,19 @@
-// Host-side deploy CLI: the single owner of the app lifecycle on this
-// machine. Serialized by a host lock, fail-closed everywhere, driven by
-// durable maintenance state in PostgreSQL:
+// 宿主机端部署 CLI：本机上应用生命周期的唯一管控入口。
+// 由宿主机锁进行串行化控制，全流程采用 fail-closed（故障即关闭）原则，
+// 并由 PostgreSQL 中的持久化维护状态驱动：
 //
 //   bun run deploy build                        [--tag <ref>]
 //   bun run deploy secrets
-//   bun run deploy install     --image <ref>    # first bootstrap (app may be absent)
+//   bun run deploy install     --image <ref>    # 首次引导启动（应用可能尚未存在）
 //   bun run deploy deploy      --image <ref>    [--wait-timeout <s>] [--expect-build <id>]
 //   bun run deploy rollback    [--image <ref>]  [--schema-compatible] [--wait-timeout <s>]
 //   bun run deploy status
 //   bun run deploy maintenance <status|drain|wait|resume> [--timeout <s>] [--http]
 //   bun run deploy unlock
 //
-// Requires docker on the host; never mounts the Docker socket into the app.
-// Operator configuration lives in deploy/compose.env; see
-// docs/deployment.md for the runbook and deploy/compose.env.example for settings.
+// 需要宿主机已安装 docker；绝不会将 Docker socket 挂载进应用。
+// 运维配置位于 deploy/compose.env；运维手册参见 docs/deployment.md，
+// 配置项请参考 deploy/compose.env.example。
 
 import {
   cmdBuild,

@@ -18,7 +18,7 @@ interface CreateRoomForm {
 
 const DEFAULT_VALUES: CreateRoomForm = { theme: '' };
 
-/** Validation issues arrive in whatever shape the schema produced; this is their readable text. */
+/** 校验问题格式不一（取决于 Schema 生成的格式）；此处提取其可读的错误文本。 */
 function textOfIssue(issue: unknown): string {
   if (typeof issue === 'string') return issue;
   if (
@@ -32,7 +32,7 @@ function textOfIssue(issue: unknown): string {
   return '';
 }
 
-/** Create a private room: preset or custom theme, invite link. */
+/** 创建自定义房间：预设或自定义主题、生成邀请链接。 */
 export function CreateRoomView(props: { ctx: AppContext }) {
   const navigate = useNavigate();
   let themeInput: HTMLInputElement | undefined;
@@ -62,7 +62,7 @@ export function CreateRoomView(props: { ctx: AppContext }) {
       }
     },
     onSubmitInvalid: ({ value }) => {
-      // An empty theme is the one refusal the player fixes by typing.
+      // 主题为空是唯一可以通过键盘输入直接解决的校验错误。
       if (value.theme.trim().length === 0) themeInput?.focus();
     },
   }));

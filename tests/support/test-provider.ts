@@ -1,21 +1,20 @@
 /**
- * Test-only model factory wired in by the E2E harness.
+ * 由 E2E 测试环境接入的仅测试用模型工厂。
  *
- * The native server composes generation through `generateSpellSet(modelFactory, input)`, so the
- * harness injects a factory that builds the real `@ai-sdk/deepseek` provider against the local
- * fixture (see `fixture-server.ts`). Generation therefore travels the real SDK network and
- * structured-output path; only the remote peer is local and deterministic. Nothing here is a
- * product fallback: production builds the same provider against the configured DeepSeek endpoint.
+ * 原生服务端通过 `generateSpellSet(modelFactory, input)` 组装生成流程，因此测试环境注入一个
+ * 工厂，让它针对本地 fixture（见 `fixture-server.ts`）构建真实的 `@ai-sdk/deepseek` provider。
+ * 生成因此走的是真实的 SDK 网络与结构化输出路径；只有远端对端是本地且确定性的。这里的任何
+ * 东西都不是产品回退：生产环境针对配置的 DeepSeek 端点构建同样的 provider。
  */
 import { createDeepSeek } from '@ai-sdk/deepseek';
 import type { LanguageModel } from 'ai';
 
-/** The model name the fixture answers; the production default lives in server/generation/provider.ts. */
+/** fixture 应答的模型名；生产默认值位于 server/generation/provider.ts。 */
 export const FIXTURE_MODEL = 'deepseek-flash';
 
 /**
- * Builds a `LanguageModel` factory pointed at the fixture's DeepSeek-compatible base URL.
- * `startServer` receives `generate: (input) => generateSpellSet(factory, input)`.
+ * 构建一个指向 fixture 的 DeepSeek 兼容 base URL 的 `LanguageModel` 工厂。
+ * `startServer` 接收 `generate: (input) => generateSpellSet(factory, input)`。
  */
 export function createFixtureModelFactory(baseUrl: string): () => LanguageModel {
   const trimmed = baseUrl.trim();

@@ -8,14 +8,14 @@ import { clearVolley, readVolley } from './storage/volley';
 import type { RoomQuery } from './storage/query';
 import { advanceOpponentTx } from './opponents';
 
-// LCM(1, 2, 3): every split in a 2–4 player room is an exact integer.
+// LCM(1, 2, 3)：2–4 人房间中的每一次分摊结果均为精确整数。
 const HEALTH_SCALE = 6;
 
 /**
- * Applies the room's one due batch inside the caller's transaction: the damage, the
- * eliminations, the credit, the event batch and the volley's removal commit together —
- * a settlement that cannot write its results never erases the intent that produced it.
- * Returns whether a due volley was actually applied.
+ * 在调用方的事务内应用房间当前到期的批次：伤害、淘汰、击杀与伤害归属记账、
+ * 事件批次以及齐射窗口的清除均一并提交 ——
+ * 无法写入结果的结算绝不应抹除产生该结果的意图。
+ * 返回是否实际应用了到期的齐射批次。
  */
 export async function resolveDueVolleyTx(
   tx: RoomQuery,
@@ -26,7 +26,7 @@ export async function resolveDueVolleyTx(
   if (!volley || volley.endsAt > now) return false;
   const room = await getRoom(tx, roomId);
   if (!room || room.phase !== 'playing' || room.match_id !== volley.matchId) {
-    // A window left over from a match that no longer exists can never land: drop it.
+    // 遗留自已不存在的比赛窗口绝不能落地生效：将其清除。
     await clearVolley(tx, roomId);
     return false;
   }
@@ -58,8 +58,8 @@ export async function resolveDueVolleyTx(
     const share = (cast.power * HEALTH_SCALE) / divisor;
     for (const [targetId, result] of outcomes) {
       if (targetId === cast.attackerId) continue;
-      // Overkill is credited proportionally, never by arrival order or seat.
-      // Departed targets have no outcome, so their share is discarded, not redirected.
+      // 过量伤害按比例记账，绝不按到达先后或席位次序。
+      // 已离开的目标没有结算结果，因此其分摊份额被丢弃而非重定向。
       const damage = (share * result.fraction) / HEALTH_SCALE;
       const eliminated = result.eliminated && !markedKo.has(targetId);
       if (eliminated) markedKo.add(targetId);
@@ -93,11 +93,11 @@ export async function resolveDueVolleyTx(
 }
 
 /**
- * Advances the earliest due opponent action or combat batch, then settles elimination
- * or the original deadline once no earlier work remains. Returns whether it progressed;
- * input and departure callers drain due work before accepting a newer command.
- * Final-window casts land before timeout. Damage, results, terminal state and intent
- * removal share one fenced transaction; snapshots and timers follow.
+ * 推进最早到期的对手动作或战斗批次，当没有更早的待处理工作时，
+ * 结算淘汰或原始截止时间。返回是否有所推进；
+ * 输入和离开等调用方在接受更新的命令前会先排空到期工作。
+ * 最终窗口的施法优先于超时落地生效。伤害、结果、终局状态和意图清除
+ * 共享同一个受隔离保护的事务；快照和定时器紧随其后。
  */
 export async function advanceCombat(scope: RoomScope, now: number): Promise<boolean> {
   const room = await getRoom(scope.db, scope.roomId);
@@ -113,7 +113,7 @@ export async function advanceCombat(scope: RoomScope, now: number): Promise<bool
     const current = await getRoom(tx, scope.roomId);
     if (!current || current.phase !== 'playing') return false;
     const volley = await readVolley(tx, scope.roomId);
-    // Actions in a window precede its settlement; at its exact end the old batch lands first.
+    // 窗口内的动作先于其结算；在窗口刚好结束的精确时刻，旧批次优先落地。
     if (
       current.opponent_next_at !== null &&
       current.opponent_next_at < current.deadline &&

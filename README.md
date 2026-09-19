@@ -41,7 +41,7 @@ bun run build
 
 `bun run verify` 包含格式、lint、类型、单元测试和构建，**不包含浏览器测试**。浏览器测试使用隔离的应用、数据库和微信桥接夹具，不需要真实微信凭据。
 
-构建产物包含 `dist/client`，以及应用、迁移、维护三个入口：`dist/server/index.js`、`dist/server/migrate.js`、`dist/server/maintenance.js`。生产数据库必须先经过显式迁移；不要把直接启动应用当作迁移命令。
+构建产物包含 `dist/client`，以及应用、迁移、维护三个入口：`dist/server/index.js`、`dist/server/migrate.js`、`dist/server/maintenance.js`。应用启动会自动应用待处理迁移，再校验迁移历史，成功后才监听端口；空库无需先运行迁移命令。单次迁移入口仍供排空替换流程使用，维护命令不修改 schema。
 
 ## 管理权限
 

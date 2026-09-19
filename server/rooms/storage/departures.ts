@@ -4,13 +4,12 @@ import type { DepartureRow } from '../../db/schema';
 import type { RoomQuery } from './query';
 
 /**
- * Durable record of one account's explicit manual departure from this room.
+ * 单个账户明确主动离开该房间的持久化记录。
  *
- * It answers exactly two questions and no more: "has this account already left
- * here?" (idempotent leave replies) and "did this account abandon *this* match?"
- * (readmission and matchmaking entitlement). A pre-match departure carries no
- * match id, and an earlier match's departure no longer names the current one —
- * neither can bar a seat, so the record never outlives the match it belongs to.
+ * 它严格只回答两个问题：“该账户是否已经离开过这里？”（离开响应的幂等性）
+ * 以及“该账户是否放弃了*本场*对局？”（重新准入与匹配权限判定）。
+ * 赛前离开不携带 match id，早期对局的离开也不再指向当前对局 ——
+ * 两者均不能阻碍席位入座，因此该记录绝不会比其归属的对局存活更久。
  */
 
 export async function recordDeparture(
@@ -46,9 +45,8 @@ export async function getDeparture(
 }
 
 /**
- * True when this account explicitly abandoned the given match. A departure from
- * before the match existed (`match_id` null on either side) or from an earlier
- * match is never a bar.
+ * 当该账户明确主动放弃了指定对局时返回 true。
+ * 在对局存在之前的离开（任一侧 `match_id` 为 null）或早期对局的离开绝不构成阻碍。
  */
 export async function abandonedMatch(
   db: RoomQuery,

@@ -1,6 +1,6 @@
 /**
- * The room runtime against real storage: a 30-day session must not overflow the native room
- * timer, and creation goes through the same durable admission path every runtime shares.
+ * 基于真实底层存储的房间运行时：30 天的超长会话绝不能导致原生房间定时器溢出，
+ * 且房间创建通过所有运行时通用的持久化准入路径进行。
  */
 import { expect, it } from 'bun:test';
 import type { AuthenticatedSession, RoomRuntimePort, RoomSocketData } from '../../server/contracts';
@@ -10,7 +10,7 @@ import { createRoom, createRoomRuntime } from '../../server/rooms';
 import { WS_PROTOCOL } from '../../shared/protocol';
 import type { ServerMessage } from '../../shared/protocol';
 
-it('keeps a normal 30-day session from overflowing the native room timer', async () => {
+it('防止常规的 30 天超长会话导致原生房间定时器溢出', async () => {
   const database = await openDatabase('pglite://:memory:');
   const now = Date.now();
   const user = { id: 'timer-user', username: 'timer_user' };
@@ -79,7 +79,7 @@ it('keeps a normal 30-day session from overflowing the native room timer', async
       connected.reject(new Error('Room WebSocket closed before joining')),
     );
     await connected.promise;
-    // An overflowing timeout is clamped to 1ms and immediately starts a repeating catch-up loop.
+    // 溢出的超时会被限制为 1ms，并立即启动重复的赶超循环。
     await Bun.sleep(100);
     expect(overflows).toEqual([]);
   } finally {

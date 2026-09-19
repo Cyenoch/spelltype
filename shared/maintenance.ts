@@ -1,65 +1,64 @@
 import { z } from 'zod';
 
 /**
- * The maintenance contract shared by the server, the admin tooling and the client — schemas
- * first, so every consumer validates the same wire shape instead of hand-rolling one.
+ * 服务端、管理运维工具和客户端共用的维护契约 —— schema 优先，
+ * 确保每个消费者校验的都是相同的传输格式，而非各自手工实现。
  *
- * Maintenance is one global, durable database state — not a per-room or per-release flag. The
- * `runtime_control` row owns `mode`; `revision` is the CAS token every state change must quote;
- * `updatedAt` is wall-clock milliseconds of the last committed change. Everything else in this
- * module is derived observation: drain counts, runtime lease knowledge, readiness.
+ * 维护状态是全局持久化的数据库状态，并非针对单个房间或单个版本的标记。
+ * `runtime_control` 行持有 `mode`；`revision` 是每次状态变更必须引用的 CAS 令牌；
+ * `updatedAt` 是最后一次提交变更的墙钟毫秒时间戳。本模块中的其他内容均为派生观测数据：
+ * 排空计数、运行时租约认知状态、就绪状态。
  *
- * There is deliberately no build identity in the business protocol — `ServiceStatus` carries
- * `buildId` purely as information for humans and deploy tooling.
+ * 业务协议中故意不包含构建标识 —— `ServiceStatus` 携带 `buildId` 仅作为人工和部署工具的信息参考。
  */
 
 export const maintenanceModeSchema = z.enum(['open', 'draining']);
 
-/** `open`: the server admits new rooms and new queue tickets. `draining`: it does not. */
+/** `open`: 服务器允许创建新房间和新的排队票据。`draining`: 不允许。 */
 export type MaintenanceMode = z.infer<typeof maintenanceModeSchema>;
 
 export const maintenanceInfoSchema = z.object({
   mode: maintenanceModeSchema,
-  /** Bumped on every committed transition; callers CAS against it. */
+  /** 每次提交转移时自增；调用方据此进行 CAS。 */
   revision: z.number().int(),
-  /** Wall-clock milliseconds of the last committed transition. */
+  /** 最后一次提交转移时的墙钟毫秒时间戳。 */
   updatedAt: z.number().int(),
 });
 
-/** The durable, authoritative maintenance pointer as stored in `runtime_control`. */
+/** 持久化保存在 `runtime_control` 中的权威维护状态指针。 */
 export type MaintenanceInfo = z.infer<typeof maintenanceInfoSchema>;
 
 export const drainStatusSchema = maintenanceInfoSchema.extend({
-  /** Rooms in `generating`/`countdown`/`playing`: matches still being played. */
+  /** 处于 `generating`/`countdown`/`playing` 状态的房间：仍在进行中的对局。 */
   activeMatches: z.number().int(),
-  /** Quick-match seats whose reservation TTL is still live. */
+  /** 预留 TTL 仍然有效的快速匹配席位。 */
   liveReservations: z.number().int(),
-  /** Queue tickets still waiting for a partner (admission deletes these on entering). */
+  /** 仍在等待对手的排队票据（进入维护准入控制时会删除这些票据）。 */
   waitingTickets: z.number().int(),
-  /** Finished rooms whose result bookkeeping is still `saving` or `error`. */
+  /** 结果簿记仍处于 `saving` 或 `error` 的已结束房间。 */
   pendingResults: z.number().int(),
-  /** False when a lease lapsed without graceful release: the runtime's state is unknown. */
+  /** 当租约在未优雅释放的情况下失效时为 false：此时运行时状态未知。 */
   runtimeKnown: z.boolean(),
-  /** The current runtime ownership generation on the control row. */
+  /** 控制行上的当前运行时归属代际（epoch）。 */
   runtimeEpoch: z.number().int(),
-  /** Draining ∧ no blockers ∧ runtime state known. */
+  /** 处于 draining 状态 ∧ 无阻塞项 ∧ 运行时状态已知。 */
   ready: z.boolean(),
 });
 
 /**
- * What still blocks replacing the runtime, counted under the control-row lock. `ready` is true only while
- * draining with zero blocking work and a runtime state the database can vouch for.
+ * 在控制行锁保护下统计的仍阻塞运行时替换的工作项。仅在处于 draining 且阻塞工作项为零、
+ * 且数据库能确认运行时状态时，`ready` 才为 true。
  */
 export type DrainStatus = z.infer<typeof drainStatusSchema>;
 
 export const serviceStatusSchema = z.object({
   maintenance: maintenanceInfoSchema,
   protocolVersion: z.string(),
-  /** Informational build identity; never used for authorization or routing. */
+  /** 信息性构建标识；绝不用于鉴权或路由。 */
   buildId: z.string(),
 });
 
-/** The public status document served by `GET /api/status`. */
+/** `GET /api/status` 提供的公开状态文档。 */
 export type ServiceStatus = z.infer<typeof serviceStatusSchema>;
 
 const messages = {
@@ -70,9 +69,8 @@ const messages = {
 export type MaintenanceCode = keyof typeof messages;
 
 /**
- * Refusal to start new work because the service is draining (or its state cannot be proven).
- * Always 503: the situation is the deployment's deliberate choice or a fail-closed unknown, and
- * the client should retry later rather than treat the request as invalid.
+ * 因服务正在排空（或其状态无法被证实）而拒绝开展新工作的错误。
+ * 始终返回 503：这种情况是部署的主动选择，或是故障闭锁的未知状态，客户端应稍后重试而非视请求为非法。
  */
 export class MaintenanceError extends Error {
   readonly status = 503;

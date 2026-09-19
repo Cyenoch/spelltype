@@ -1,11 +1,10 @@
 /**
- * 同窗批量结算 — combat damage lands per fixed 100ms window, not per keystroke.
+ * 同窗批量结算 —— 战斗伤害按固定的 100ms 窗口落地，而不是按每次按键落地。
  *
- * Every accepted cast joins the room's one durable volley (the `combat_volleys`
- * row); `advanceOnce` applies whole batches at their shared boundary with
- * HEALTH_SCALE-exact fractional splits, proportional overkill credit and the
- * shared survivor ranks. The durable intent survives a runtime restart, and a
- * mid-window departure forfeits its share without redirecting it.
+ * 每次被接受的施法都会加入房间唯一的持久化齐射排期行（`combat_volleys` 行）；
+ * `advanceOnce` 在共享的窗口边界应用整个批次，进行基于 HEALTH_SCALE 精度无损的伤害均摊、
+ * 按比例过量击杀奖励以及共享的幸存者排名计算。
+ * 持久化的施法意图在运行时重启后依然存活，窗口中途离场会放弃其分摊份额而不会错误重定向。
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -29,15 +28,14 @@ import { readSpellBook } from '../../server/rooms/storage/spell-book';
 import { advanceOnce } from '../../server/rooms/transitions';
 import { spellAt } from '../../server/scoring';
 
-// PGlite keeps native timer deadlines; deterministic offsets need no historic epoch.
+// PGlite 保持原生定时器截止时间；确定性时间偏移不需要历史纪元。
 const T0 = Date.now();
 const ROOM_ID = 'c'.repeat(24);
 const MATCH_ID = 'match-volley';
 const COMBAT_END = T0 + MATCH_DURATION_MS;
 /**
- * Four spells: two four-code-point casts (16 power each) drive most scenarios; the twelve- and
- * eight-code-point spells (48 and 32 power) let one test give two survivors equal health from
- * unequal casting across windows with different split denominators.
+ * 四条咒文：两条 4 码点咒文（各 16 威力）驱动大部分场景；
+ * 12 码点和 8 码点咒文（48 和 32 威力）用于测试两名幸存者在不同分母的不同窗口中因非均等施法而产生相同剩余血量。
  */
 const BOOK: Spell[] = [
   { name: '焰咒', text: '咒文对决', translation: '焰', element: 'fire' },
@@ -46,7 +44,7 @@ const BOOK: Spell[] = [
   { name: '冰咒', text: '冰封千里朔风卷雪', translation: '冰', element: 'ice' },
 ];
 const TOTAL_POWER = 4 * BOOK[0].text.length;
-/** Sixth-HP units: LCM(1,2,3) makes every 2–4 player split an exact integer. */
+/** 六分之一 HP 单位：LCM(1,2,3) 使得 2–4 名玩家的每一次伤害均摊都是精确整数。 */
 const SCALE = 6;
 const FULL = INITIAL_HEALTH * SCALE;
 
@@ -59,9 +57,9 @@ interface Harness {
   scope: RoomScope;
   registry: SocketRegistry;
   sockets: Record<string, StubSocket>;
-  /** Casts the player's current spell at the current instant. */
+  /** 在当前时刻施放该玩家的当前咒文。 */
   cast(userId: string, spellIndex: number): Promise<void>;
-  /** Moves the room clock to `T0 + offsetMs`. */
+  /** 将房间时钟推进到 `T0 + offsetMs`。 */
   at(offsetMs: number): void;
 }
 
@@ -85,7 +83,7 @@ async function openTestDb(dir?: string): Promise<OpenedDatabase> {
   return opened;
 }
 
-/** Seeds one fresh playing match with the given seats; a fresh database only, never a reopen. */
+/** 使用给定席位初始化一场新鲜的进行中对局；仅用于全新数据库，绝不用于重开。 */
 async function seedMatchState(db: Database, userIds: readonly string[]): Promise<void> {
   await createRoom(db, {
     id: ROOM_ID,
@@ -116,7 +114,7 @@ async function seedMatchState(db: Database, userIds: readonly string[]): Promise
   }
 }
 
-/** Wires stub sockets and one room scope over whatever durable state the database already holds. */
+/** 围绕数据库已持有的持久状态装配桩 socket 和房间作用域。 */
 function combatHarness(db: Database, userIds: readonly string[]): Harness {
   const sockets: Record<string, StubSocket> = {};
   const registry = new SocketRegistry();

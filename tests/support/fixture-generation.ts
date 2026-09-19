@@ -1,56 +1,55 @@
 /**
- * Deterministic spell book the fixture serves: a full, valid English book with one simplified
- * Chinese translation per spell, matching the room's single hard generation contract.
+ * 测试夹具提供的确定性法术书：包含一本完整、合规的英文法术书，每条法术配有一句简体中文翻译，
+ * 严格契合房间唯一的强生成契约。
  *
- * Complete sentences fit the fixed 39–50-character target without cutting words. Each paired
- * translation renders the same subject, action and numbered seal. The seal number changes per
- * generation, so later books never reuse an earlier text.
+ * 完整的句子精准满足 39–50 字符的目标长度而不生硬截断单词。
+ * 每对翻译呈现相同的主体、动作和编号封印。封印编号随生成轮次变化，因此后续法术书绝不会复用早期的文本。
  */
 import { SPELL_BOOK_SIZE } from '../../shared/protocol';
 
 export interface FixtureGeneration {
   index: number;
-  /** Roman numeral appended to every spell name, so a run can identify a generation. */
+  /** 附加到每个法术名称后的罗马数字，便于单次运行识别生成轮次。 */
   marker: string;
-  /** One entry per book slot, in the order the room must serve them. */
+  /** 每个法术位对应一条，按房间必须提供它们的顺序排列。 */
   texts: string[];
-  /** The simplified Chinese line paired with each text, same order. */
+  /** 与每段文本配对的简体中文行，保持相同顺序。 */
   translations: string[];
   names: string[];
   elements: string[];
-  /** Always true: the room rejects a book with repeated texts. */
+  /** 始终为 true：房间会拒绝文本有重复的法术书。 */
   distinctTexts: boolean;
   content: string;
   at: number;
 }
 
-/** The shape of the JSON the SDK asked for, recovered from its injected schema. */
+/** SDK 所请求的 JSON 结构，从其注入的 schema 中恢复。 */
 export interface FixtureShape {
   wrapperKey: string | null;
   itemProps: string[] | null;
 }
 
-/** Everything one generation request tells the fixture about what to produce. */
+/** 单次生成请求向测试夹具告知的关于所需产出内容的全部信息。 */
 export interface GenerationRequest {
   model: string;
-  /** Truncated prompt text, so a spec can see the theme/length target that reached the model. */
+  /** 截断后的提示词文本，便于测试用例查看送达模型的主题/长度目标。 */
   prompt: string;
-  /** Whether the SDK's injected JSON schema was found, i.e. the structured-output path ran. */
+  /** 是否检测到了 SDK 注入的 JSON schema，即结构化输出路径是否成功运行。 */
   schemaDetected: boolean;
-  /** Length contract the fixture follows, read back from the room's own prompt. */
+  /** 测试夹具遵循的长度区间契约，从房间自身的提示词中反解。 */
   range: [number, number];
   shape: FixtureShape;
-  /** The SDK asked for a streamed completion. */
+  /** SDK 是否请求了流式生成。 */
   stream: boolean;
 }
 
-/** The room's hard prompt target; the fallback when a prompt states no band. */
+/** 房间的硬编码提示词目标；当提示词未声明区间时的默认兜底。 */
 const DEFAULT_RANGE: [number, number] = [39, 50];
-/** The prompt states the target once as `N to M characters`; the numbers are the fixture's band. */
+/** 提示词中一次性声明的目标 `N to M characters`；数字即为测试夹具的长度区间。 */
 const RANGE_IN_PROMPT = /(\d+)\s+to\s+(\d+)\s+characters/;
 
 const ELEMENTS = ['arcane', 'fire', 'ice', 'storm'];
-/** Distinct subjects keep every spell readable and its Chinese meaning exact. */
+/** 不同的主体词使每条咒文保持清晰可读且中文含义准确。 */
 const SUBJECTS = [
   ['ember', '余烬'],
   ['frost', '寒霜'],
@@ -77,7 +76,7 @@ const SUBJECTS = [
   ['tinder', '火绒'],
   ['umbra', '暗影'],
 ] as const;
-/** One distinct name per book slot; the generation marker keeps names distinct across runs. */
+/** 每个法术位一个独立的基础名称；生成标记保证跨轮次名称依然唯一。 */
 const NAME_BASES = [
   'Ember Bolt',
   'Frost Bind',
@@ -122,9 +121,8 @@ interface FixtureSpell {
 }
 
 /**
- * A parsed JSON object, or `null` for arrays and scalars. The request body arrives as parsed JSON,
- * so every field below is read through this guard rather than through a cast that would silently
- * trust the shape.
+ * 解析后的 JSON 对象；对于数组和基本类型标量返回 `null`。
+ * 请求体作为解析后的 JSON 到达，因此以下各字段均通过此防护读取，而非静默信任数据结构的强制转换。
  */
 function asObject(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -132,7 +130,7 @@ function asObject(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-/** Roman numeral, so names and markers stay pure keyboard characters. */
+/** 罗马数字，保证名称与标记均使用纯键盘字符。 */
 function roman(value: number): string {
   let out = '';
   let rest = value;
@@ -189,9 +187,8 @@ function detectShape(schema: unknown): FixtureShape {
 }
 
 /**
- * Recovers the JSON schema the SDK injects into a system message in `json_object` mode. The marker
- * can be followed by more prose, so the first balanced JSON object is taken rather than assuming the
- * JSON runs to the end of the message.
+ * 恢复 SDK 在 `json_object` 模式下注入到系统消息中的 JSON schema。
+ * 标记后可能跟随更多文本，因此提取首个括号匹配闭合的完整 JSON 对象，而非假定 JSON 一直延续到消息末尾。
  */
 function firstJsonObject(text: string): unknown {
   const start = text.indexOf('{');
@@ -244,18 +241,18 @@ function messageContent(message: unknown): string {
   return typeof content === 'string' ? content : '';
 }
 
-/** The messages the SDK sent, as text: the room's own prompt is among them. */
+/** SDK 发送的消息列表（文本形式）：房间自身的提示词包含在其中。 */
 function promptText(messages: unknown): string {
   return Array.isArray(messages) ? messages.map(messageContent).join('\n') : '';
 }
 
-/** Reads one `/chat/completions` body: the model, the prompt, and what the prompt asked for. */
+/** 读取单次 `/chat/completions` 请求体：模型、提示词以及提示词所要求的内容。 */
 export function readGenerationRequest(body: unknown): GenerationRequest {
   const request = asObject(body);
   const schema = schemaFromMessages(request?.messages);
   const prompt = promptText(request?.messages);
-  // The band the room's own prompt declares (`N to M characters`), or the hard default when it
-  // states none — the same numbers the prompt uses as its generation target.
+  // 房间自身提示词声明的区间（`N to M characters`），或未声明时的硬编码默认值 ——
+  // 这些数字与提示词用于自身生成目标的数字完全一致。
   const found = RANGE_IN_PROMPT.exec(prompt);
   const range: [number, number] = found ? [Number(found[1]), Number(found[2])] : DEFAULT_RANGE;
   return {
@@ -269,11 +266,10 @@ export function readGenerationRequest(body: unknown): GenerationRequest {
 }
 
 /**
- * Builds the book for `request`, refusing to repeat a text within the book or across the run: a spec
- * checks for a leaked spell with a plain containment test, so texts must be unique everywhere.
- * Texts end with `!` or `~` (alternating by slot) so the punctuation auto-correction path is always
- * exercisable, names are English per the generation contract, and each text carries a faithful
- * simplified Chinese `translation` as the room's schema now requires.
+ * 为 `request` 构建法术书，拒绝在法术书内或跨运行复用文本：测试用例通过简单的包含断言检查泄露的法术，
+ * 因此文本在任何地方都必须全局唯一。
+ * 文本以 `!` 或 `~` 结尾（按席位交替），从而保证标点符号自动修正路径始终可被测试；
+ * 按照生成契约名称为英文，且每条文本均按房间 schema 的最新要求携带忠实的简体中文 `translation`。
  */
 export function buildGeneration(
   previous: readonly FixtureGeneration[],

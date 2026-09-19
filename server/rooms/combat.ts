@@ -17,7 +17,7 @@ import { advanceCombat } from './volleys';
 import type { Transaction } from '../db';
 import { commitCastTx } from './casts';
 
-/** The one accepted typing packet: it must name the live match and the player's current spell. */
+/** 唯一接受的打字数据包：必须指明当前进行中的对局以及玩家当前的法术。 */
 export type InputFrame = Extract<ClientMessage, { type: 'input' }>;
 
 type InputOutcome =
@@ -29,21 +29,20 @@ type InputOutcome =
   | { error: string; snapshot?: boolean; sessionExpired?: boolean };
 
 /**
- * One authoritative typing step.
+ * 单次权威的打字处理步骤。
  *
- * The input quota was spent before this call — `frames` spends it right after ownership, for
- * every legal packet including stale ones, and closes a connection that overspends. What is
- * left is judging: due batches resolve first, then the seat is re-identified (the resolve
- * awaited the event loop, so a replacement, a revocation or an expiry may have landed in
- * between and a stale owner reads nothing and queues nothing), and only then does a coherent
- * stored state get to answer for the packet.
+ * 输入配额在此调用前已扣除 —— `frames` 在确认所有权后立即对包括过期包在内的
+ * 每个合法数据包扣除配额，并在超额时关闭连接。此处剩下的工作即裁决：
+ * 优先处理到期的批次，然后重新识别席位（处理过程等待了事件循环，在此期间可能发生了
+ * 替换、撤销或过期，过期的所有者既不读取也不入队任何内容），
+ * 只有连贯的持久化状态才被允许响应此数据包。
  *
- * The only accepted completion names the current match, the player's current spell index and
- * the current draft epoch, so a repeated or stale completion — from a resent WebSocket frame,
- * a reconnect replay or a duplicate tab — is dropped whole and can never deal damage twice.
- * A completion commits its pending cast and advances the spell cursor in one transaction.
- * Damage and KO are applied later to the whole 100ms window, never to just the first arrival,
- * and a completion rejected by the enforce gate enters no window at all.
+ * 唯一接受的施法完成必须指明当前对局、玩家当前法术索引和当前草稿世代（epoch），
+ * 因此重复或过期的完成包 —— 源自重发的 WebSocket 帧、重连回放或多开标签页 ——
+ * 将被完整丢弃，绝不会造成二次伤害。
+ * 一次施法完成会在单个事务中提交其挂起的施法并推进法术光标。
+ * 伤害与击倒（KO）稍后统一结算给整个 100ms 窗口，绝不只针对最早到达的输入，
+ * 并且被强制限制门（enforce gate）拒绝的完成绝不会进入任何窗口。
  */
 export async function handleInput(
   scope: RoomScope,
@@ -55,7 +54,7 @@ export async function handleInput(
     await advanceCombat(scope, Date.now());
     const outcome = await scope.transact((tx) => judge(scope, tx, socket, meta, message));
     if (outcome === 'retry') continue;
-    // No socket or snapshot delivery occurs until the judgment transaction commits.
+    // 在裁决事务提交之前，不会发生任何套接字或快照推送。
     if (typeof outcome === 'object') {
       sendTo(socket, { type: 'error', message: outcome.error });
       if (outcome.sessionExpired) closeSocket(socket, WS_CLOSE.sessionExpired, 'session expired');
@@ -71,7 +70,7 @@ export async function handleInput(
   }
 }
 
-/** Reads and judges under the same runtime/room fence as every resulting write. */
+/** 在与所有结果写操作相同的运行时/房间隔离隔离界限（fence）下执行读取与裁决。 */
 async function judge(
   scope: RoomScope,
   tx: Transaction,
@@ -83,8 +82,8 @@ async function judge(
   if (!room) return 'ignored';
   const players = await listPlayers(tx, scope.roomId);
   const pending = room.phase === 'playing' ? await readVolley(tx, scope.roomId) : null;
-  // This is the acceptance instant: lock acquisition and all judgment reads have
-  // finished. A crossed boundary must settle before this packet can be judged.
+  // 此为接受时刻：锁获取与所有裁决读取均已完成。
+  // 跨越边界的变动必须在裁决此数据包之前完成结算。
   const now = Date.now();
   if (
     room.phase === 'playing' &&
@@ -117,7 +116,7 @@ async function judge(
     reportGateStateInvalid(room);
     return { error: INPUT_GATE_ERROR_MESSAGE, snapshot: true };
   }
-  // A stale epoch is dropped only after the stored gate has been validated.
+  // 仅在已校验持久化门控状态之后，才会丢弃过期的草稿世代。
   if (message.draftEpoch !== self.draft_epoch) return 'snapshot';
   const text = normalizeSpellInput(message.text, spell.text);
   const delta = diffSnapshot(self.last_input, text, spell.text);
@@ -136,7 +135,7 @@ async function judge(
   }
 
   if (players.every((row) => row.user_id === self.user_id || row.eliminated_at !== null)) {
-    // Earlier accepted casts still land even after their targets depart.
+    // 先前已接受的施法即使在目标离开后仍会生效命中。
     if (pending) return 'snapshot';
     await finishMatchTx(tx, scope.roomId, 'elimination', Math.min(now, room.deadline));
     return 'arm';
@@ -144,7 +143,7 @@ async function judge(
 
   const tooEarly = now < gate.notBefore;
   const firstSample = self.input_sampled === 0;
-  // inputGateState has proved this timestamp coherent; never invent a fallback.
+  // inputGateState 已验证此时间戳连贯合法；绝不可凭空捏造回退值。
   const openedAt = self.input_opened_at!;
   const ratio = firstSample
     ? inputCompletionRatio(spellLength, openedAt, now, gate.minMsPerCodePoint)

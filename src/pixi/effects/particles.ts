@@ -4,8 +4,8 @@ import type { SparkPool } from '../particles';
 import { IMPACT_STYLES, type BoltStyle, type ImpactStyle } from './styles';
 
 /**
- * One deterministic jitter stream, shared by every effect that randomises a path
- * or a burst: the same match always draws the same shapes.
+ * 单一确定性抖动流，供所有对路径或爆发做随机化的效果共享：
+ * 同一场对局总是绘制出相同的形状。
  */
 export function createJitter(seed = 7): () => number {
   let state = seed;
@@ -15,7 +15,7 @@ export function createJitter(seed = 7): () => number {
   };
 }
 
-/** The trail a flying bolt sheds behind itself. */
+/** 飞行中的弹道在自身后方留下的拖尾。 */
 export function emitBoltTrail(
   pool: SparkPool,
   style: BoltStyle,
@@ -46,8 +46,8 @@ export function emitBoltTrail(
 }
 
 /**
- * Radial shard burst of one element impact. `strength` sets the count and
- * `strengthScale` the sizes, exactly as the impact's flash and extras use them.
+ * 单次元素命中的放射状碎片爆发。`strength` 决定数量，
+ * `strengthScale` 决定尺寸，与命中的闪光和附属效果所使用的完全一致。
  */
 export function emitImpactShards(
   pool: SparkPool,
@@ -82,7 +82,7 @@ export function emitImpactShards(
   }
 }
 
-/** The eliminated fighter's collapse: a ring of sparks thrown up and outwards. */
+/** 被淘汰斗士的倒下：一圈向上向外抛出的火花。 */
 export function emitEliminationBurst(
   pool: SparkPool,
   x: number,
@@ -110,7 +110,7 @@ export function emitEliminationBurst(
   }
 }
 
-/** Ring of golden embers rising off the rank-1 winner's victory seal. */
+/** 自第一名获胜者胜利印记升起的一圈金色余烬。 */
 export function emitVictoryEmbers(pool: SparkPool, x: number, groundY: number): void {
   for (let index = 0; index < 26; index += 1) {
     const angle = (Math.PI * 2 * index) / 26;
@@ -132,9 +132,9 @@ export function emitVictoryEmbers(pool: SparkPool, x: number, groundY: number): 
 }
 
 /**
- * The same confirmed keystroke, seen from the other end: motes fall from the
- * top edge of the arena, under the readout strip the DOM owns, into the
- * caster. Nothing is drawn over the text itself, so the font stays legible.
+ * 同一次确认击键，从另一端观察：微尘从竞技场顶边、
+ * DOM 所拥有的读数条之下落下，飞向施法者。
+ * 文本本身之上不绘制任何内容，因此字形始终保持清晰可读。
  */
 export function emitTextMotes(
   pool: SparkPool,
@@ -164,7 +164,7 @@ export function emitTextMotes(
   }
 }
 
-/** Confirmed-keystroke feedback: a small element spark at the caster. */
+/** 确认击键反馈：施法者处的一小簇元素火花。 */
 export function emitTypingSpark(
   pool: SparkPool,
   x: number,

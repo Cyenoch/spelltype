@@ -18,7 +18,7 @@ import {
 } from './context';
 import { authRateLimits, createAuthRateLimiter } from './rate-limit';
 
-/** Services and throttling windows belong to this application instance, not the route templates. */
+/** 服务实例与节流窗口归属于具体的应用实例，而非路由模板。 */
 export function createApp(services: ServerServices) {
   const app = new Hono<HttpEnv>({ strict: false });
   const limiter = createAuthRateLimiter(authRateLimits(services.config));

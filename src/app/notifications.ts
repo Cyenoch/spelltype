@@ -1,25 +1,23 @@
 /**
- * The game-event notification service: one instance per application, owned by the
- * session.
+ * 对局事件提醒服务：每个应用一份实例，归会话所有。
  *
- * Boundaries that matter here:
- * - Delivery is a page-run courtesy. A notification is only shown while the user's
- *   own switch is on, the browser permission is granted and the page is hidden; a
- *   visible page already shows everything the notification would say.
- * - Nothing here ever talks to a push service: no PushManager, no subscription, no
- *   server endpoint. The service worker only exists so `showNotification` has a
- *   registration and so a tap can find the right window again.
- * - Reminders are one-shot per real event. Every asynchronous hand-off (service
- *   worker registration, the cross-tab lock, the display call itself) re-validates
- *   the captured generation, and anything invalidated mid-flight is either aborted
- *   or closed again — never delivered late into a changed game.
+ * 此处关键的边界约束：
+ * - 仅作为页面运行时的辅助提醒。只有在用户开启了自身开关、
+ *   已授予浏览器通知权限且当前页面处于隐藏状态时才会展示提醒；
+ *   页面可见时已经展示了通知中应包含的所有内容。
+ * - 此处绝不与任何推送服务交互：无 PushManager、无推送订阅，亦无服务端推送接口。
+ *   Service Worker 存在的唯一目的，是为 `showNotification` 提供注册上下文，
+ *   并使用户点击通知时能准确定位回对应的窗口。
+ * - 每个真实事件只触发一次提醒。每次异步流转（Service Worker 注册、跨标签页锁、
+ *   实际展示调用等）均会重新校验捕获的生成纪元（generation），
+ *   中途失效的提醒要么被中止，要么被关闭——绝不在对局状态已改变后延迟送达。
  */
 import { createEffect, createSignal, on, onMount } from 'solid-js';
 import type { Session } from './session';
 
 export type GameNotificationKind = 'matched' | 'countdown' | 'generation-failed' | 'finished';
 
-/** One real game event worth a reminder. `expiresAt` bounds the delivery attempt. */
+/** 值得发送提醒的真实对局事件。`expiresAt` 限定了尝试送达的有效时间。 */
 export interface GameNotification {
   kind: GameNotificationKind;
   roomId: string;
@@ -28,20 +26,20 @@ export interface GameNotification {
 }
 
 export interface NotificationService {
-  /** The user's own switch, persisted per account. Independent of browser permission. */
+  /** 用户自身的开关状态，按账户持久化保存。独立于浏览器权限。 */
   enabled(): boolean;
-  /** `'unsupported'` covers missing features, insecure contexts and a failed registration. */
+  /** `'unsupported'` 涵盖功能缺失、不安全上下文以及注册失败等情况。 */
   permission(): NotificationPermission | 'unsupported';
-  /** Must be called directly from a click handler: the permission request precedes every await. */
+  /** 必须直接在点击事件处理函数中调用：权限请求必须先于所有 await 语句执行。 */
   enable(): Promise<void>;
   disable(): void;
-  /** Fire-and-forget by contract: callers never await this and never branch on it. */
+  /** 契约上属于触发即忘（Fire-and-forget）：调用方绝不需要 await 此方法，也绝不需要对其分支判断。 */
   notify(event: GameNotification): Promise<void>;
-  /** Cancels pending attempts for the room and closes its shown reminder. */
+  /** 取消指定房间所有待处理的提醒尝试，并关闭已展示的提醒。 */
   invalidateRoom(roomId: string): void;
 }
 
-/** Fixed disclosure copy; the honest limits of page-run reminders. */
+/** 固定的说明文案；真实告知页面端提醒的功能边界。 */
 export const NOTIFICATION_LIMITS =
   '仅在此页面保持运行并收到状态更新时提醒；关闭页面或系统冻结后台后，可能无法及时提醒。匹配席位仍按原时限保留。';
 
@@ -56,12 +54,12 @@ const PREFERENCE_PREFIX = 'spelltype:notifications:';
 const LEDGER_PREFIX = 'spelltype:notification-events:';
 const LOCK_PREFIX = 'spelltype:notifications:';
 const TAG_PREFIX = 'spelltype:';
-/** Matched tickets carry no match id yet; the reservation is the dedup identity. */
+/** 已匹配的入场券尚无 matchId；此时预约信息（reservation）作为去重标识。 */
 const RESERVATION_KEY = 'reserved';
 const LEDGER_LIMIT = 32;
 const SW_URL = '/sw.js';
 
-/** Test runs opt in explicitly; a plain dev server stays SW-free, production always registers. */
+/** 测试运行时显式启用；普通开发服务器不启用 SW，生产环境始终注册 SW。 */
 const swAllowed = (): boolean =>
   import.meta.env.PROD || import.meta.env.VITE_ENABLE_NOTIFICATIONS_SW === '1';
 
@@ -100,7 +98,7 @@ function savePreference(userId: string, on: boolean): void {
     if (on) localStorage.setItem(`${PREFERENCE_PREFIX}${userId}`, 'on');
     else localStorage.removeItem(`${PREFERENCE_PREFIX}${userId}`);
   } catch {
-    // A broken store keeps the preference in memory for this page only; never fatal.
+    // 存储不可用时仅在当前页面内存中保留偏好设置；绝不导致程序崩溃。
   }
 }
 
@@ -108,11 +106,11 @@ function writeLedger(userId: string, entries: string[]): void {
   try {
     localStorage.setItem(`${LEDGER_PREFIX}${userId}`, JSON.stringify(entries.slice(-LEDGER_LIMIT)));
   } catch {
-    // Losing the ledger only risks a duplicate toast, never game state.
+    // 记录本丢失仅可能导致重复弹出 Toast，绝不会破坏对局状态。
   }
 }
 
-/** Creates the one notification service for the application. Call inside the app's component scope. */
+/** 创建应用的唯一通知服务实例。须在应用的组件上下文中调用。 */
 export function createNotificationService(props: { session: Session }): NotificationService {
   const supported = (): boolean =>
     typeof window !== 'undefined' &&
@@ -125,14 +123,14 @@ export function createNotificationService(props: { session: Session }): Notifica
   const [nativePermission, setNativePermission] = createSignal<NotificationPermission>(
     supported() ? Notification.permission : 'denied',
   );
-  /** A failed service worker registration is a broken environment, not a retry loop. */
+  /** Service Worker 注册失败属于环境不可用，不应进入重试循环。 */
   const [broken, setBroken] = createSignal(false);
 
-  /** Bumped whenever the account identity or its consent changes; invalidates every attempt. */
+  /** 每当账户身份或授权偏好变更时递增；使所有进行中的尝试立即失效。 */
   let accountGeneration = 0;
-  /** Per-room event generation: a newer event (or an invalidation) kills older pending ones. */
+  /** 按房间划分的事件纪元：更新的事件（或主动失效）会废弃旧的待处理事件。 */
   const rooms = new Map<string, { gen: number; lastKey: string | null }>();
-  /** Page-level dedup: keys this page has already delivered (or knows another tab delivered). */
+  /** 页面级去重：本页面已送达（或已知其他标签页已送达）的事件 key。 */
   const shown = new Set<string>();
 
   let registration: Promise<ServiceWorkerRegistration> | null = null;
@@ -165,7 +163,7 @@ export function createNotificationService(props: { session: Session }): Notifica
     }
   };
 
-  // Registration happens on mount, before any gesture: enable() never waits on it first.
+  // 在挂载时立即执行注册，先于任何用户交互：enable() 绝不需要首先等待其完成。
   onMount(() => {
     if (supported() && swAllowed()) void startRegistration().catch(() => undefined);
   });
@@ -181,8 +179,8 @@ export function createNotificationService(props: { session: Session }): Notifica
     }
   };
 
-  // Session identity owns everything: a new or cleared account drops pending attempts,
-  // the page dedup set, and — for the previous owner — every already-shown reminder.
+  // 会话身份统领所有状态：账户变更或登出时，清空待处理尝试、
+  // 页面去重集合，并为上一任所有者关闭所有已展示的提醒。
   createEffect(
     on(
       () => userId(),

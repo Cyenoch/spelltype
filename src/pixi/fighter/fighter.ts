@@ -9,54 +9,52 @@ export interface FighterState {
   slot: number;
   connected: boolean;
   self: boolean;
-  /** 0..1 of the player's max health. */
+  /** 玩家最大生命值的 0..1 比例。 */
   hpRatio: number;
   eliminated: boolean;
   rank: number | null;
 }
 
-/** Where a fighter root sits and how much room it has, in host pixels. */
+/** 斗士根节点的位置与其可用空间，单位宿主像素。 */
 export interface FighterLayout {
   x: number;
-  /** Host y of the fighter's feet. */
+  /** 斗士脚部的宿主 y 坐标。 */
   feetY: number;
   bodyHeight: number;
   maxWidth: number;
-  /** Local y for the health bar, in pixels below the feet. */
+  /** 生命条在脚部下方多少像素处的局部 y 坐标。 */
   barOffsetY: number;
-  /** How much vertical room is left below the feet, for the ground pool. */
+  /** 脚部下方剩余的垂直空间，供地面光池使用。 */
   baselineSpace: number;
 }
 
-/** The box a fighter actually occupies after the art has been fitted. */
+/** 立绘适配完成后斗士实际占用的包围盒。 */
 export interface FighterBox {
   height: number;
   width: number;
 }
 
-/** Art one fighter draws with. The silhouette must match `body` pixel for pixel. */
+/** 单个斗士绘制所用的美术资源。剪影必须与 `body` 逐像素一致。 */
 export interface FighterTextures {
   body: Texture;
   glow: Texture;
   ring: Texture;
   /**
-   * The body art precomputed as a flat white fill of its own alpha. The KO shroud
-   * and the hit wash are that shape, so no mask — and therefore no per-frame
-   * filter pass — is needed to clip a flat fill to the character.
+   * 把身体立绘按其自身 Alpha 通道预先算成的纯白填充。KO 裹布与命中冲洗用的就是该形状，
+   * 因此无需遮罩 —— 也就无需逐帧滤镜通道 —— 即可把平面填充裁切到角色范围内。
    */
   silhouette: Texture;
-  /** This fighter's element rune, pre-rendered; the charge orbit reuses it. */
+  /** 该斗士的元素符文，已预渲染；蓄力轨道会复用它。 */
   rune: Texture;
 }
 
 /**
- * One full-body combatant: generated character art, an element aura, a ground
- * pool of its own element and an interpolated health bar, assembled from three
- * pieces — the posed body, the health bar and the torso charge orbit.
+ * 一名全身斗士：生成的立绘、元素光环、其本元素的地面光池，以及一条插值生命条，
+ * 由三部分组装而成 —— 姿态身体、生命条与躯干蓄力轨道。
  *
- * Two groups matter. The body group (aura, art, ground) takes the poses — flinch,
- * tip-over, victory — while the bar and the charge runes never rotate: a read
- * that tips with its owner is unreadable exactly when it matters most.
+ * 这两组的分工很关键。身体组（光环、立绘、地面）承担全部姿态 ——
+ * 畏缩、倾覆、胜利 —— 而生命条与蓄力符文绝不旋转：
+ * 会随主人一起倾斜的读数，恰恰在最需要它的时刻变得无法阅读。
  */
 export class Fighter {
   readonly view = new Container();
@@ -74,7 +72,7 @@ export class Fighter {
   constructor(
     slot: number,
     textures: FighterTextures,
-    /** Tint of the health frame's end gems. */
+    /** 生命条边框两端宝石的着色。 */
     flashTint: number,
   ) {
     this.slot = slot;
@@ -85,7 +83,7 @@ export class Fighter {
     this.view.addChild(this.body.view, this.bar.view, this.charge.view);
   }
 
-  /** True once this fighter has collapsed and is out of the match. */
+  /** 当该斗士已倒下并退出对局时为 true。 */
   get isDown(): boolean {
     return this.eliminated;
   }
@@ -94,7 +92,7 @@ export class Fighter {
     return this.koPending;
   }
 
-  /** Hides a seat that has no occupant this match. */
+  /** 隐藏本场对局没有占用者的席位。 */
   setActive(active: boolean): void {
     this.active = active;
     this.view.visible = active;
@@ -110,19 +108,19 @@ export class Fighter {
     return box;
   }
 
-  /** Applies authoritative state. `instant` skips the catch-up animation. */
+  /** 应用权威状态。`instant` 会跳过追赶动画。 */
   applyState(state: FighterState, instant: boolean, deferElimination = false): void {
     const hp = Math.min(1, Math.max(0, state.hpRatio));
     const hit = this.bar.applyHealth(hp, instant);
     this.body.applyRoomState(state.connected, 1 - hp, hit);
-    // Every standing caster shows their charge now, not just the local viewer:
-    // the runes are each fighter's own element, so no spell element is needed.
+    // 现在每个站立中的施法者都会显示自己的蓄力，而不只是本地观察者：
+    // 符文采用各斗士自身的元素，因此无需知道咒文元素。
     this.charge.view.visible = !state.eliminated;
     this.view.visible = this.active;
 
     if (state.eliminated) {
-      // The snapshot can land the killing blow before the projectile that caused
-      // it has finished flying; the pose waits for the impact in that case.
+      // 快照可能在造成致命一击的弹道尚未飞完时就先报出淘汰；
+      // 这种情况下姿态会等待命中落地。
       if (deferElimination && !this.eliminated) {
         this.koPending = true;
       } else {
@@ -136,7 +134,7 @@ export class Fighter {
     this.paint();
   }
 
-  /** Plays the deferred collapse now that the killing projectile has landed. */
+  /** 在致命弹道落地后，立即播放此前被推迟的倒下动画。 */
   commitElimination(instant: boolean): void {
     if (!this.koPending) return;
     this.koPending = false;
@@ -147,8 +145,8 @@ export class Fighter {
     if (eliminated === this.eliminated) return;
     this.eliminated = eliminated;
     if (!eliminated) {
-      // Back on their feet (revive, next match): the orbit must not show the
-      // previous life's charge until fresh progress arrives.
+      // 重新站起（复活、下一场对局）：在新的进度到来之前，
+      // 轨道不得显示上一命的蓄力。
       this.charge.reset();
       this.body.stand();
       return;
@@ -163,7 +161,7 @@ export class Fighter {
     this.body.hit(strength, direction);
   }
 
-  /** Played when this fighter lands a blow of its own. */
+  /** 该斗士成功打出一次攻击时播放。 */
   flourish(): void {
     this.body.flourish();
   }
@@ -176,7 +174,7 @@ export class Fighter {
     this.charge.accept(ratio);
   }
 
-  /** Live `prefers-reduced-motion` change: orbits freeze, accumulation stays. */
+  /** 运行时切换 `prefers-reduced-motion`：轨道冻结，累积表现保留。 */
   setMotion(reduced: boolean): void {
     this.charge.setMotion(reduced);
   }

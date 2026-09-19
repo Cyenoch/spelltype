@@ -6,28 +6,27 @@ import type { StageAssets } from './assets';
 import type { CombatEvent, Element } from '../../../shared/protocol';
 import { COMBAT_EVENT_RING_SIZE } from '../../../shared/protocol';
 
-/** Hold a whole server event ring so a simultaneous volley never partly overflows. */
+/** 容纳整个服务端事件环，使一次同时齐射绝不会部分溢出。 */
 const QUEUE_LIMIT = COMBAT_EVENT_RING_SIZE;
-/** Pacing between two batch launches, so separate casts still read as a volley. */
+/** 两个批次发射之间的间隔节奏，使各自独立的施法仍读作一次齐射。 */
 const SPAWN_GAP_MS = 110;
-/** A hit this soon after the last one on the same target is a repeat and lands softer. */
+/** 与同一目标上一次命中间隔如此之短即为重复命中，落地更轻。 */
 const REPEAT_WINDOW_MS = 150;
-/** How long a fighter may stay standing on a killing hit that is still in flight. */
+/** 致命一击仍在飞行途中时，斗士最多可保持站立多久。 */
 const DEFERRED_KO_MS = 1500;
 /**
- * Damage floats share the target's upper-body lane instead of hovering above
- * the head: the headroom belongs to the reserved DOM label band. Both bounds
- * are relative to `seating.topBand`, so the whole trajectory provably stays
- * inside the canvas on every seat and canvas size. The travel margin covers
- * the worst-case label half-height — 45px font at strength 1.35, scaled to
- * 1.15, plus its 5px stroke ≈ 28px above the centre — so even a fading
- * max-strength number never pokes into the band.
+ * 伤害飘字走目标的上身通道，而不是悬在头顶：
+ * 头顶空间属于保留给 DOM 标签的条带。两个边界都相对 `seating.topBand`，
+ * 因此可以证明整条轨迹在任何席位、任何画布尺寸下都留在画布之内。
+ * 位移余量覆盖了最坏情况的标签半高 —— 强度 1.35 时 45px 字号，
+ * 放大到 1.15，再加上 5px 描边，约合中心之上 28px ——
+ * 因此即便一个正在淡出的最大强度数字也绝不会探入该条带。
  */
 const FLOAT_SPAWN_CLEARANCE = 56;
-/** Hard ceiling for the drifting float's centre: band edge plus the label margin. */
+/** 漂移飘字中心的硬上限：条带边缘加上标签余量。 */
 const FLOAT_TRAVEL_CLEARANCE = 30;
 
-/** One hit to land on a target, exactly as the room's CombatEvent described it. */
+/** 将要落到某个目标上的一次命中，完全按照房间 `CombatEvent` 所描述的样子。 */
 export type AttackOrder = {
   seq: number;
   attackerId: string;
@@ -38,61 +37,61 @@ export type AttackOrder = {
   spellIndex: number;
 };
 
-/** An `AttackOrder` stamped with its settlement batch; orders sharing `at` launch together. */
+/** 带有其结算批次标记的 `AttackOrder`；共享同一个 `at` 的指令会同时发射。 */
 export interface AttackOrderWithBatch extends AttackOrder {
-  /** Server timestamp of the cast's settlement batch. */
+  /** 该次施法结算批次的服务端时间戳。 */
   at: number;
 }
 
-/** The match-level beats a resolved hit needs. */
+/** 一次已结算命中所需的、对局级节拍。 */
 export interface CombatBeats {
-  /** Reduced motion: the hit landed where it landed, settle that frame. */
+  /** 减弱动效：命中落在它该落的位置，随即收尾那一帧。 */
   settle(): void;
-  /** A kill is worth a screen-shake impulse. */
+  /** 一次击杀值得一次屏幕震动冲量。 */
   shake(amount: number): void;
 }
 
 export interface Combat {
-  /** Queues one combat event; reduced motion resolves it in place. */
+  /** 将一个战斗事件入队；减弱动效下就地结算。 */
   enqueue(event: CombatEvent, clock: number): void;
-  /** Launches queued orders at a fixed pace; once per frame. */
+  /** 以固定节奏发射已入队的指令；每帧一次。 */
   spawn(deltaMS: number, clock: number): void;
-  /** Applies every queued order at once, with no flight (a mode change). */
+  /** 一次性应用所有已入队指令，不做飞行（用于模式切换）。 */
   flush(clock: number): void;
-  /** A bolt reached its target. */
+  /** 一条弹道抵达了它的目标。 */
   resolve(order: AttackOrder, clock: number): void;
-  /** Records whether a seat is standing on a deferred elimination. */
+  /** 记录某席位是否正等待一次被推迟的淘汰。 */
   defer(slot: number, pending: boolean, clock: number): void;
-  /** Commits deferred eliminations whose grace period has run out. */
+  /** 提交已超过宽限期的被推迟淘汰。 */
   sweep(clock: number): void;
-  /** True while an attack on this user is flying or queued. */
+  /** 当针对该用户的攻击正在飞行或已入队时为 true。 */
   incoming(userId: string): boolean;
   reset(): void;
 }
 
-/** Everything attack sequencing reads and writes. */
+/** 攻击时序管理所读取和写入的全部内容。 */
 export interface CombatWiring {
   host: HTMLElement;
   fighters: readonly Fighter[];
-  /** Seat per user id, as the current snapshot seated them. */
+  /** 按用户 id 查席位，依据当前快照的入座结果。 */
   slotOf: (userId: string) => number | undefined;
   seating: Seating;
   fx: FxLayer;
   assets: StageAssets;
   beats: CombatBeats;
-  /** Reduced motion skips projectile flight entirely. */
+  /** 减弱动效下完全跳过弹道飞行。 */
   reduced: () => boolean;
 }
 
 export function createCombat(wiring: CombatWiring): Combat {
   const { host, fighters, slotOf, seating, fx, assets, beats, reduced } = wiring;
   const queue: AttackOrderWithBatch[] = [];
-  /** Seats standing on a killing hit that has not landed yet, by slot. */
+  /** 正等待一次尚未落地的致命一击的席位，按席位索引。 */
   const deferredKo = new Map<number, number>();
   const stance = { x: 0, y: 0 };
   const target = { x: 0, y: 0 };
   let spawnClock = 0;
-  /** Last impact time per target slot, so a rapid follow-up on one victim lands softer. */
+  /** 每个目标席位最近一次命中时间，使同一受害者身上的快速追击落地更轻。 */
   const lastImpactAt = new Map<number, number>();
   let hitCount = 0;
 
@@ -104,35 +103,34 @@ export function createCombat(wiring: CombatWiring): Combat {
     const seat = seating.geometry[targetSlot];
     const fighter = fighters[targetSlot];
     const base = Math.min(1, Math.max(0.35, order.damage / 64));
-    // Softening is per target: the simultaneous blows of one group attack land
-    // on different fighters in the same frame and keep their full weight, while
-    // a genuine follow-up on the same victim inside the window lands lighter.
+    // 减轻是按目标分别判定的：一次群体攻击中同时落下的多道伤害
+    // 会在同一帧打到不同斗士身上并保留各自完整权重，
+    // 而在时间窗内对同一受害者的真正追击则落地更轻。
     const repeated = clock - (lastImpactAt.get(targetSlot) ?? -1000) < REPEAT_WINDOW_MS;
     lastImpactAt.set(targetSlot, clock);
     const strength = repeated ? base * 0.7 : base;
 
-    // The shove goes away from the attacker, so a hit reads as directed.
+    // 推开方向背离攻击者，使命中读起来有方向感。
     const attackerSeat = attackerSlot !== undefined ? seating.geometry[attackerSlot] : undefined;
     fighter.hit(strength, attackerSeat && attackerSeat.x > seat.x ? -1 : 1);
-    // The collapse, shockwave and shake fire exactly once per target: a second
-    // killing event for an already-down fighter — the snapshot settled the KO
-    // first, or two batch entries name the same victim — must never replay it.
+    // 倒下、冲击波与震动对每个目标恰好触发一次：对一名已倒下的斗士而言，
+    // 第二个致命事件 —— 快照先结算了 KO，或同一批次中有两条记录指向同一受害者 ——
+    // 绝不能将其重放。
     const koLands = order.eliminated && !fighter.isDown;
     if (koLands) fighter.commitElimination(reduced() || instant);
     if (attackerSlot !== undefined) fighters[attackerSlot].flourish();
 
     seating.chest(targetSlot, target);
     const art = assets.request(combatFxFor(order.element, order.spellIndex));
-    // The number floats out of the target's upper body — sharing the chest
-    // lane, never parked high above the head where it would climb into the
-    // reserved label band — and its whole ascent is clamped at the band edge.
+    // 数字从目标上身浮出 —— 走胸口通道，绝不悬在头顶高处从而爬进保留的标签条带 ——
+    // 且其整段上升都被钳制在条带边缘。
     const floatCeil = seating.topBand + FLOAT_TRAVEL_CLEARANCE;
     const floatY = Math.max(
       seating.topBand + FLOAT_SPAWN_CLEARANCE,
       seat.feetY - seat.height * 0.74,
     );
-    // Impact art is normalised to a fraction of the fighter's height, so a 256px
-    // or a 1024px texture lands at the same on-screen size.
+    // 命中美术被归一化为斗士身高的一定比例，
+    // 因此 256px 与 1024px 的纹理在屏幕上落地的尺寸相同。
     const artBaseScale = art ? (seat.height * 0.4) / Math.max(1, art.width) : 1;
     fx.impact(
       target.x,
@@ -164,7 +162,7 @@ export function createCombat(wiring: CombatWiring): Combat {
     const targetSlot = slotOf(order.targetId);
     if (attackerSlot === undefined || targetSlot === undefined) return;
     if (reduced()) {
-      // Reduced motion: no projectile flight, the hit lands where it lands.
+      // 减弱动效：不做弹道飞行，命中落在它该落的位置。
       resolve(order, clock);
       return;
     }
@@ -211,9 +209,8 @@ export function createCombat(wiring: CombatWiring): Combat {
     spawn(deltaMS: number, clock: number): void {
       spawnClock -= deltaMS;
       if (queue.length === 0 || spawnClock > 0) return;
-      // One authoritative settlement batch launches in the same frame: a single
-      // cast reads as one volley splitting across every opponent at once, not a
-      // serial march of individual hits. The next batch waits out the full gap.
+      // 同一个权威结算批次在同一帧内发射：单次施法读起来像一次同时分摊到
+      // 所有对手身上的齐射，而不是逐个命中的串行行军。下一批次会等满整个间隔。
       const batchAt = queue[0].at;
       while (queue.length > 0 && queue[0].at === batchAt) {
         const order = queue.shift();

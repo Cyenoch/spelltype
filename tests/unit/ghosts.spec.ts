@@ -1,7 +1,7 @@
 /**
- * The ghost fallback's storage contract, exercised through the real migrated database: accepted
- * cast recording, publication eligibility (contiguity, pacing, bounds, damage, policy, book),
- * the immutable archive rows, bounded current-only selection, and the new schema vocabularies.
+ * 残影兜底机制的存储契约，通过完成迁移的真实数据库进行验证：已接受吟唱的记录、
+ * 发布资格（连续性、节奏步调、边界限制、伤害值、输入策略、法术书）、
+ * 不可变归档行、有界的仅当前有效版本筛选，以及新的 Schema 枚举字典。
  */
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -28,11 +28,11 @@ import {
 const NOW = 1_700_000_000_000;
 const STARTED_AT = NOW + 1_000;
 const DEADLINE_MS = 60_000;
-/** The current input floor: one code point costs 35ms, so a 100-code-point spell costs 3500ms. */
+/** 当前输入速度下限：单个码点耗时 35ms，因此 100 码点的法术耗时 3500ms。 */
 const SPELL_MS = 3_500;
 const TIMEOUT = 120_000;
 
-/** Two spells of 100 code points each; six casts wrap the book and deal exactly full health. */
+/** 每道法术 100 码点共两道；吟唱 6 次循环法术书并刚好造成满额生命值伤害。 */
 const BOOK: Spell[] = [
   { name: 'A', text: 'a'.repeat(100), translation: '甲', element: 'fire' },
   { name: 'B', text: 'b'.repeat(100), translation: '乙', element: 'ice' },
@@ -114,7 +114,7 @@ async function insertSeat(
   return rows[0];
 }
 
-/** The cast offsets of an honest six-cast trace: one spell-cost apart, inside the deadline. */
+/** 正常诚实的 6 次吟唱轨迹的时间偏移：每次吟唱间隔完整法术耗时，且在截止时间之内。 */
 const honestOffsets = (count = CASTS) =>
   Array.from({ length: count }, (_, index) => SPELL_MS * (index + 1));
 
@@ -139,7 +139,7 @@ async function seatCastCount(roomId: string) {
   return rows.length;
 }
 
-/** Standardized SQLSTATE categories — the provider-independent contract of a failed write. */
+/** 标准化 SQLSTATE 分类 —— 写入失败时跨数据库驱动的统一约定。 */
 const SQLSTATE = { check: '23514' } as const;
 
 function causeChainHasSqlState(error: unknown, sqlstate: string): boolean {
@@ -163,8 +163,8 @@ async function rejectsWithSqlState(run: () => Promise<unknown>, sqlstate: string
   throw new Error(`expected the write to fail with ${sqlstate}`);
 }
 
-describe('ghost recording', () => {
-  it('stores a human seat’s accepted cast as an offset from started_at', async () => {
+describe('残影记录', () => {
+  it('将真人席位被接受的吟唱记录为相对于 started_at 的偏移量', async () => {
     const userId = nextUserId();
     await seedAccount(userId);
     const roomId = nextRoomId();
@@ -181,7 +181,7 @@ describe('ghost recording', () => {
     });
   });
 
-  it('absorbs a replayed acceptance instead of failing the cast', async () => {
+  it('吸收重复重放的吟唱确认，而不是导致吟唱报错失败', async () => {
     const userId = nextUserId();
     await seedAccount(userId);
     const room = await insertRoom(db, nextRoomId());
@@ -192,7 +192,7 @@ describe('ghost recording', () => {
     expect(rows.length).toBe(1);
   });
 
-  it('records nothing for ghost and bot rooms', async () => {
+  it('残影对局和人机对局不记录任何轨迹数据', async () => {
     const userId = nextUserId();
     await seedAccount(userId);
     const ghostRoom = await insertRoom(db, nextRoomId(), { opponent_kind: 'ghost' });
@@ -205,7 +205,7 @@ describe('ghost recording', () => {
     expect(await seatCastCount(botRoom.id)).toBe(0);
   });
 
-  it('loses its rows with the room through the cascade', async () => {
+  it('删除房间记录时通过级联删除一同清理相关轨迹行', async () => {
     const userId = nextUserId();
     await seedAccount(userId);
     const room = await insertRoom(db, nextRoomId());
@@ -217,8 +217,8 @@ describe('ghost recording', () => {
   });
 });
 
-describe('ghost publication', () => {
-  it('archives one immutable ghost per qualifying seat and clears the trace', async () => {
+describe('残影发布', () => {
+  it('为每个符合条件的席位归档一份不可变的残影记录并清除原始轨迹', async () => {
     const hostId = nextUserId();
     const guestId = nextUserId();
     await seedAccount(hostId);
@@ -253,7 +253,7 @@ describe('ghost publication', () => {
     expect(await seatCastCount(room.id)).toBe(0);
   });
 
-  it('refuses a trace paced faster than the current input floor', async () => {
+  it('拒绝快于当前输入速度下限的节奏轨迹', async () => {
     const userId = nextUserId();
     await seedAccount(userId);
     const room = await insertRoom(db, nextRoomId(), { host_id: userId });
@@ -261,7 +261,7 @@ describe('ghost publication', () => {
       spells_cast: CASTS,
       damage_dealt: FULL_DAMAGE,
     });
-    // The first cast completes before spell 0's full cost has elapsed.
+    // 首次吟唱在法术 0 完整消耗时间结束前就完成了。
     await recordTrace(room.id, room.match_id!, userId, [SPELL_MS - 1, ...honestOffsets().slice(1)]);
 
     await publishGhostsTx(db, room, [seat]);
@@ -270,7 +270,7 @@ describe('ghost publication', () => {
     expect(await seatCastCount(room.id)).toBe(0);
   });
 
-  it('refuses a trace whose book prefix is not contiguous', async () => {
+  it('拒绝法术书前缀不连续的轨迹', async () => {
     const userId = nextUserId();
     await seedAccount(userId);
     const room = await insertRoom(db, nextRoomId(), { host_id: userId });
@@ -278,7 +278,7 @@ describe('ghost publication', () => {
       spells_cast: 3,
       damage_dealt: FULL_DAMAGE,
     });
-    // Rows 0, 2, 3 are three rows — the right count — but index 1 is missing.
+    // 轨迹行 0, 2, 3 共 3 行 —— 数量正确 —— 但缺失了索引 1。
     const offsets = honestOffsets(4).filter((_, index) => index !== 1);
     await db.insert(ghostCasts).values(
       offsets.map((at, position) => ({
@@ -296,7 +296,7 @@ describe('ghost publication', () => {
     expect(await seatCastCount(room.id)).toBe(0);
   });
 
-  it('refuses a seat whose recorded casts disagree with its cursor', async () => {
+  it('拒绝记录的吟唱记录与其游标状态不一致的席位', async () => {
     const userId = nextUserId();
     await seedAccount(userId);
     const room = await insertRoom(db, nextRoomId(), { host_id: userId });
@@ -304,7 +304,7 @@ describe('ghost publication', () => {
       spells_cast: CASTS,
       damage_dealt: FULL_DAMAGE,
     });
-    // One accepted cast never made it to the trace: 5 rows against spells_cast 6.
+    // 一次已接受的吟唱未写入轨迹：spells_cast 为 6，但轨迹只有 5 行。
     await recordTrace(room.id, room.match_id!, userId, honestOffsets(CASTS - 1));
 
     await publishGhostsTx(db, room, [seat]);
@@ -313,7 +313,7 @@ describe('ghost publication', () => {
     expect(await seatCastCount(room.id)).toBe(0);
   });
 
-  it('refuses a seat below the full-health damage threshold', async () => {
+  it('拒绝未达到满额生命值伤害阈值的席位', async () => {
     const userId = nextUserId();
     await seedAccount(userId);
     const room = await insertRoom(db, nextRoomId(), { host_id: userId });
@@ -329,7 +329,7 @@ describe('ghost publication', () => {
     expect(await seatCastCount(room.id)).toBe(0);
   });
 
-  it('bounds a survivor by the deadline and a fallen seat by its elimination', async () => {
+  it('以截止时间约束幸存者，以淘汰时间约束阵亡席位', async () => {
     const survivorId = nextUserId();
     const fallenId = nextUserId();
     await seedAccount(survivorId);
@@ -360,7 +360,7 @@ describe('ghost publication', () => {
     expect(await seatCastCount(fallenRoom.id)).toBe(0);
   });
 
-  it('refuses a room whose policy or book is not the trusted current shape', async () => {
+  it('拒绝输入策略或法术书不符合受信任当前格式的房间', async () => {
     const stalePolicyId = nextUserId();
     const badBookId = nextUserId();
     await seedAccount(stalePolicyId);
@@ -393,7 +393,7 @@ describe('ghost publication', () => {
     expect(await seatCastCount(badRoom.id)).toBe(0);
   });
 
-  it('does nothing but cleanup for ghost and bot rooms', async () => {
+  it('对残影对局和人机对局仅执行清理，不进行归档', async () => {
     const hostId = nextUserId();
     await seedAccount(hostId);
     const ghostRoom = await insertRoom(db, nextRoomId(), {
@@ -415,10 +415,9 @@ describe('ghost publication', () => {
   });
 });
 
-describe('ghost selection', () => {
-  it('serves nothing when no compatible ghost exists', async () => {
-    // A private migrated database, because the shared fixture database already carries ghosts
-    // from the publication scenarios and this assertion needs a genuinely empty pool.
+describe('残影选取', () => {
+  it('当不存在兼容的残影时不提供任何结果', async () => {
+    // 使用独立的内存数据库，因为共享测试数据库已在发布用例中存入了残影，而本断言需要一个完全空白的池。
     const isolated = await openDatabase('pglite://:memory:');
     try {
       const seeker = 'user-isolated-seeker';
@@ -437,9 +436,8 @@ describe('ghost selection', () => {
     }
   });
 
-  it('serves only current-compatible ghosts, never the seeker’s own', async () => {
-    // Isolated for the same reason: the pool here is exactly the three rows under test, so the
-    // uniform pick can be asserted to always be the one eligible ghost.
+  it('仅提供与当前版本兼容的残影，且绝不选取匹配者自己的残影', async () => {
+    // 基于同样原因采用独立数据库：此处测试池仅包含 3 行测试数据，以便准确断言均匀抽选总是命中唯一合规的残影。
     const isolated = await openDatabase('pglite://:memory:');
     try {
       const seeker = 'user-isolated-seeker';
@@ -489,8 +487,8 @@ describe('ghost selection', () => {
   });
 });
 
-describe('ghost schema constraints', () => {
-  it('defaults new rooms and results to plain human behavior', async () => {
+describe('残影 Schema 约束', () => {
+  it('新房间与战绩默认采用常规真人行为', async () => {
     const userId = nextUserId();
     await seedAccount(userId);
     const room = await insertRoom(db, nextRoomId(), {
@@ -526,7 +524,7 @@ describe('ghost schema constraints', () => {
     expect(rows[0].opponent_kind).toBe('human');
   });
 
-  it('accepts the new end reasons and opponent kinds on stored rooms', async () => {
+  it('在持久化房间中接受新增的对局结束原因和对手类型', async () => {
     const conceded = await insertRoom(db, nextRoomId(), {
       end_reason: 'bot_concession',
       opponent_kind: 'bot',
@@ -540,7 +538,7 @@ describe('ghost schema constraints', () => {
     expect(inactive.opponent_kind).toBe('ghost');
   });
 
-  it('rejects opponent kinds outside the vocabulary', async () => {
+  it('拒绝枚举字典之外的对手类型', async () => {
     await rejectsWithSqlState(
       () =>
         insertRoom(db, nextRoomId(), {

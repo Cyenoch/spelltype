@@ -14,7 +14,7 @@ const MODE_LABELS: Record<MaintenanceMode, string> = {
   draining: '维护中',
 };
 
-/** The drain counters that must reach zero before replacing the application. */
+/** 在安全替换应用程序前，必须全部归零的排空（drain）计数器。 */
 const DRAIN_COUNTERS: ReadonlyArray<{
   key: keyof Pick<
     DrainStatus,
@@ -29,11 +29,9 @@ const DRAIN_COUNTERS: ReadonlyArray<{
 ];
 
 /**
- * The durable admission state, what still blocks safe replacement, and the two
- * explicit transitions. Every change quotes the revision it was decided on
- * (CAS); a concurrent change is re-read, never silently
- * overwritten. The server re-checks the role on every call — this page is a
- * convenience for the admin role, not the authority.
+ * 持久化的准入状态、当前仍阻碍安全替换的阻塞项，以及两种明确的状态流转操作。
+ * 每次修改均携带据以决策的版本号（CAS 机制）；若发生并发修改则重新读取，绝不静默覆盖。
+ * 服务端在每次调用时均会重新校验管理员角色——本页面仅作为管理员便捷操作的界面，而非最终鉴权机构。
  */
 export function MaintenanceAdminView() {
   const queryClient = useQueryClient();

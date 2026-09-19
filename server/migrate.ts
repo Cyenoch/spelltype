@@ -1,16 +1,13 @@
-// One-shot production schema migration entry (baked into the image as
-// dist/server/migrate.js). Run only after the old app has drained and stopped.
-// It applies forward migrations, then ensures durable draining maintenance
-// and closes the database. Data transformations belong to the migrations;
-// backups and compatibility review remain the operator's responsibility.
-// This entry never acquires runtime ownership or reopens admission. Production
-// startup verifies migration history but does not apply migrations itself.
+// 生产环境单次数据库 Schema 迁移入口（作为 dist/server/migrate.js 打包进镜像）。
+// 仅在旧版本应用已完成停机并停止运行后执行。
+// 它会执行前向迁移，随后确保持久化进入 draining 维护状态，并关闭数据库连接。
+// 数据转换属于迁移脚本的职责；数据库备份与兼容性评估仍由运维人员负责。
+// 此入口绝不获取运行时所有权，也绝不重新开放准入。应用启动也会自动迁移，但不会主动切换维护状态。
 //
-// Modes:
-//   (default)  apply migrations, ensure draining maintenance, close.
-//   --check    executable check: print the entry/build identity as JSON and
-//              exit without touching the database. Used by scripts/deploy.ts
-//              to prove a candidate image can run before any maintenance.
+// 模式：
+//   （默认）   执行迁移，确保处于 draining 维护状态，关闭退出。
+//   --check    可执行性检查：以 JSON 格式打印入口/构建标识，不操作数据库直接退出。
+//              供 scripts/deploy.ts 使用，在正式进入维护前验证候选镜像能够正常运行。
 
 import { openDatabase } from './db';
 import { readDatabaseUrl } from './config';
@@ -42,8 +39,8 @@ async function main(): Promise<number> {
     log('applying forward migrations');
     const current = await readMaintenance(opened.db);
     if (current.mode === 'draining') {
-      // A deploy that already drained through the maintenance entry lands
-      // here: never re-enter and never reopen — that is the whole point.
+      // 若部署流程此前已通过 maintenance 入口完成了停机排水并运行至此处：
+      // 绝不重复进入维护状态，也绝不重新开放——这正是核心原则。
       log(`maintenance already draining (revision ${current.revision}); migrations applied`);
       return 0;
     }

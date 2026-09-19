@@ -1,13 +1,10 @@
 /**
- * 手动离场 — the explicit-departure contract shared by the `leave` lobby frame and the
- * authenticated `POST /api/rooms/:id/leave` endpoint.
+ * 手动离场 —— 大厅 `leave` 消息帧与经过鉴权的 `POST /api/rooms/:id/leave` 端点共用的显式离场契约。
  *
- * What is pinned here is the room's own decision, against real PGlite storage:
- * an explicit departure forfeits the live match (duel settles immediately,
- * larger tables fight on, results keep their order), ordinary membership releases
- * stay idempotent under HTTP retries, a settled match's ranking is never
- * rewritten by a later leave, and an abandoned match can neither be read nor
- * re-entered — while an ordinary disconnect never reaches this routine at all.
+ * 此处锁定了房间自身面对真实 PGlite 存储的决策行为：
+ * 显式离场会导致进行中的对局认输判负（双人对决立即结算、多人局其余玩家继续战斗，结算结果保持名次顺序）；
+ * 常规成员席位释放面对 HTTP 重试保持幂等；已结算对局的名次绝不会被后续的离开操作重写；
+ * 弃赛的对局既不能被读取也不能被重新进入 —— 而普通的连接断开根本不会进入本处理流程。
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import type { Database, OpenedDatabase } from '../../server/db';
@@ -41,7 +38,7 @@ afterEach(async () => {
   await Promise.all(databases.splice(0).map((database) => database.close()));
 });
 const MATCH_ID = 'match-1';
-/** Deadlines the room's own clock treats as due, and one far ahead of it. */
+/** 房间自身时钟判定为已到期的截止时间，以及一个远在未来的截止时间。 */
 const PAST = Date.now() - 1;
 const FUTURE = Date.now() + 100_000;
 
@@ -83,8 +80,8 @@ function stubSocket(userId: string): StubSocket {
 }
 
 /**
- * Locks the immutable per-match input policy on a live fixture and gives every seat an
- * already-satisfied spell eligibility, so forfeits and settlements can run under the gate.
+ * 在活动测试夹具上锁定每场比赛不可变的输入策略，并为每个席位赋予已满足的咒文输入资格，
+ * 使得判负与结算可以在门禁下正常运行。
  */
 async function lockInputPolicy(db: Database, options: { openedAt: number }): Promise<void> {
   await updateRoom(db, ROOM_ID, {
@@ -149,9 +146,8 @@ async function setup(
     registry,
     inputPolicyMode: 'enforce',
   });
-  // A live match under the new rules carries its locked policy; a settled or
-  // pre-match room does not (rematch resets and re-locks it). Production code
-  // never backfills a live match's missing policy, and neither do these fixtures.
+  // 新规则下进行中的比赛带有锁定的策略；已结算或未开始的房间则没有（重赛会重置并重新加锁）。
+  // 生产代码绝不会为进行中的比赛回填缺失策略，此处的测试夹具亦如此。
   if (room.phase === 'generating' || room.phase === 'countdown' || room.phase === 'playing') {
     await lockInputPolicy(db, { openedAt: NOW - 1_000 });
   }
@@ -170,7 +166,7 @@ async function allResults(
 
 const user = (id: string): User => ({ id, username: id });
 
-/** Asserts the call rejects with the room's own refusal class. */
+/** 断言调用抛出房间自有的拒绝错误类。 */
 async function rejectsWith(fn: () => Promise<unknown>, errorClass: unknown): Promise<void> {
   try {
     await fn();

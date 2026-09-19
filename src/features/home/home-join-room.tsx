@@ -5,7 +5,7 @@ import { roomIdSchema } from '../../../shared/validation';
 import type { AppContext } from '../../app/context';
 import { ui } from '../../ui/primitives';
 
-/** Uses the existing invitation route, including its sign-in continuation and room errors. */
+/** 使用既有的邀请路由逻辑，包括登录后续跳转以及房间错误处理。 */
 export function JoinRoom(props: { ctx: AppContext }) {
   const navigate = useNavigate();
   const [roomId, setRoomId] = createSignal('');

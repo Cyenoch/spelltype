@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { Hono } from 'hono';
 
-/** Only Vite's content-addressed code assets are immutable; public/ filenames may be reused. */
+/** 仅 Vite 基于内容寻址的代码资产是不可变的；public/ 下的文件名可能会被重复使用。 */
 const HASHED_ASSET = /^\/assets\/[^/]+-[\w-]{8,}\.(?:js|css|woff2?)$/;
 
 export function createAssetApp(root: string | null) {
@@ -41,7 +41,7 @@ export function createAssetApp(root: string | null) {
         return new Response(file, { headers: c.res.headers });
       }
     }
-    // Missing scripts/images must be a real 404, never HTML masquerading as a module.
+    // 缺失的脚本/图片必须返回真实的 404，绝不能用伪装成模块的 HTML 页面替代。
     if (path.startsWith('/assets/') || path.split('/').some((part) => part.includes('.')))
       return c.notFound();
     const index = Bun.file(join(root, 'index.html'));

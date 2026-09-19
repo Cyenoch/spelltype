@@ -1,17 +1,17 @@
 import type { Element } from '../../../shared/protocol';
 
 export interface BoltStyle {
-  /** Flight time in ms. */
+  /** 飞行时间，单位毫秒。 */
   travel: number;
-  /** Perpendicular bow, px at mid-flight. */
+  /** 垂直于航线的弓形偏移，飞行中段达到的像素值。 */
   hop: number;
-  /** Downward acceleration applied after the arc. */
+  /** 弧线之后施加的向下加速度。 */
   drop: number;
   path: 'straight' | 'wave' | 'arc' | 'zigzag';
   spin: number;
   coreScale: number;
   glowScale: number;
-  /** ms between trail emissions. */
+  /** 相邻两次拖尾发射之间的毫秒间隔。 */
   trailEvery: number;
   trailCount: number;
   trailLife: number;
@@ -98,7 +98,7 @@ export interface ImpactStyle {
   ringTint: number;
   flashAlpha: number;
   flashScale: number;
-  /** Extras: [angle°, distance px, spin rad/ms, scale, gravity px/ms², delay ms] */
+  /** 附属效果：[角度°，距离像素，自旋 弧度/毫秒，缩放，重力 像素/毫秒²，延迟毫秒] */
   extras: readonly (readonly [number, number, number, number, number, number])[];
   shardCount: number;
   shardSpeed: number;
@@ -185,10 +185,9 @@ export const IMPACT_STYLES: Record<Element, ImpactStyle> = {
 };
 
 /**
- * Bolts in flight at once. A settlement batch launches every one of its hits in
- * the same frame — worst case four casts × three targets = twelve — so the
- * budget must cover that plus stragglers from the previous batch; a recycled
- * in-flight bolt would land as nothing at all.
+ * 同时飞行的弹道数量上限。一次结算批次会在同一帧内发射其全部命中 ——
+ * 最坏情况为四次施法 × 三个目标 = 十二 —— 因此配额必须覆盖该数量，
+ * 再加上上一批次遗留的零散弹道；被回收的在途弹道会什么都命不中。
  */
 export const BOLT_SLOTS = 16;
 export const IMPACT_SLOTS = 10;

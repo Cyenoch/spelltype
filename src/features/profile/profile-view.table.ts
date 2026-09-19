@@ -1,9 +1,9 @@
 /**
- * The history panel's TanStack Table wiring.
+ * 历史战绩面板的 TanStack Table 适配逻辑。
  *
- * The panel is client-side only: the API hands back one account's ten most recent records and the
- * table sorts, filters and pages exactly those rows. Nothing here re-queries the server, so every
- * column accessor reads the wire record directly.
+ * 该面板完全在客户端运行：API 返回单个账户最近的 10 条战绩记录，
+ * 表格直接对这些数据行进行排序、过滤和分页。此处不向服务端发起二次查询，
+ * 每一列的取值函数（accessor）直接读取网络传输的原始数据记录。
  */
 import {
   columnFilteringFeature,
@@ -30,19 +30,19 @@ import {
   OPPONENT_KIND_LABELS,
 } from '../../ui/format';
 
-/** The per-row cell attributes the retired table carried alongside the measured text. */
+/** 已废弃表格在测量文本外所携带的单行单元格数据属性。 */
 export interface HistoryCellAttrs {
   'data-damage'?: string;
   'data-hp'?: string;
 }
 
-/** Per-column hooks the retired table's DOM carried: cell testids, alignment and data attributes. */
+/** 原表格 DOM 所携带的单列扩展钩子：单元格 testid、对齐方式以及数据属性。 */
 export interface HistoryColumnMeta {
-  /** The browser suite reads every measurement through these. */
+  /** 浏览器端测试套件据此读取每项测量数据。 */
   testid: string;
-  /** Right-aligned numeric column with tabular figures. */
+  /** 包含等宽数字的靠右对齐数值列。 */
   num?: boolean;
-  /** Extra attributes this column's cells carry, computed from the row. */
+  /** 本列单元格携带的附加属性，根据当前行数据计算得出。 */
   attrs?: (result: MatchResult) => HistoryCellAttrs;
 }
 
@@ -57,11 +57,11 @@ export const historyFeatures = tableFeatures({
   columnMeta: metaHelper<HistoryColumnMeta>(),
 });
 
-/** The API window is ten rows, so one page holds the whole history until a smaller page is chosen. */
+/** API 默认返回 10 条记录，因此在用户选择更小分页前，单页即可容纳全部历史。 */
 export const HISTORY_PAGE_SIZE = 10;
 export const HISTORY_PAGE_SIZES = [5, 10, 25];
 
-/** A search term matches a record's theme or its rendered timestamp. */
+/** 搜索词可匹配战绩的主题或其格式化后的时间戳。 */
 export const filterHistory: FilterFn<typeof historyFeatures, MatchResult> = (
   row,
   _columnId,
@@ -77,7 +77,7 @@ export const filterHistory: FilterFn<typeof historyFeatures, MatchResult> = (
   );
 };
 
-/** `null` accuracy is an unmeasured match, not a 0% one: unknowns sort below every measurement. */
+/** 命中率为 `null` 代表未测量该局，而非 0%：未测量的记录排在所有测得的数据之后。 */
 const sortByAccuracy: SortFn<typeof historyFeatures, MatchResult> = (a, b) =>
   (a.original.accuracy ?? -1) - (b.original.accuracy ?? -1);
 
@@ -106,7 +106,7 @@ export const historyColumns = helper.columns([
   }),
   helper.accessor('rank', {
     header: '名次',
-    // First place is the best place: the column's scale is inverted, not its values.
+    // 第一名为最佳名次：反转该列的排序方向，而非改变数值大小。
     sortFn: sortFn_basic,
     invertSorting: true,
     cell: (info) => `#${info.getValue()}`,

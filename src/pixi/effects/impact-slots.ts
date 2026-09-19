@@ -17,12 +17,12 @@ export interface ExtraSlot {
 export interface ImpactSlot {
   view: Container;
   ring: Sprite;
-  /** Generated impact artwork from the asset registry, when one is available. */
+  /** 来自资源注册表的生成式命中美术，若存在时使用。 */
   art: Sprite;
   flash: Sprite;
   extras: ExtraSlot[];
   active: boolean;
-  /** `true` for a slow, tall light column (victory) instead of a burst. */
+  /** 为 `true` 时是缓慢高耸的光柱（胜利），而非爆发式爆炸。 */
   hold: boolean;
   element: Element;
   strength: number;
@@ -31,9 +31,9 @@ export interface ImpactSlot {
   ringAspect: number;
   flashAspect: number;
   baseScale: number;
-  /** Radians per millisecond the ring turns while it holds. */
+  /** 光环保持续期间每毫秒旋转的弧度数。 */
   spin: number;
-  /** Sprite scale for the impact artwork at its resting size. */
+  /** 命中美术处于静止尺寸时的精灵缩放。 */
   artBaseScale: number;
 }
 
@@ -80,7 +80,7 @@ export function createImpactSlot(textures: FxTextures): ImpactSlot {
   };
 }
 
-/** Points the three element extras of a fresh burst outwards along their style. */
+/** 将一次新爆发的三个元素附属效果沿各自样式方向向外摆放。 */
 export function configureExtras(
   slot: ImpactSlot,
   style: ImpactStyle,
@@ -111,7 +111,7 @@ export function configureExtras(
   }
 }
 
-/** Flies the visible extras of a live burst outwards and fades them. */
+/** 让一次进行中爆发的可见附属效果向外飞出并淡出。 */
 export function updateExtras(slot: ImpactSlot, deltaMS: number): void {
   for (const extra of slot.extras) {
     if (!extra.sprite.visible) continue;

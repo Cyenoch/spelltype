@@ -1,11 +1,11 @@
 /**
- * Generates the app's PWA icons from the sigil: the emblem kept intact, centred
- * on the app's own background colour. Run once (and whenever the sigil changes):
+ * 从印记（sigil）矢量图生成应用的 PWA 图标：保持徽标完整，居中置于应用自身的背景色上。
+ * 执行一次（以及在印记变更时执行）：
  *
  *   node scripts/generate-icons.mjs
  *
- * Outputs the plain (non-maskable) 192/512 manifest icons and the 180px
- * apple-touch-icon into `public/`.
+ * 将常规（非可覆罩/non-maskable）的 192/512 manifest 图标及 180px 的
+ * apple-touch-icon 输出到 `public/` 目录下。
  */
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -18,8 +18,8 @@ const iconsDir = path.join(root, 'public', 'icons');
 const background = { r: 7, g: 6, b: 15, alpha: 1 };
 
 async function renderIcon(size, outputPath) {
-  // Rasterise the vector at the target size (density keeps the edges crisp) and
-  // centre it on a flat background canvas, leaving a small even margin.
+  // 按目标尺寸光栅化矢量图（通过调整 density 保持边缘清晰锐利），
+  // 并将其居中置于纯色背景画布上，四周保留微小且均匀的边距。
   const inner = Math.round(size * 0.82);
   const sigil = await sharp(source, { density: Math.ceil(72 * (size / 64)) })
     .resize(inner, inner)

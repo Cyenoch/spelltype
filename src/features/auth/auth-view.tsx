@@ -12,13 +12,13 @@ const WECHAT_ERROR_TEXT: Record<WechatLoginError, string> = {
 };
 
 /**
- * The login entry the server bounces the browser around. It is a full-document
- * hop (same origin, then the bridge), so the shared hono client — whose base is
- * relative and cannot build standalone URLs — does not apply here.
+ * 服务端引导浏览器跳转的登录入口。由于这是一个整页文档级别的页面跳转
+ * （先同源请求，再跳转至网桥），因此基准路径为相对路径且无法生成独立完整 URL 的
+ * 共享 Hono 客户端不适用于此处。
  */
 const WECHAT_START_PATH = '/api/auth/wechat/start';
 
-/** WeChat sign-in; an invitation in the URL survives the detour through the bridge. */
+/** 微信登录视图；URL 中的房间邀请参数在经过登录网桥中转后依然会被保留。 */
 export function AuthView(props: { ctx: AppContext; error?: WechatLoginError; notice?: string }) {
   const navigate = useNavigate();
   const loginHref = () => {

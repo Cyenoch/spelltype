@@ -1,11 +1,10 @@
 /**
- * The PostgreSQL migration advisory lock — the cross-process critical section for migrations.
+ * PostgreSQL 迁移建议锁 —— 用于数据库迁移的跨进程临界区。
  *
- * Every api/game process calls `openDatabase` at boot, so two containers starting together race
- * for the migration. Pinned here: acquisition polls `pg_try_advisory_lock` (never an unbounded
- * `pg_advisory_lock`), gives up after a bounded wait with the advisory key in the error so an
- * operator can find the holder, releases in a way that can never mask the migration's own outcome,
- * and uses one deterministic app-specific key that fits PostgreSQL's signed bigint.
+ * 每个 api/game 进程在启动时都会调用 `openDatabase`，因此同时启动的两个容器会竞争执行迁移。
+ * 此处固化的关键行为包括：获取锁时轮询调用 `pg_try_advisory_lock`（绝不使用无限制阻塞的 `pg_advisory_lock`）；
+ * 在达到超时上限后放弃并抛错，错误信息中包含该建议锁键名以便运维排查持有者；释放锁的方式确保绝不掩盖迁移本身的执行结果；
+ * 并采用一个符合 PostgreSQL 有符号 bigint 范围的确定性应用专用键。
  */
 import { describe, expect, it } from 'bun:test';
 import {
@@ -22,7 +21,7 @@ interface RecordedCall {
   params: unknown[];
 }
 
-/** A stub query function returning one canned response per call, recording everything. */
+/** 桩查询函数，每次调用返回一条预设响应并记录全部调用细节。 */
 function stubQuery(responses: Array<unknown[] | Error>): {
   query: AdvisoryLockQuery;
   calls: RecordedCall[];
@@ -40,7 +39,7 @@ function stubQuery(responses: Array<unknown[] | Error>): {
 }
 
 describe('acquireAdvisoryMigrationLock', () => {
-  it('acquires on the first free attempt and unlocks with the same key', async () => {
+  it('在首次空闲尝试时即获取成功，并使用相同的键释放锁', async () => {
     const stub = stubQuery([[{ locked: true }], []]);
     const lock = await acquireAdvisoryMigrationLock(stub.query);
 
@@ -52,7 +51,7 @@ describe('acquireAdvisoryMigrationLock', () => {
     expect(stub.calls[1]).toEqual({ text: 'select pg_advisory_unlock($1)', params: [KEY] });
   });
 
-  it('polls until the holder leaves instead of waiting on a blocking lock call', async () => {
+  it('轮询等待持有者释放，而不是使用阻塞式加锁调用挂起', async () => {
     const stub = stubQuery([[{ locked: false }], [{ locked: false }], [{ locked: true }]]);
     const sleeps: number[] = [];
     const lock = await acquireAdvisoryMigrationLock(stub.query, {
@@ -67,7 +66,7 @@ describe('acquireAdvisoryMigrationLock', () => {
     expect(stub.calls[3]?.text).toBe('select pg_advisory_unlock($1)');
   });
 
-  it('gives up after the bounded wait and names the advisory key', async () => {
+  it('在达到有界等待时间后放弃并指明建议锁键名', async () => {
     const stub = stubQuery([[{ locked: false }]]);
     let failure: unknown;
     try {
@@ -85,7 +84,7 @@ describe('acquireAdvisoryMigrationLock', () => {
     expect(stub.calls.every((call) => call.text.includes('pg_try_advisory_lock'))).toBe(true);
   });
 
-  it('propagates unlock failures so a dirty cleanup is never reported healthy', async () => {
+  it('向上传递解锁失败异常，确保异常清理绝不会被误报为正常', async () => {
     const stub = stubQuery([[{ locked: true }], new Error('connection died')]);
     const lock = await acquireAdvisoryMigrationLock(stub.query);
     const failure = await lock.release().catch((error: unknown) => error);
@@ -93,7 +92,7 @@ describe('acquireAdvisoryMigrationLock', () => {
     expect(stub.calls[1]).toEqual({ text: 'select pg_advisory_unlock($1)', params: [KEY] });
   });
 
-  it('uses one app-specific key inside PostgreSQL signed bigint range', () => {
+  it('使用位于 PostgreSQL 有符号 bigint 范围内的应用专属键', () => {
     expect(MIGRATION_ADVISORY_LOCK_KEY).toBeGreaterThan(0n);
     expect(MIGRATION_ADVISORY_LOCK_KEY).toBeLessThan(2n ** 63n);
   });

@@ -12,7 +12,7 @@ import {
 } from '../maintenance/control';
 import { requireRuntime, zodReject, type HttpEnv } from './context';
 
-// This credential is deliberately scoped to this route group, never to administrator sessions.
+// 该凭据特意仅限制在此路由组内生效，绝不扩展到管理员会话。
 const maintenanceCredential = createMiddleware<HttpEnv>(async (c, next) => {
   const expected = c.get('services').config.maintenanceToken;
   if (!expected) throw new HTTPException(503, { message: '自动化维护接口未配置。' });
@@ -35,7 +35,7 @@ const transitionSchema = z.discriminatedUnion('mode', [
     .strict(),
 ]);
 
-/** CI may change admission and observe drain barriers; it never receives container-control powers. */
+/** CI 可以变更准入状态并观察排空屏障（drain barriers）；但绝不会被授予容器控制权限。 */
 export const automationRoutes = new Hono<HttpEnv>({ strict: false })
   .use('*', maintenanceCredential)
   .get('/maintenance', async (c) => c.json(await inspectMaintenance(c.get('services').database)))

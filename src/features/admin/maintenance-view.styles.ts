@@ -1,6 +1,6 @@
 import * as stylex from '@stylexjs/stylex';
 
-/** The console is one focused panel; the status card nests inside it. */
+/** 管理控制台是一个居中卡片面板；状态卡片内嵌其中。 */
 export const styles = stylex.create({
   page: { maxWidth: 720, margin: '0 auto', width: '100%' },
   status: {

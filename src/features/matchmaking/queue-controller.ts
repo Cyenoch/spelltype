@@ -11,10 +11,10 @@ import type { AppContext } from '../../app/context';
 
 const POLL_INTERVAL_MS = 2000;
 const TICK_INTERVAL_MS = 250;
-/** Quoted verbatim in the waiting hint, so the promise matches `QUICK_GHOST_FALLBACK_MS`. */
+/** 在等待提示文案中逐字引用，确保对用户的承诺时间与 `QUICK_GHOST_FALLBACK_MS` 完全一致。 */
 const GHOST_FALLBACK_SECONDS = QUICK_GHOST_FALLBACK_MS / 1000;
 
-/** Where the search stands. Only `waiting` is a live search. */
+/** 匹配搜索所处的状态。只有 `waiting` 表示处于活跃的搜索状态。 */
 export type QueueState = 'waiting' | 'matched' | 'cancelled' | 'blocked' | 'maintenance';
 
 const STATE_MESSAGES: Record<QueueState, string> = {
@@ -39,7 +39,7 @@ export interface MatchQueue {
   hint(): string;
   error(): string | null;
   retry(): boolean;
-  /** Real elapsed waiting time, and it stops the moment the search does. */
+  /** 真实的排队等待耗时，且在搜索结束的瞬间停止计时。 */
   elapsed(): number;
   cancelPending(): boolean;
   cancel(): void;
@@ -47,29 +47,28 @@ export interface MatchQueue {
 }
 
 /**
- * The matchmaking lease and its one clock.
+ * 匹配租约及其统一步调的时钟。
  *
- * The queue is a lease owned by the server: the poll is *also* the request, so
- * every status comes from a real round trip (`POST /api/match` refreshes the
- * ticket's expiry). It is therefore a query with a `refetchInterval` rather
- * than a hand-rolled timer — but one that must never be served from the cache,
- * and one that stops the moment the search ends. A matched ticket is a
- * reserved seat for this account on this server: the shell opens it in place.
+ * 排队在服务端被建模为一个由服务端持有的租约：轮询本身*同时*作为续租请求，
+ * 因此每个状态均来自真实的往返网络请求（`POST /api/match` 会刷新票据的过期时间）。
+ * 因此将其实现为带有 `refetchInterval` 的查询，而非手动封装的计时器——
+ * 但它绝不能使用缓存数据，且必须在搜索结束时立即停止。匹配成功的入场券代表该账户在当前服务器上预留的席位：
+ * 外层壳组件会在原地打开该房间。
  */
 export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
   const navigate = useNavigate();
   let destroyed = false;
   let pendingPoll: Promise<MatchTicket> | undefined;
-  /** Last ticket the server returned; a started match is what makes a cancel refuse. */
+  /** 服务端返回的上一张入场券；若对局已开始，则会导致取消匹配被拒绝。 */
   let lastTicket: MatchTicket | null = null;
-  /** Last payload already painted, so a re-run of the effect cannot paint it twice. */
+  /** 上次已经渲染过的入场券数据，避免副作用重复执行导致重复渲染。 */
   let handled: MatchTicket | null = null;
-  /** Set while a cancellation is deciding the search's fate: no auto-entry may fire. */
+  /** 在取消逻辑裁决搜索结果期间置位：禁止触发自动进入对局。 */
   let suppressEntry = false;
   let failure: unknown = null;
 
   const [state, setState] = createSignal<QueueState>('waiting');
-  /** Explicit status line (retry notice, or the refusal that ended the search). */
+  /** 明确的状态文本（重试提示，或导致搜索终止的拒绝原因）。 */
   const [status, setStatus] = createSignal<string | null>(null);
   const [error, setError] = createSignal<string | null>(null);
   const [retry, setRetry] = createSignal(false);
@@ -79,7 +78,7 @@ export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
 
   const waiting = () => state() === 'waiting';
 
-  // The only clock is real elapsed waiting time, and it stops the moment the search does.
+  // 唯一的时钟依据是实际流逝的排队等待时间，且在搜索结束的瞬间停止计时。
   createEffect(() => {
     if (!waiting()) return;
     const timer = window.setInterval(() => setElapsed(Date.now() - startedAt()), TICK_INTERVAL_MS);
@@ -91,11 +90,11 @@ export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
     queryFn: () => (pendingPoll = parseResponse(client.api.match.$post())),
     enabled: polling() && waiting(),
     /**
-     * A ticket is only ever valid as the answer to a fresh poll: the entry is a lease the server
-     * extends per request, and a started match answers the same poll with `matched` + its reserved
-     * room. Cached or retried answers would report a status nobody asked for, so this query neither
-     * reuses data (`staleTime`/`gcTime` 0) nor repeats a failed call on its own (`retry` false) —
-     * a slow service is retried by the next poll, at half speed, exactly as the status line says.
+     * 入场券仅作为对新鲜轮询请求的应答时才有效：排队项是服务端按次延期的租约，
+     * 且已开始的对局会在同一轮询中返回 `matched` 及其预留的房间号。
+     * 缓存或自动重试的响应会导致展示无人请求的旧状态，因此本查询既不复用数据
+     * （`staleTime`/`gcTime` 均为 0），也不自行重复失败调用（`retry: false`）——
+     * 服务端响应缓慢时会在下次轮询时以半速降频重试，与状态提示行所描述的完全一致。
      */
     staleTime: 0,
     gcTime: 0,
@@ -105,14 +104,14 @@ export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
     refetchInterval: () => (retry() ? POLL_INTERVAL_MS * 2 : POLL_INTERVAL_MS),
   }));
 
-  // Aborting a fetch cannot undo a server-side enqueue; cancel after it settles.
+  // 取消网络请求（abort）无法撤销服务端的排队状态；须等待请求结算后调用接口取消。
   const cancelLease = async () => {
     await pendingPoll?.catch(() => undefined);
     return parseResponse(client.api.match.$delete());
   };
   const cancelMatch = useMutation(() => ({ mutationFn: cancelLease }));
 
-  /** Paint a state once: status line, hint and the actions. */
+  /** 统一定格一种状态：设置状态提示行、操作提示文案及可用操作。 */
   const settle = (next: QueueState, override?: string) => {
     setPolling(false);
     setElapsed(Date.now() - startedAt());
@@ -121,23 +120,23 @@ export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
     setRetry(false);
   };
 
-  /** Enters a matched seat: the reservation is for this account on this server. */
+  /** 进入匹配成功的席位：座位已在当前服务器上为该账户预留。 */
   const enterMatched = (ticket: MatchTicket): void => {
     const roomId = ticket.roomId;
     if (!roomId) return;
     settle('matched');
-    // The seat is reserved for this account: remember the room, then let the shell open it.
+    // 席位已为当前账户预留：记下房间号，交由外层壳组件打开。
     props.ctx.setPendingInvite(roomId);
     void navigate({ to: '/', search: { room: roomId } });
   };
 
   const requeue = () => {
     if (destroyed || waiting()) return;
-    // Anything the server already answered for the finished search is spent, never replayed.
+    // 服务端针对已结束搜索返回的任何数据均已作废，绝不回放。
     handled = ticketQuery.data ?? null;
     failure = ticketQuery.error ?? null;
     lastTicket = null;
-    // A fresh search owns its matched answers again.
+    // 开启新的搜索，重新接收匹配成功的响应。
     suppressEntry = false;
     setStartedAt(Date.now());
     setElapsed(0);
@@ -149,11 +148,10 @@ export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
   };
 
   /**
-   * The shared cancellation path. It stops polling and suppresses the matched
-   * auto-entry synchronously, waits for the in-flight poll, then asks the
-   * server to release the lease; only a server-confirmed release counts as
-   * confirmed. A refusal means a started match already owns the seat: its
-   * entry is restored exactly as a live poll would have entered it.
+   * 取消匹配的通用路径。同步停止轮询并抑制匹配成功后的自动进入，
+   * 等待正在进行的网络请求完成，然后请求服务端释放租约；
+   * 只有经服务端确认的释放才算取消成功。若被拒绝，说明对局已开始并占用了席位：
+   * 此时恢复其席位进入逻辑，与正常轮询接收到匹配结果的表现完全一致。
    */
   const requestCancel = async (): Promise<'confirmed' | 'refused' | 'failed'> => {
     suppressEntry = true;
@@ -162,14 +160,14 @@ export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
       const { cancelled } = await cancelMatch.mutateAsync();
       if (destroyed) return 'failed';
       if (!cancelled) {
-        // The server refused: a started match already holds this account's seat.
+        // 服务端拒绝取消：已开启的对局已经锁定了当前账户的席位。
         const ticket = lastTicket;
         if (ticket?.roomId) enterMatched(ticket);
         else settle('blocked', '已有对局开始，请返回原对局页面继续。');
         return 'refused';
       }
       setError(null);
-      // A confirmed cancellation retires any reminder bound to the abandoned room.
+      // 取消确认后，清理与已废弃房间绑定的所有事件提醒。
       const abandonedRoom = lastTicket?.roomId;
       if (abandonedRoom) props.ctx.notifications.invalidateRoom(abandonedRoom);
       settle('cancelled');
@@ -181,8 +179,8 @@ export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
         props.ctx.handleAuthFailure('登录已过期，请重新登录。');
         return 'failed';
       }
-      // The lease is unproven either way: keep the search alive and retryable,
-      // and let a later matched answer navigate again.
+      // 租约状态未决（既未成功释放也未被确认占用）：保持搜索状态并允许重试，
+      // 后续若收到匹配成功响应仍可正常导航进入对局。
       setError(messageOf(requestError, '取消匹配失败，请重试。'));
       setPolling(true);
       suppressEntry = false;
@@ -196,20 +194,19 @@ export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
     if (outcome === 'confirmed') toast('已取消匹配等待。', 'info');
   };
 
-  // Every ticket the server hands back is a real answer to a poll this view started.
+  // 服务端返回的每张入场券都是对本视图发起的轮询的真实响应。
   createEffect(() => {
     const ticket = ticketQuery.data;
     if (!ticket || !waiting()) return;
     lastTicket = ticket;
-    // A cancellation already owns this search's fate: an in-flight poll may
-    // still deliver a matched answer, but it must not navigate on its own.
+    // 取消流程已经在掌控本次搜索的结局：在途的轮询可能仍会返回匹配成功，
+    // 但绝不能再自行触发页面跳转。
     if (suppressEntry || !polling() || ticket === handled) return;
     handled = ticket;
     if (ticket.state === 'matched' && ticket.roomId) {
-      // A hidden page still gets its seat — remind before the navigation below.
-      // Fire-and-forget: the reminder never delays (or fails) the navigation,
-      // and only a seat still inside its reservation is worth a toast the
-      // player can actually act on.
+      // 即使页面处于隐藏状态也已为其锁定席位——在执行下方跳转前发送提醒。
+      // 触发即忘：提醒绝不阻塞（亦不影响）页面跳转，
+      // 且只有仍处于预留有效期内的席位才值得向玩家推送可操作的 Toast。
       if (Date.now() < ticket.expiresAt) {
         props.ctx.notifications
           .notify({
@@ -239,8 +236,8 @@ export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
       return;
     }
     if (maintenanceCodeOf(requestError) !== null) {
-      // The server durably admits no new matches right now: the search is
-      // over for good here, and only a page after maintenance may queue again.
+      // 服务端当前持久化拒绝新对局准入：当前搜索彻底终止，
+      // 必须等到维护结束后的页面方可重新排队。
       settle('maintenance', messageOf(requestError, STATE_MESSAGES.maintenance));
       return;
     }
@@ -256,7 +253,7 @@ export function createMatchQueue(props: { ctx: AppContext }): MatchQueue {
 
   onCleanup(() => {
     destroyed = true;
-    // Leaving the view must not keep a matchmaking seat; no poll may run after this.
+    // 离开视图时必须释放匹配席位；此后严禁继续轮询。
     if (!waiting()) return;
     void cancelLease().catch(() => undefined);
   });

@@ -4,20 +4,19 @@ import { ELEMENT_COLORS, ELEMENT_CORE } from '../../ui/elements';
 import type { Element } from '../../../shared/protocol';
 
 /**
- * Element-effect shapes are drawn once into textures at startup and then only
- * positioned, scaled and tinted per frame. That keeps the whole effect layer to
- * sprite batches (no per-frame vector rebuild, no filters) and keeps the vertex
- * work tiny on high-DPI screens.
+ * 元素效果形状在启动时一次性绘制为纹理，之后每帧只做定位、缩放与着色。
+ * 这使整个效果图层保持为精灵批次（不做逐帧矢量重建，也不使用滤镜），
+ * 并让高 DPI 屏幕上的顶点计算量保持极小。
  */
 export interface FxTextures {
-  /** Soft radial blob: auras, muzzle glow, impact flash, light columns. */
+  /** 柔和的径向光斑：光环、枪口辉光、命中闪光、光柱。 */
   glow: Texture;
-  /** Thin annulus: shockwaves and impact rings. */
+  /** 细环形：冲击波与命中光环。 */
   ring: Texture;
   bolt: Record<Element, Texture>;
   shard: Record<Element, Texture>;
   rune: Record<Element, Texture>;
-  /** Narrow crystal pillar, tinted at use. */
+  /** 窄水晶柱，使用时着色。 */
   spike: Texture;
 }
 
@@ -70,9 +69,8 @@ function drawBolt(g: Graphics, element: Element, color: number, core: number): v
 }
 
 /**
- * Draws one element's spark shape in plain white, so every user of it decides the
- * colour by tinting: the same shape serves the arena's particle pools and the
- * text overlay's sparks.
+ * 以纯白色绘制某一元素的火花形状，使其每个使用者都通过着色来决定颜色：
+ * 同一形状既服务于竞技场的粒子池，也服务于文本叠加层的火花。
  */
 export function drawElementShard(g: Graphics, element: Element): void {
   switch (element) {
@@ -95,8 +93,8 @@ export function drawElementShard(g: Graphics, element: Element): void {
 }
 
 function drawRune(g: Graphics, sides: number): void {
-  // Drawn in plain white so the user's tint fully decides the colour: the same
-  // shape serves element impacts and the golden victory seal.
+  // 以纯白色绘制，让使用者的着色完全决定颜色：
+  // 同一形状既服务于元素命中，也服务于金色胜利印记。
   g.circle(0, 0, 27).stroke({ width: 2, color: 0xffffff, alpha: 0.95 });
   const points: number[] = [];
   for (let index = 0; index < sides; index += 1) {
@@ -116,12 +114,12 @@ function drawSpike(g: Graphics): void {
   g.poly([-7, 4, -2, -30, 1.5, -46, 5, -28, 7, 4]).fill({ color: 0xffffff });
 }
 
-/** Builds every element shape once. Returns plain `Texture`s owned by the caller. */
+/** 一次性构建全部元素形状。返回由调用方持有的普通 `Texture`。 */
 export function createFxTextures(app: Application): FxTextures {
   const generate = (build: (g: Graphics) => void): Texture => {
     const graphics = new Graphics();
     build(graphics);
-    // Anchors are set on each sprite, so the generated frame stays the raw shape bounds.
+    // 锚点在每个精灵上设置，因此生成的画框保持为形状的原始边界。
     const texture = app.renderer.generateTexture({
       target: graphics,
       resolution: SHAPE_RESOLUTION,
@@ -153,7 +151,7 @@ export function createFxTextures(app: Application): FxTextures {
   };
 }
 
-/** Releases the generated shapes; the stage calls this exactly once on destroy. */
+/** 释放已生成的形状；舞台在销毁时恰好调用一次。 */
 export function destroyFxTextures(textures: FxTextures): void {
   const destroyOne = (texture: Texture): void => {
     if (!texture.destroyed) texture.destroy(true);

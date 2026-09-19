@@ -1,9 +1,8 @@
-// Shared deploy CLI context: deploy/compose.env values (process environment
-// wins for overrides), state directory layout, the standard COMPOSE_FILE set
-// and compose naming. There is no application management secret: maintenance
-// operations run one-shot inside the app container with the host's existing
-// Docker privilege. Secrets are always files under <stateDir>/secrets on the
-// host; they are never accepted on the command line and never logged.
+// 部署 CLI 的共享上下文：包括 deploy/compose.env 的配置值（进程环境变量优先级高于配置文件）、
+// 状态目录结构、标准 COMPOSE_FILE 文件集合以及 compose 命名规范。
+// 此处不存在管理后台密码：维护操作直接利用宿主机已有的 Docker 权限在应用容器内以单次命令方式运行。
+// 密钥一律以文件形式存放在宿主机上的 <stateDir>/secrets 目录下；
+// 绝不通过命令行参数接收密钥，也绝不记录进日志。
 
 import { existsSync, openSync, closeSync, writeSync, statSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
@@ -16,7 +15,7 @@ export const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
 const COMPOSE_PROJECT_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 
 const SECRET_FILE_DOCS: Record<string, string> = {
-  database_url: 'postgres://... URL for the app and one-shot containers',
+  database_url: '应用及单次运行容器所使用的 postgres://... 连接 URL',
   postgres_password: 'database superuser password',
   wechat_bridge_app_key:
     'WeChat bridge App Key from the xsg-website /developers App (server-side only)',
@@ -25,7 +24,7 @@ const SECRET_FILE_DOCS: Record<string, string> = {
     'optional 64 lowercase hex bearer token for the /api/ops/maintenance machine API; absent disables only the ops API',
 };
 
-/** Secrets every deployment needs; the ops token is opt-in. */
+/** 每次部署均必需的核心密钥；运维 API 令牌（ops token）为可选配置。 */
 export const SECRET_NAMES = [
   'database_url',
   'postgres_password',
@@ -35,7 +34,7 @@ export const SECRET_NAMES = [
 
 const OPS_TOKEN_PATTERN = /^[0-9a-f]{64}$/;
 
-/** Parses a compose-style env file: KEY=VALUE lines, `#` comments, no quoting tricks. */
+/** 解析 compose 风格的 env 文件：KEY=VALUE 行格式、`#` 注释行，无复杂引用语法。 */
 export function parseEnvFile(text: string): Record<string, string> {
   const vars: Record<string, string> = {};
   for (const rawLine of text.split(/\r?\n/)) {
@@ -90,10 +89,9 @@ export async function loadContext(
     throw new Error('SPELLTYPE_PUBLIC_ORIGIN is not set in the environment or deploy/compose.env.');
   }
 
-  // Standard COMPOSE_FILE (colon-separated; paths relative to the repository
-  // root) decides which compose files apply — operator and CLI always run the
-  // exact same set, so CLI container recreates can never drop override layers
-  // such as deploy/compose.dokploy.yaml routing.
+  // 标准 COMPOSE_FILE（冒号分隔；路径相对于仓库根目录）
+  // 决定生效的 compose 文件集合——运维人员与 CLI 始终使用完全相同的集合，
+  // 确保 CLI 重建容器时绝不会丢失诸如 deploy/compose.dokploy.yaml 路由等覆盖层。
   const composeFileValue = value('COMPOSE_FILE') || 'compose.yaml';
   const composeFiles = composeFileValue
     .split(':')
@@ -150,17 +148,17 @@ export function requireSecretFile(ctx: DeployContext, name: string): string {
   return path;
 }
 
-/** Requires every compose secret to exist before any stack operation. */
+/** 在执行任何技术栈操作前，强制要求所有 compose 密钥文件必须存在。 */
 export function requireAllSecrets(ctx: DeployContext): void {
   for (const name of SECRET_NAMES) requireSecretFile(ctx, name);
-  // An operator who opted into the ops override must also provision its
-  // token, or the app container would fail its secret mount at up.
+  // 若运维人员启用了 ops 覆盖配置，则必须同时提供其令牌文件，
+  // 否则应用容器在启动（up）挂载密钥时将会失败。
   if (ctx.composeFiles.some((file) => file.endsWith('compose.ops.yaml'))) {
     requireSecretFile(ctx, 'maintenance_token');
   }
 }
 
-/** Creates one 0600 secret file; refuses to touch an existing file. */
+/** 创建单个权限为 0600 的密钥文件；若文件已存在则拒绝覆写。 */
 export function createSecretFile(ctx: DeployContext, name: string, value: string): string {
   const path = secretFile(ctx, name);
   let fd: number;
@@ -181,9 +179,9 @@ export function createSecretFile(ctx: DeployContext, name: string, value: string
 }
 
 /**
- * Resolves the ops API bearer token: MAINTENANCE_TOKEN env, MAINTENANCE_TOKEN_FILE env,
- * or the state file `deploy secrets` creates when MAINTENANCE_TOKEN is exported.
- * Never accepted on the command line, never logged.
+ * 解析运维 API 的 Bearer 令牌：依次检查 MAINTENANCE_TOKEN 环境变量、MAINTENANCE_TOKEN_FILE 环境变量，
+ * 或当导出 MAINTENANCE_TOKEN 时由 `deploy secrets` 所创建的状态文件。
+ * 绝不通过命令行参数传递，也绝不打印至日志。
  */
 export async function readOpsToken(): Promise<string> {
   const inline = process.env.MAINTENANCE_TOKEN?.trim();
@@ -209,10 +207,9 @@ export async function readOpsToken(): Promise<string> {
 }
 
 /**
- * Builds the remote ops client without touching compose or the state dir:
- * SPELLTYPE_OPS_URL (explicit), else SPELLTYPE_PUBLIC_ORIGIN, else the local
- * loopback app port. Remote CI only needs these environment values — no
- * Docker access.
+ * 构建远程运维客户端，无需触碰 compose 或状态目录：
+ * 优先使用显式指定的 SPELLTYPE_OPS_URL，其次为 SPELLTYPE_PUBLIC_ORIGIN，
+ * 兜底使用本地回环的应用端口。远端 CI 仅需提供这些环境变量即可，无需 Docker 权限。
  */
 export async function loadOpsClient(): Promise<OpsClient> {
   const baseUrl =

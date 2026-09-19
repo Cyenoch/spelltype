@@ -10,17 +10,16 @@ import type { Transaction } from '../db';
 import { participantKind } from './opponents';
 
 /**
- * Returns the room to an open lobby after a match never came together. A
- * previous attempt was interrupted before it could settle, or the provider
- * failed: re-calling the provider would silently re-bill, so the match is
- * abandoned honestly instead.
+ * 当对局无法凑齐或初始化失败时，将房间恢复为开放大厅状态。
+ * 此前的尝试可能在结算前被中断，或者大模型服务商调用失败：
+ * 重新调用服务商可能会造成重复计费，因此直接坦白放弃本次对局。
  */
 export async function abortMatch(scope: RoomScope, message: string): Promise<void> {
   await scope.transact(async (tx) => abortMatchInTx(tx, scope, message));
   await pushSnapshots(scope);
 }
 
-/** The transactional body of `abortMatch`; callers own the transaction. */
+/** `abortMatch` 的事务内执行体；调用方持有该事务。 */
 export async function abortMatchInTx(
   tx: Transaction,
   scope: RoomScope,
@@ -54,13 +53,12 @@ export async function abortMatchInTx(
 }
 
 /**
- * Applies one finished generation attempt inside a fresh serialized command.
+ * 在全新的串行化命令中应用已完成的生成尝试结果。
  *
- * The token captured when the attempt started is re-checked here, so a response
- * from a superseded match or attempt can never overwrite newer state — and a
- * stale response never triggers another paid call. One shared book, one opening
- * countdown: the combat deadline is derived from the end of this countdown so
- * it is fixed the moment combat starts.
+ * 此处会重新校验生成开始时捕获的 token，因此被替代的对局或尝试的响应
+ * 绝不会覆盖更新的状态 —— 并且过期的响应绝不会触发另一次付费调用。
+ * 单个共享法术书，单次开局倒计时：战斗截止时间由该倒计时结束时间推导得出，
+ * 确保在战斗开始瞬间即被锁定固定。
  */
 export async function applyGenerationOutcome(
   scope: RoomScope,

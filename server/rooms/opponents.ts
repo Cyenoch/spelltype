@@ -18,7 +18,7 @@ function activeHuman(room: RoomRow, human: PlayerRow, at: number): boolean {
   return at - (human.input_opened_at ?? room.started_at ?? at) < BOT_IDLE_MS;
 }
 
-/** A room/spell pair always has the same cadence, including after process recovery. */
+/** 相同的房间/法术对始终具有相同的节奏，即使在进程恢复后亦然。 */
 function cadence(roomId: string, index: number): number {
   let hash = index + 1;
   for (let i = 0; i < roomId.length; i++) hash = Math.imul(hash ^ roomId.charCodeAt(i), 16777619);
@@ -58,7 +58,7 @@ export async function initializeOpponentTx(tx: Transaction, room: RoomRow): Prom
   await updateRoom(tx, room.id, { opponent_next_at: room.started_at + offset });
 }
 
-/** Executes one durable deadline, before a later input or batch can overtake it. */
+/** 执行单个持久化截止时间，防止被后续输入或批次反超。 */
 export async function advanceOpponentTx(
   tx: Transaction,
   room: RoomRow,
@@ -98,7 +98,7 @@ export async function advanceOpponentTx(
         (sum, cast) => sum + (cast.attackerId === opponent.user_id ? cast.power : 0),
         0,
       ) ?? 0;
-    // An early lead is bounded and gradually disappears; no committed damage is ever withdrawn.
+    // 前期的领先优势受限并会逐渐递减消失；已提交的伤害绝不会被收回。
     const openingLead =
       INITIAL_HEALTH * 0.12 * Math.max(0, 1 - (at - room.started_at) / MATCH_DURATION_MS);
     const allowance = human.damage_dealt * 0.9 + openingLead;
@@ -119,7 +119,7 @@ export async function advanceOpponentTx(
   });
 }
 
-/** Bot-only timeout policy; normal elimination and replay outcomes remain untouched. */
+/** 仅针对机器人的超时判定策略；正常的淘汰与回放结果保持不变。 */
 export function terminalReason(
   room: RoomRow,
   roster: readonly PlayerRow[],
@@ -133,7 +133,7 @@ export function terminalReason(
   return human.spells_cast > 0 && activeHuman(room, human, at) ? 'bot_concession' : 'inactivity';
 }
 
-/** Snapshot and persisted history use exactly the same dedicated Bot verdict. */
+/** 快照与持久化历史记录使用完全相同的专用机器人胜负判定。 */
 export function matchRanks(room: RoomRow, roster: readonly PlayerRow[]): Map<string, number> {
   if (
     room.opponent_kind === 'bot' &&

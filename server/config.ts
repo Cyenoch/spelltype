@@ -16,19 +16,18 @@ export interface AuthRateLimit {
 }
 
 export interface ServerConfig {
-  /** Informational identity only; never a room owner, route or admission rule. */
+  /** 仅用于展示的信息标识；绝不作为房间所有者、路由或准入规则。 */
   buildId: string;
-  autoMigrate: boolean;
   databaseUrl: string;
   hostname: string;
   port: number;
   publicOrigin: string;
-  /** Optional machine credential; never authenticates an administrator session. */
+  /** 可选的机器凭证；绝不用于管理员会话的身份认证。 */
   maintenanceToken: string | null;
   assetsRoot: string | null;
   authLimits: AuthRateLimit;
   wechatBridge: { baseUrl: string; appId: string; appKey: string } | null;
-  /** Trusted client IP header, or false to use the connection's peer address. */
+  /** 受信任的客户端 IP 请求头，若为 false 则使用连接的对端地址。 */
   trustForwardedFor: string | false;
   inputPolicyMode: InputPolicyMode;
   ai: AiConfig;
@@ -46,7 +45,7 @@ const authLimitsSchema = z.object({
 });
 const inputPolicySchema = z.enum(['observe', 'enforce']);
 
-/** File-backed secrets and environment secrets are mutually exclusive. */
+/** 基于文件的机密与环境变量中的机密互斥，不可同时配置。 */
 async function secret(environment: Environment, name: string): Promise<string | undefined> {
   const inline = environment[name];
   const filename = environment[`${name}_FILE`];
@@ -56,7 +55,7 @@ async function secret(environment: Environment, name: string): Promise<string | 
   return filename === undefined ? inline?.trim() : (await Bun.file(filename).text()).trim();
 }
 
-/** CLI reports, migrations and startup share the database selection and secret handling. */
+/** CLI 报表、迁移与服务启动共享相同的数据库选择和机密处理逻辑。 */
 export async function readDatabaseUrl(environment: Environment = Bun.env): Promise<string> {
   const production = environment.NODE_ENV === 'production';
   const url =
@@ -125,7 +124,6 @@ export async function readServerConfig(environment: Environment = Bun.env): Prom
   const forwardedHeader = environment.TRUST_FORWARDED_FOR?.trim().toLowerCase();
   return {
     buildId: typeof __SPELLTYPE_BUILD_ID__ === 'undefined' ? 'development' : __SPELLTYPE_BUILD_ID__,
-    autoMigrate: !production,
     databaseUrl,
     hostname: environment.HOST ?? '127.0.0.1',
     port: portSchema.parse(environment.PORT ?? '3000'),

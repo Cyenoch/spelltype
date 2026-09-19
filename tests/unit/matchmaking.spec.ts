@@ -1,16 +1,13 @@
 /**
- * 排队、配对与取消 — the quick-match queue against real PGlite storage, in one global runtime.
+ * 排队、配对与取消 —— 在单一全局运行时内针对真实 PGlite 存储的快速匹配队列。
  *
- * What is pinned here is the matchmaker's own observable contract: pairing commits room, seats and
- * both tickets in one transaction; polls refresh a waiting entry's TTL without changing its
- * identity; cancellation is truthful (a started match keeps its seat); a released reservation
- * frees the whole group and lets the survivor requeue; concurrent polls and cancel/pair races
- * converge without half-written state; maintenance refuses new entries while matched reservations
- * stay readable; and a lost runtime fence propagates as a real error with zero writes. The
- * synthetic fallback is pinned on its own: a lone waiter is held for real partners until the
- * ten-second deadline measured from its queue arrival, then matched with a synthetic seat that
- * owns no account, session or ticket — a replayed ghost when one qualifies, else a generated
- * bot — and every race and fence above holds for that path too.
+ * 此处锁定了匹配器自身可观察的契约：配对在单次事务中同时提交房间、席位和双方票据；
+ * 轮询刷新等待记录的 TTL 而不改变其请求标识；取消具有真实性（已开始的对局保留席位）；
+ * 释放的预约会解散整组并允许幸存者重新排队；并发轮询与取消/配对竞争能够收敛且不产生半途写入的状态；
+ * 维护状态拒绝新条目而已配对的预约仍保持可读；丢失运行时围栏会作为真实错误抛出且零写入。
+ * 合成对手兜底也独立锁定了契约：单独等待的玩家会等待真实对手，直到从入队算起的 10 秒截止时刻，
+ * 随后匹配到一个不拥有账号、会话或票据的合成席位 —— 合格时优先重放幽灵，否则生成机器人 ——
+ * 并且上述所有竞争和围栏规则对该路径同样成立。
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { rejects } from 'node:assert/strict';
@@ -41,7 +38,7 @@ afterEach(async () => {
   for (const opened of dbs.splice(0)) await opened.close();
 });
 
-/** The explicit fence a non-owning caller passes: matchmaking proceeds as the runtime's agent. */
+/** 非持有者调用方传递的显式围栏：匹配作为运行时的代理执行。 */
 const fenced = async () => {};
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -54,7 +51,7 @@ async function open(): Promise<Database> {
 
 const user = (id: string): User => ({ id, username: `玩家${id.slice(0, 2)}` });
 
-/** Fresh database with the given accounts (WeChat identities, one per account). */
+/** 带有给定账号（每个账号一个微信身份）的新建数据库。 */
 async function queueDb(...userIds: string[]) {
   const db = await open();
   for (const id of userIds) {
@@ -68,7 +65,7 @@ async function queueDb(...userIds: string[]) {
   return db;
 }
 
-/** The control row's current revision, the CAS argument enterMaintenance demands. */
+/** 控制行的当前修订号，即 enterMaintenance 所需的 CAS 参数。 */
 async function controlRevision(db: Database): Promise<number> {
   const [row] = await db.select().from(runtimeControl);
   if (!row) throw new Error('runtime_control has no singleton row');
@@ -106,7 +103,7 @@ async function seedGhost(db: Database, ghostId: string, sourceUserId: string) {
   });
 }
 
-/** Backdates a waiting entry's arrival so the ghost deadline is testable without sleeping. */
+/** 将等待条目的到达时间提前，从而无需真实休眠即可测试幽灵截止时间。 */
 async function ageWait(db: Database, userId: string, waitedMs: number) {
   await db
     .update(matchTickets)
@@ -114,7 +111,7 @@ async function ageWait(db: Database, userId: string, waitedMs: number) {
     .where(eq(matchTickets.user_id, userId));
 }
 
-/** Drives one account past the fallback deadline into a synthetic room; returns the poll answer. */
+/** 推动一个账号越过兜底截止时间进入合成房间；返回轮询响应。 */
 async function ghostMatch(db: Database, userId: string) {
   await acquireMatch(db, user(userId), fenced);
   await ageWait(db, userId, 30_000);
@@ -144,7 +141,7 @@ describe('排队与配对', () => {
     expect(room).toMatchObject({
       mode: 'quick',
       phase: 'lobby',
-      // The poll that completes the pairing hosts the room; the oldest waiter is the reserved seat.
+      // 完成配对的轮询作为房间房主；等待时间最长的玩家作为预留席位。
       host_id: 'u2',
       reservation_state: 'reserved',
     });
@@ -339,7 +336,7 @@ describe('合成对手兜底', () => {
     await seedGhost(db, 'g1', 'u2');
     await acquireMatch(db, user('u1'), fenced);
 
-    // Nine seconds in: a real partner may still show up, so the poll answers waiting only.
+    // 等待 9 秒：真实对手仍可能出现，因此轮询仅返回等待中。
     await ageWait(db, 'u1', 9_000);
     expect(await acquireMatch(db, user('u1'), fenced)).toMatchObject({ state: 'waiting' });
     expect(await db.select().from(rooms)).toHaveLength(0);
@@ -382,7 +379,7 @@ describe('合成对手兜底', () => {
       },
     ]);
 
-    // Only the human's ticket is consumed; the synthetic seat owns no account and no ticket.
+    // 仅消耗人类玩家的票据；合成席位既无账号也无票据。
     expect(await db.select().from(matchTickets)).toMatchObject([
       { user_id: 'u1', state: 'matched', room_id: roomId },
     ]);
@@ -416,7 +413,7 @@ describe('合成对手兜底', () => {
   it('没有合格幽灵时兜底为机器人对局', async () => {
     const db = await queueDb('u1');
     await seedGhost(db, 'g1', 'u2');
-    // A ghost recorded under stale rules never qualifies, so the synthetic partner is a bot.
+    // 在过时规则下记录的幽灵绝不合格，因此合成对手为机器人。
     await db.update(ghosts).set({ rules_version: 'stale' }).where(eq(ghosts.id, 'g1'));
     const { roomId } = await ghostMatch(db, 'u1');
 
@@ -441,7 +438,7 @@ describe('合成对手兜底', () => {
     await seedGhost(db, 'g1', 'u2');
     await acquireMatch(db, user('u1'), fenced);
 
-    // Refreshes keep the arrival: five seconds waited stay five seconds waited.
+    // 刷新保留到达时间：等待 5 秒仍算等待 5 秒。
     await ageWait(db, 'u1', 5_000);
     const before = await ticketRow(db, 'u1');
     await acquireMatch(db, user('u1'), fenced);
@@ -450,7 +447,7 @@ describe('合成对手兜底', () => {
     expect(after?.created_at).toBe(before?.created_at);
     expect(await db.select().from(rooms)).toHaveLength(0);
 
-    // A lapsed entry left the queue: its refresh arrives fresh, so the old wait is not inherited.
+    // 失效条目已离开队列：重新进入视为全新请求，不继承旧的等待时间。
     await db
       .update(matchTickets)
       .set({ created_at: Date.now() - 30_000, expires_at: Date.now() - 1 })
@@ -460,7 +457,7 @@ describe('合成对手兜底', () => {
     expect(revived?.created_at).toBeGreaterThan(Date.now() - 5_000);
     expect(await db.select().from(rooms)).toHaveLength(0);
 
-    // The fresh arrival does reach the ghost deadline on schedule.
+    // 全新到达的请求如期触发幽灵截止时间。
     await ageWait(db, 'u1', 10_000);
     expect((await acquireMatch(db, user('u1'), fenced)).state).toBe('matched');
   });
@@ -532,13 +529,12 @@ describe('合成对手兜底', () => {
     }
     const ticket = await ticketRow(db, 'u1');
     if (matching.state === 'matched') {
-      // The assignment won, so the cancellation tore its room down and freed the ticket.
+      // 分配抢先：因此取消操作销毁了房间并释放了票据。
       expect(ticket).toBeNull();
       expect(allRooms).toHaveLength(1);
       expect(matching.roomId).toBe(allRooms[0].id);
     } else {
-      // The cancellation won: the poll either re-queued fresh or answered waiting from a
-      // snapshot the deletion then invalidated — either way the old wait is gone with the room.
+      // 取消抢先：轮询要么全新重新排队，要么根据随后被作废的快照响应等待中 —— 无论如何旧的等待都随房间一同消失。
       expect(ticket === null || ticket.created_at > Date.now() - 5_000).toBe(true);
       expect(allRooms).toHaveLength(0);
     }
@@ -626,7 +622,7 @@ describe('维护准入', () => {
 
 const ROOM = 'a1b2c3d4e5f6a7b8c9d0e1f2';
 
-/** A started quick match: locked reservation, both seats seated, both tickets matched. */
+/** 已开始的快速对局：锁定的预约、双席位已就座、双方票据已匹配。 */
 async function seedStartedRoom(db: Database) {
   await db.insert(rooms).values({
     id: ROOM,

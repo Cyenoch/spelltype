@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/** Hand-authored UI art. Rebuild with `bun run art:ui`; no external sources or image-model claims. */
+/** 手工编写的 UI 美术资源。通过 `bun run art:ui` 重新构建；无外部依赖，亦未采用图像生成模型。 */
 import sharp from 'sharp';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -10,8 +10,8 @@ const size = 256;
 const svg = (body, width = 192, height = width) =>
   `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`;
 
-// Each edge is constant through the middle 96px. All decoration stays in the
-// 48px corner cells: border-image can stretch the edges without stretching jewels.
+// 每条边缘在中间 96px 内保持恒定。所有装饰均位于
+// 48px 的边角单元格内：border-image 可以在拉伸边缘的同时避免宝石变形。
 function frame({ light, mid, dark, gem, ornate }) {
   const corner = ornate
     ? `<path d="M5 43V18L18 5H43V10H22L10 22V43Z" fill="url(#metal)" stroke="${dark}"/>
@@ -88,8 +88,8 @@ const frames = {
   ),
 };
 
-// Periodic value noise, sampled on a torus. Integer grid frequencies make the
-// tile continuous in both axes; the last pixel approaches the first naturally.
+// 在环面上采样的周期性值噪声（Value Noise）。整数网格频率使
+// 贴图在两个轴向上均实现无缝连续；末端像素自然衔接至起始像素。
 function noise(x, y, frequency, seed) {
   const px = (x / size) * frequency;
   const py = (y / size) * frequency;

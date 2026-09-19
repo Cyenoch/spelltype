@@ -1,7 +1,6 @@
 /**
- * The runtime address book is the one cross-process handoff of the E2E harness: each logical run
- * resolves its own state directory, and whatever the harness records there is what a reader in
- * that run observes — never another run's addresses.
+ * 运行时通讯录是端到端测试工具唯一的跨进程交接点：每个逻辑运行都解析各自的状态目录，
+ * 并且测试脚手架在该目录记录的内容正是该次运行的读取方所观察到的 —— 决不会串入另一次运行的地址。
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,7 +11,7 @@ import type { RuntimeInfo } from '../support/runtime';
 
 const runtimeUrl = new URL('../support/runtime.ts', import.meta.url).href;
 
-/** Runs a fresh Bun child against the runtime module, so each invocation resolves its own run. */
+/** 针对运行时模块启动一个新的 Bun 子进程，确保每次调用都解析其所属的运行。 */
 function child(runId?: string, readRuntime = false): string {
   const env = { ...process.env };
   delete env.SPELLTYPE_E2E_RUN_ID;

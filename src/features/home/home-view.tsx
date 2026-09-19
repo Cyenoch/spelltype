@@ -12,7 +12,7 @@ import { JoinRoom } from './home-join-room';
 import { noticeStyles } from '../../ui/notice.styles';
 import type { AppContext } from '../../app/context';
 
-/** The four numbers every player should know before their first match. */
+/** 每位玩家在首场对局前应当了解的四项关键数值。 */
 export function MatchFacts() {
   return (
     <div class={stylex.props(styles.facts).className}>
@@ -37,20 +37,20 @@ export function MatchFacts() {
 }
 
 /**
- * Live activity, public to guests and players alike: two counters answered by the server's own
- * state. Loading and failure are shown as they are — never as zero — and a failed refresh keeps the
- * last numbers visible while the error note says they are stale.
+ * 实时活动数据，面向访客和已登录玩家公开：由服务端自身状态返回的两项计数指标。
+ * 加载中与失败状态均按实际情况展示——绝不显示为 0——刷新失败时保持旧数据可见，
+ * 并通过错误提示告知当前数据已过时。
  */
 export function ActivityPanel() {
   const activity = useQuery(() => activityOptions);
-  /** No answer yet stays an explicit placeholder: `…` while loading, `—` when unavailable. */
+  /** 尚未获得数据时保持显式占位符：加载中显示为 `…`，不可用时显示为 `—`。 */
   const counter = (count: number | undefined) =>
     activity.isPending ? '…' : count === undefined ? '—' : String(count);
   return (
     <section
       class={stylex.props(ui.panel, styles.activity).className}
       data-testid="home-activity"
-      // `stale`: the last numbers stay visible while the error note says the refresh failed.
+      // `stale`：保留展示上一次获取的数值，并通过错误文案告知本次刷新失败。
       data-state={
         activity.isPending
           ? 'loading'
@@ -101,7 +101,7 @@ export function ActivityPanel() {
   );
 }
 
-/** The game entrance: match controls, account summary and a short primer. */
+/** 游戏主入口：对局控制、账户概览及简短入门指南。 */
 export function HomeView(props: { ctx: AppContext }) {
   const navigate = useNavigate();
 
@@ -159,7 +159,7 @@ export function HomeView(props: { ctx: AppContext }) {
             <h1 class={stylex.props(ui.title, styles.heroTitle).className}>咒文对决</h1>
             <p class={stylex.props(styles.heroLead).className}>以文字为咒，以速度决胜。</p>
 
-            {/* Kept mounted so availability stays observable even while hidden. */}
+            {/* 保持挂载状态，确保在隐藏时仍可被测试观察可用性。 */}
             <div
               class={stylex.props(ui.notice, noticeStyles.warn, styles.heroNotice).className}
               data-testid="home-service-notice"

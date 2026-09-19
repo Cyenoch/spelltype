@@ -1,7 +1,7 @@
 /**
- * Browser shell primitives shared by the specs: the app's `data-testid` contract, navigation, the
- * visible error surface and the wall-clock settle used after a write with no observable completion.
- * Everything here reads the same surface a player does. The harness uses `settle` too.
+ * 各 spec 共用的浏览器外壳原语：应用的 `data-testid` 契约、导航、可见的错误面，以及在一笔
+ * 没有可观察完成信号的写入之后使用的墙钟静置。这里的一切读取的都是玩家看到的同一个界面。
+ * 测试环境同样使用 `settle`。
  */
 import { expect, type Page } from '@playwright/test';
 
@@ -10,13 +10,13 @@ export async function gotoApp(page: Page, pathname = '/'): Promise<void> {
   await expect(page.getByTestId('app-root')).toBeVisible();
 }
 
-/** Opens the app and waits until the home view is interactive. */
+/** 打开应用并等待首页视图可交互。 */
 export async function openHome(page: Page): Promise<void> {
   await gotoApp(page);
   await expect(page.getByTestId('view-home')).toBeVisible();
 }
 
-/** All error text the player can actually see right now (never console-only). */
+/** 玩家此刻真正能看到的所有错误文本（绝不只是控制台）。 */
 export async function visibleErrorText(page: Page): Promise<string> {
   const parts: string[] = [];
   for (const id of [
@@ -37,7 +37,7 @@ export async function visibleErrorText(page: Page): Promise<string> {
   return parts.filter((part) => part.length > 0).join(' | ');
 }
 
-/** Waits for a fixed wall-clock delay (used after a write that has no observable completion). */
+/** 等待一段固定的墙钟延时（用于没有可观察完成信号的写入之后）。 */
 export function settle(ms: number): Promise<void> {
   const { promise, resolve } = Promise.withResolvers<void>();
   setTimeout(resolve, ms);

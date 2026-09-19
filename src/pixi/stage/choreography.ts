@@ -4,42 +4,42 @@ import type { FxLayer } from '../effects/layer';
 import type { Seating } from './seating';
 import type { Element, Player, RoomSnapshot } from '../../../shared/protocol';
 
-/** Reduced motion lands the hit where it lands, then catches the effects up. */
+/** 减弱动效下，命中先落在它该落的位置，随后再让效果追赶上来。 */
 const SETTLE_STEP_MS = 160;
-/** A second confirm lands on the same frame; the completion pass waits it out. */
+/** 第二次确认落在同一帧；收尾流程会等它过去。 */
 const SETTLE_HOLD_MS = 900;
 const SETTLE_CATCH_UP_MS = 2400;
 
-/** Everything the match-level beats read and drive. */
+/** 对局级节拍所读取并驱动的全部内容。 */
 export interface ChoreographyDeps {
-  /** Root of the arena scene graph; the shake moves it. */
+  /** 竞技场场景图的根节点；画面震动会移动它。 */
   world: Container;
-  /** Live screen rect, read for the countdown beat. */
+  /** 实时的屏幕矩形，供倒计时节拍读取。 */
   screen: { width: number; height: number };
   fighters: readonly Fighter[];
   seating: Seating;
   fx: FxLayer;
-  /** Advances fx, fighters and glyphs by `deltaMS` outside the ticker. */
+  /** 在帧循环之外按 `deltaMS` 推进特效、斗士与字形。 */
   frame: (deltaMS: number) => void;
-  /** Renders one frame and counts it as a paint. */
+  /** 渲染一帧，并将其计入按需绘制次数。 */
   paint: () => void;
 }
 
 export interface Choreography {
-  /** Screen-shake impulse; the frame update damps it away. */
+  /** 屏幕震动冲量；帧更新会将其逐渐衰减掉。 */
   shake(amount: number): void;
-  /** Shake damp, the countdown opening flourish and the victory beat for one frame. */
+  /** 单帧内的震动衰减、倒计时开场特效与胜利节拍。 */
   update(
     deltaMS: number,
     phase: RoomSnapshot['phase'],
     occupancy: readonly (Player | null)[],
     element: Element,
   ): void;
-  /** Drops the shake and recentres the world. */
+  /** 清除震动并将世界重新居中。 */
   calm(): void;
-  /** Reduced motion: paints the settled frame and schedules the completion pass. */
+  /** 减弱动效：绘制已收尾的那一帧，并安排收尾流程。 */
   settle(): void;
-  /** Cancels a pending completion pass. */
+  /** 取消尚未执行的收尾流程。 */
   stopSettle(): void;
   reset(): void;
 }

@@ -1,7 +1,8 @@
 /**
- * The one quiet install affordance, only on /me. When the browser offers its own
- * install prompt we surface a button for it; otherwise a one-line pointer to the
- * browser menu. An already-installed (standalone) app says nothing.
+ * 仅在 /me 页面呈现的唯一下载安装入口。
+ * 当浏览器提供原生安装提示时，展示对应的触发按钮；
+ * 否则展示一行引导用户在浏览器菜单中操作的说明。
+ * 已安装（独立窗口 standalone 模式）运行的应用不显示该提示。
  */
 import { createSignal, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import * as stylex from '@stylexjs/stylex';
@@ -17,7 +18,7 @@ export function InstallHint(): JSX.Element {
   const [promptEvent, setPromptEvent] = createSignal<BeforeInstallPromptEvent | null>(null);
   const standalone = () =>
     window.matchMedia('(display-mode: standalone)').matches ||
-    // iOS Safari reports installed home-screen web apps here instead.
+    // iOS Safari 上的主屏幕网页应用在此属性上报。
     (navigator as Navigator & { standalone?: boolean }).standalone === true;
 
   onMount(() => {

@@ -1,12 +1,10 @@
 /**
- * Accounts and the session lifecycle, driven through the real auth view: a fresh isolated browser
- * context per player, WeChat sign-in through the fixture bridge, the signed-out invariant and the
- * account name.
+ * 账号与会话生命周期，通过真实的认证视图驱动：
+ * 每位玩家拥有全新隔离的浏览器上下文、通过测试桥接进行的微信登录、已登出状态的不变量以及账号名称。
  *
- * Every account created here is registered with the queue-cleanup tracker, so a test that fails
- * halfway cannot leave a matchmaking reservation behind. The nickname a player signs in with is
- * their stable identity: the same nickname is the same WeChat account, so `signIn` returns to the
- * existing account exactly like the real product's returning user.
+ * 此处创建的每个账号都会向队列清理跟踪器注册，避免测试中途失败遗留匹配预约。
+ * 玩家登录时使用的昵称是其稳定的身份：相同的昵称代表相同的微信账号，
+ * 因此 `signIn` 会像真实产品的回访老用户一样返回现有账号。
  */
 import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { trackAccountForQueueCleanup } from './accounts';
@@ -19,7 +17,7 @@ const DESKTOP_VIEWPORT = { width: 1440, height: 900 };
 
 let accountCounter = 0;
 
-/** Unique, charset-safe account name (2–20 chars, ASCII letters/digits/underscore). */
+/** 唯一的、字符集安全的账号名称（2–20 字符，ASCII 字母/数字/下划线）。 */
 export function uniqueName(prefix = 'p'): string {
   accountCounter += 1;
   return `${prefix}${Date.now().toString(36)}${accountCounter.toString(36)}`.slice(0, 20);
@@ -36,13 +34,13 @@ export async function newContext(
   return browser.newContext({
     viewport: options.viewport ?? DESKTOP_VIEWPORT,
     locale: 'zh-CN',
-    // Use the product's static rendering mode; visual scenarios opt into full motion.
+    // 使用产品的静态渲染模式；视觉测试用例可自行开启完整动画。
     reducedMotion: options.reducedMotion ?? 'reduce',
     baseURL: options.baseUrl ?? runtime().appUrl,
   });
 }
 
-/** Opens the auth view from wherever the app currently is. */
+/** 从应用当前所在页面打开认证视图。 */
 export async function openAuth(page: Page): Promise<void> {
   if (await page.getByTestId('view-auth').isVisible()) return;
   const navAuth = page.getByTestId('nav-auth');
@@ -52,9 +50,8 @@ export async function openAuth(page: Page): Promise<void> {
 }
 
 /**
- * One WeChat sign-in as `username`: the auth view's real 微信登录 link, the server's state issue,
- * the fixture bridge's redirect and the callback that establishes the session. The invitation in
- * the current URL survives the detour, exactly like a real invite link.
+ * 作为 `username` 进行一次微信登录：认证视图的真实“微信登录”链接、服务端下发状态 state、
+ * 测试桥接重定向以及建立会话的回调。当前 URL 中的邀请信息在跳转往返中得以保留，完全模拟真实的邀请链接。
  */
 async function wechatSignIn(page: Page, username: string): Promise<void> {
   await openAuth(page);
@@ -70,7 +67,7 @@ async function wechatSignIn(page: Page, username: string): Promise<void> {
     },
   ]);
   await page.getByTestId('auth-wechat').click();
-  // The callback lands back on the app root (invite preserved as ?room=) with the session set.
+  // 回调返回应用根路径（邀请信息保留在 ?room= 中），并已设置会话 Cookie。
   await expect(page.getByTestId('nav-username')).toHaveText(username, { timeout: 30_000 });
   if (invite) {
     await expect(page.getByTestId('lobby-panel')).toBeVisible({ timeout: 30_000 });
@@ -78,17 +75,17 @@ async function wechatSignIn(page: Page, username: string): Promise<void> {
   await trackAccountForQueueCleanup(page.context(), new URL(page.url()).origin);
 }
 
-/** Signs in with the WeChat identity bound to `username`, creating the account on first login. */
+/** 使用绑定到 `username` 的微信身份登录，首次登录时自动创建账号。 */
 export async function signUp(page: Page, username: string): Promise<void> {
   await wechatSignIn(page, username);
 }
 
-/** Returns to the account the fixture bridge holds for `username` (same identity, same account). */
+/** 回到测试桥接中为 `username` 保存的账号（相同身份，相同账号）。 */
 export async function signIn(page: Page, username: string): Promise<void> {
   await wechatSignIn(page, username);
 }
 
-/** The signed-out invariant, read from the persistent topbar. */
+/** 已登出状态的不变量，从持久化的顶部导航栏读取。 */
 export async function expectSignedOut(page: Page): Promise<void> {
   await expect(page.getByTestId('nav-username')).toBeHidden();
   await expect(page.getByTestId('sign-out')).toBeHidden();
@@ -100,14 +97,14 @@ export async function signOut(page: Page): Promise<void> {
   await expectSignedOut(page);
 }
 
-/** A signed-in browser session: its context, its first page and the account name. */
+/** 已登录的浏览器会话：包含其上下文、首个页面以及账号名称。 */
 export interface Session {
   context: BrowserContext;
   page: Page;
   username: string;
 }
 
-/** Signs a fresh account in inside a fresh context and returns both. */
+/** 在全新上下文中登录一个全新账号并返回两者。 */
 export async function signedInContext(browser: Browser, prefix = 'p'): Promise<Session> {
   const context = await newContext(browser);
   const page = await context.newPage();
@@ -118,9 +115,8 @@ export async function signedInContext(browser: Browser, prefix = 'p'): Promise<S
 }
 
 /**
- * Signs in as an administrator: the nickname is pinned on the fixture bridge to the one UnionID
- * the product grants the admin role, so this login lands on a real `role: 'admin'` account and
- * the maintenance console treats it exactly like the production operator.
+ * 作为管理员登录：该昵称在测试桥接上固定为产品授予管理员角色的唯一 UnionID，
+ * 因此该登录会进入真实的 `role: 'admin'` 账号，运维控制台会完全将其视同生产操作员。
  */
 export async function adminContext(browser: Browser, prefix = 'admin'): Promise<Session> {
   const username = uniqueName(prefix);

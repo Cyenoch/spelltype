@@ -1,12 +1,10 @@
 /**
- * Deploy CLI argument grammar — the boundary between operator input and
- * destructive host operations.
+ * 部署 CLI 参数语法解析 —— 运维人员输入与宿主机破坏性操作之间的边界。
  *
- * The deploy CLI drives drains, container stops and forward schema
- * migrations, so its parser must fail loudly rather than misparse: unknown
- * options are rejected (a typoed `--schema-compatible` must never silently
- * disable the safety acknowledgment), value flags demand a value, timeouts
- * must be positive numbers, and install/deploy demand an explicit `--image`.
+ * 部署 CLI 负责驱动排空排水、停止容器以及前向 Schema 迁移，
+ * 因此其解析器遇到异常必须坚决报错，绝不能错误解析：拒绝未知选项
+ * （拼写错误的 `--schema-compatible` 绝不能静默跳过安全确认）、
+ * 取值参数必须提供值、超时时间必须为正数，且 install/deploy 必须显式指定 `--image`。
  */
 import { describe, expect, it } from 'bun:test';
 import { rejects } from 'node:assert/strict';
@@ -31,8 +29,8 @@ function drainStatus(overrides: Partial<DrainStatus> = {}): DrainStatus {
   };
 }
 
-describe('deploy CLI parseArgs', () => {
-  it('splits positionals, value flags and boolean flags', () => {
+describe('部署 CLI parseArgs', () => {
+  it('正确拆分位置参数、取值参数和布尔参数', () => {
     const { positionals, flags, booleanFlags } = parseArgs([
       'deploy',
       '--image',
@@ -45,7 +43,7 @@ describe('deploy CLI parseArgs', () => {
     expect(booleanFlags).toEqual({});
   });
 
-  it('records boolean flags without swallowing neighbors', () => {
+  it('记录布尔参数且不吞掉相邻参数', () => {
     const { positionals, flags, booleanFlags } = parseArgs([
       'rollback',
       '--schema-compatible',
@@ -57,45 +55,45 @@ describe('deploy CLI parseArgs', () => {
     expect(booleanFlags['--schema-compatible']).toBe(true);
   });
 
-  it('rejects unknown options instead of ignoring them', () => {
+  it('拒绝未知选项而不是直接忽略', () => {
     expect(() => parseArgs(['deploy', '--imag', 'x'])).toThrow('--imag');
   });
 
-  it('rejects a value flag at the end without its value', () => {
+  it('末尾的取值参数若缺失对应的值则拒绝', () => {
     expect(() => parseArgs(['deploy', '--image'])).toThrow('--image requires a value');
   });
 });
 
-describe('deploy CLI parseSeconds', () => {
-  it('passes through an absent timeout', () => {
+describe('部署 CLI parseSeconds', () => {
+  it('未提供超时参数时透传 undefined', () => {
     expect(parseSeconds({}, '--wait-timeout')).toBeUndefined();
   });
 
-  it('accepts positive seconds', () => {
+  it('接受正数秒数', () => {
     expect(parseSeconds({ '--wait-timeout': '30' }, '--wait-timeout')).toBe(30);
   });
 
-  it('rejects zero, negative and non-numeric timeouts', () => {
+  it('拒绝零、负数以及非数字超时值', () => {
     expect(() => parseSeconds({ '--wait-timeout': '0' }, '--wait-timeout')).toThrow('positive');
     expect(() => parseSeconds({ '--wait-timeout': '-5' }, '--wait-timeout')).toThrow('positive');
     expect(() => parseSeconds({ '--wait-timeout': 'later' }, '--wait-timeout')).toThrow('positive');
   });
 });
 
-describe('deploy CLI requireFlag', () => {
-  it('returns the flag value when present', () => {
+describe('部署 CLI requireFlag', () => {
+  it('存在参数时返回其对应的值', () => {
     expect(requireFlag({ '--image': 'spelltype:local' }, '--image', 'deploy')).toBe(
       'spelltype:local',
     );
   });
 
-  it('names the command when the required flag is missing', () => {
+  it('缺失必填参数时指明对应的命令名称', () => {
     expect(() => requireFlag({}, '--image', 'install')).toThrow('install requires --image');
   });
 });
 
 describe('waitForDrainReady', () => {
-  it('returns as soon as the drain is ready', async () => {
+  it('排水排空就绪后立即返回', async () => {
     const seen: number[] = [];
     const status = await waitForDrainReady(
       () => {
@@ -108,7 +106,7 @@ describe('waitForDrainReady', () => {
     expect(seen).toHaveLength(1);
   });
 
-  it('keeps polling until ready, then reports the observed status', async () => {
+  it('持续轮询直到就绪，随后返回观察到的状态', async () => {
     let polls = 0;
     const status = await waitForDrainReady(
       () => {
@@ -123,7 +121,7 @@ describe('waitForDrainReady', () => {
     expect(status.ready).toBe(true);
   });
 
-  it('times out without mutating anything and reports the blocking counts', async () => {
+  it('超时退出且不修改任何状态，并在错误信息中报告阻塞的数量', async () => {
     let polls = 0;
     await rejects(
       waitForDrainReady(
@@ -138,7 +136,7 @@ describe('waitForDrainReady', () => {
     expect(polls).toBeGreaterThan(1);
   });
 
-  it('refuses to report ready when the draining revision moved mid-wait', async () => {
+  it('如果在等待期间排水版本发生变更，则拒绝返回就绪', async () => {
     let polls = 0;
     await rejects(
       waitForDrainReady(
@@ -152,7 +150,7 @@ describe('waitForDrainReady', () => {
     );
   });
 
-  it('rejects a replacement revision before the first poll, even when already ready', async () => {
+  it('在首次轮询前即拒绝不匹配的预期版本，即便当前已就绪', async () => {
     await rejects(
       waitForDrainReady(() => Promise.resolve(drainStatus({ revision: 9 })), {
         timeoutS: 1,
@@ -162,7 +160,7 @@ describe('waitForDrainReady', () => {
     );
   });
 
-  it('refuses to wait on open maintenance instead of draining it', async () => {
+  it('拒绝在 open 正常模式下进行等待而不是排水模式', async () => {
     await rejects(
       waitForDrainReady(() => Promise.resolve(drainStatus({ mode: 'open', ready: true })), {
         timeoutS: 1,
@@ -173,7 +171,7 @@ describe('waitForDrainReady', () => {
   });
 });
 
-it('does not follow maintenance redirects or disclose credentials to another path', async () => {
+it('不跟随运维重定向，防止向其他路径泄露凭证', async () => {
   let redirectedRequests = 0;
   const server = Bun.serve({
     hostname: '127.0.0.1',

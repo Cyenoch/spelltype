@@ -13,24 +13,24 @@ import { ProfileHistory } from './profile-history';
 import { InstallHint } from './install-hint';
 import { NotificationSettings } from './notification-settings';
 
-/** A stable empty window, so an account with no saved match never hands the table a new array. */
+/** 稳定的空战绩数组，确保无对局记录的账户不会导致向表格传入新数组引用。 */
 const NO_HISTORY: MatchResult[] = [];
 
 /**
- * Account summary: totals, best CPM and the ten most recent matches. History is
- * continuous-combat only: every row is a damage/health/casts/CPM/accuracy
- * record, with nothing carried over from the retired round game.
+ * 账户概览：汇总数据、最高 CPM 以及最近十场对局。
+ * 战绩仅记录连续战斗模式：每行均为伤害/生命/施法/CPM/命中率数据，
+ * 不保留已废弃的回合制对局历史。
  */
 export function ProfileView(props: { ctx: AppContext }) {
   const navigate = useNavigate();
   let authHandled = false;
 
   const profile = useQuery(() => ({
-    // Shared with the homepage card: one cache entry per account.
+    // 与首页玩家卡片共享数据：每个账户对应一个缓存条目。
     ...profileOptions(props.ctx.session.user?.id ?? ''),
     /**
-     * The panel is a snapshot the player asked for: a match saved a second ago has to be on
-     * screen the moment this view opens, so a mount refetches instead of reusing the entry.
+     * 本面板展示玩家主动查看的快照：一秒前刚保存的对局必须在打开本视图的瞬间立即呈现，
+     * 因此在挂载时始终重新拉取，而非复用已有缓存。
      */
     staleTime: 0,
     refetchOnMount: 'always' as const,
@@ -45,7 +45,7 @@ export function ProfileView(props: { ctx: AppContext }) {
       try {
         await parseResponse(client.api.logout.$post());
       } catch (error) {
-        // An already-dead session is still a successful sign-out.
+        // 会话若已失效，退出登录操作依然算作成功。
         if (!(error instanceof DetailedError && error.statusCode === 401)) throw error;
       }
     },
@@ -58,7 +58,7 @@ export function ProfileView(props: { ctx: AppContext }) {
     onError: (error) => props.ctx.notify(messageOf(error, '退出登录失败，请重试。'), 'error'),
   }));
 
-  // A rejected session is not a data error: the shell re-authenticates, once.
+  // 会话被拒绝不属于普通数据错误：外层壳组件统一触发一次重新登录。
   createEffect(() => {
     const error = profile.error;
     if (authHandled || !(error instanceof DetailedError && error.statusCode === 401)) return;

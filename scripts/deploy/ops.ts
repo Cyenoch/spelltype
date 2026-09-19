@@ -1,9 +1,7 @@
-// Remote maintenance transport: the bearer-only machine API at
-// /api/ops/maintenance on the normal app listener (no admin port, no cookie
-// auth). Intended for CI/platform automation that drains and resumes around a
-// container replacement ITSELF performs — this API never touches containers.
-// The token reaches the CLI only through environment or file configuration;
-// it is never accepted on the command line and never logged.
+// 远程维护通信传输：位于普通应用监听端口上仅支持 Bearer 鉴权的机器 API
+// `/api/ops/maintenance`（无独立管理端口，无 Cookie 鉴权）。
+// 专为在自身执行容器替换前后负责排空与恢复的 CI/平台自动化设计——本 API 绝不直接操作容器。
+// 令牌仅通过环境变量或配置文件传递给 CLI；绝不通过命令行参数传递，也绝不记录进日志。
 
 import {
   drainStatusSchema,
@@ -82,12 +80,12 @@ async function opsFetch(client: OpsClient, method: string, body?: unknown): Prom
   return payload;
 }
 
-/** GET /api/ops/maintenance — full DrainStatus (counts, runtime epoch, ready). */
+/** GET /api/ops/maintenance — 完整的 DrainStatus（计数指标、运行时纪元、就绪状态）。 */
 export async function opsDrainStatus(client: OpsClient): Promise<DrainStatus> {
   return drainStatusSchema.parse(await opsFetch(client, 'GET'));
 }
 
-/** POST {mode:'draining', expectedRevision} — durable drain CAS. */
+/** POST {mode:'draining', expectedRevision} — 持久化 drain CAS 操作。 */
 export async function opsDrain(
   client: OpsClient,
   expectedRevision: number,
@@ -98,9 +96,8 @@ export async function opsDrain(
 }
 
 /**
- * POST {mode:'open', expectedRevision, expectedRuntimeEpoch} — the server
- * verifies the epoch against its current handler runtime and the DB lease
- * before reopening admission.
+ * POST {mode:'open', expectedRevision, expectedRuntimeEpoch} — 服务端
+ * 在重新开放准入前，根据其当前的处理器运行时及数据库租约校验运行时纪元。
  */
 export async function opsResume(
   client: OpsClient,

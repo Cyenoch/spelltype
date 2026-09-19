@@ -1,16 +1,15 @@
-// Public endpoint probes used as deployment proof. There is no admin
-// listener and no bearer token: the only HTTP facts the runner trusts are the
-// public /health (live runtime lease + database, proves build identity and
-// the runtime epoch needed to resume) and /api/status (maintenance pointer,
-// protocol and build identity).
+// 用作部署验证凭据的公开端点探测工具。此处无管理后台监听端口，
+// 亦无 Bearer 令牌：运行器所信任的唯一 HTTP 凭据为公开的 /health
+// （验证活跃运行时租约与数据库连接，证明构建标识以及恢复准入所需的运行时纪元），
+// 以及 /api/status（维护状态指针、协议版本与构建标识）。
 
 import { z } from 'zod';
 import { serviceStatusSchema, type ServiceStatus } from '../../shared/maintenance';
 
 const REQUEST_TIMEOUT_MS = 10_000;
 
-// /health has no shared business schema (it is a deployment proof); the local
-// parse keeps the boundary honest without inventing parallel domain types.
+// /health 没有共享的业务 Schema（它是部署凭据）；在本地进行模式解析
+// 既能保证边界契约的严谨性，又无需人为臆造重复的领域类型。
 const runtimeHealthSchema = z.object({
   ok: z.literal(true),
   buildId: z.string().min(1),
@@ -58,16 +57,15 @@ async function getJson(target: ProbeTarget, path: string): Promise<unknown> {
   }
 }
 
-/** GET /api/status on the public listener (maintenance pointer + identity). */
+/** 在公开监听端口上请求 GET /api/status（获取维护状态指针及版本标识）。 */
 export async function getServiceStatus(target: ProbeTarget): Promise<ServiceStatus> {
   return serviceStatusSchema.parse(await getJson(target, '/api/status'));
 }
 
 /**
- * GET /health on the public listener: 200 only while the live runtime lease
- * and the database are reachable — including during maintenance draining.
- * The returned runtimeEpoch is the lease proof the runner passes to the
- * maintenance entry when resuming admission.
+ * 在公开监听端口上请求 GET /health：仅当活跃运行时租约和数据库均可访问时才返回 200
+ * ——维护排空期间亦同。返回的 runtimeEpoch 即为运行器在恢复准入时
+ * 传递给维护入口的租约凭据。
  */
 export async function getRuntimeHealth(target: ProbeTarget): Promise<RuntimeHealth> {
   return runtimeHealthSchema.parse(await getJson(target, '/health'));

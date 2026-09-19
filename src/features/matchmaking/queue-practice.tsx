@@ -12,16 +12,16 @@ import type { TypingEffects } from '../../pixi/typing-effects';
 import { motion } from '../../ui/motion';
 import { createGlyphStamp } from '../rooms/battle/glyph-stamp';
 
-/** The live clock repaints WPM/elapsed at the same cadence as the queue clock. */
+/** 实时时钟以与排队时钟相同的节奏刷新 WPM 与已用时间。 */
 const TICK_INTERVAL_MS = 250;
 
-/** One complete spell per line, in corpus order; parsing never throws. */
+/** 每行一条完整咒文，按语料库顺序排列；解析过程绝不抛出异常。 */
 const SPELLS: readonly string[] = corpusRaw
   .split('\n')
   .map((line) => line.trim())
   .filter((line) => line.length > 0);
 
-/** Fisher–Yates over every index, so one full pass visits the corpus exactly once. */
+/** 对所有索引执行 Fisher-Yates 洗牌算法，确保一轮遍历精确覆盖语料库一次。 */
 function shuffledIndices(): number[] {
   const order = SPELLS.map((_, index) => index);
   for (let i = order.length - 1; i > 0; i -= 1) {
@@ -32,8 +32,8 @@ function shuffledIndices(): number[] {
 }
 
 /**
- * A fresh deck whose first entry never equals `previousLast`, so cycling the
- * corpus cannot immediately repeat the sentence just practised.
+ * 生成新的一轮咒文卡组，其第一条绝不等于上一轮的最后一条（`previousLast`），
+ * 避免在新旧轮次衔接时立即重复刚才练习过的句子。
  */
 function nextDeck(previousLast: number): number[] {
   const order = shuffledIndices();
@@ -44,23 +44,19 @@ function nextDeck(previousLast: number): number[] {
 }
 
 /**
- * Local spell-typing practice for the matchmaking wait.
+ * 匹配等待期间的本地咒文打字练习面板。
  *
- * Everything lives in this mounted panel: no API, storage or ranking. Typing
- * semantics are the battle's, reused verbatim — `countEdit` charges insertions
- * as attempts and wrong ones as errors (a retracted mistake stays counted, a
- * pure deletion costs nothing), `normalizeSpellInput` accepts full-width
- * punctuation as the target's exact character, and `attachInputGuards` refuses
- * paste, drop and Enter. IME composition is never judged; its settled value
- * commits exactly once. Input that arrives after the queue settled — including
- * a late composition end — is ignored and the field restored to the judged
- * draft, so a requeue resumes the very same sentence with no inactive time
- * counted.
+ * 所有状态均保存在本挂载组件中：无 API 调用、无本地持久化存储、无天梯排行。
+ * 打字判定语义完全复用对局逻辑：`countEdit` 将键入计入尝试次数，错字计入错误次数
+ * （撤回的错误输入仍会被计入，纯删除操作不消耗次数），`normalizeSpellInput`
+ * 允许全角标点对齐匹配目标字符，`attachInputGuards` 拦截粘贴、拖放及 Enter 换行。
+ * 输入法（IME）组字过程不参与判定；组字完成确认（compositionend）后仅提交裁决一次。
+ * 在排队结束后到达的输入（包括延迟触发的 IME 组字结束）会被忽略，
+ * 且输入框会还原为已判定的草稿内容，以便重新排队时能够无缝继续练习同一句话，且不计入未操作的等待时间。
  *
- * The clock begins on the first confirmed insertion, pauses on blur and on a
- * hidden document, stops on completion and while the queue is inactive, and
- * resumes only with an active queue plus input focus. The interval exists only
- * while the clock runs, so keystrokes never recreate it.
+ * 计时器在首次确认输入字符时启动，在输入框失焦或页面隐藏时暂停，
+ * 在句子完成或队列不活跃时停止，仅在队列处于排队中且输入框获焦时恢复计时。
+ * 循环定时器仅在时钟运转期间存在，按键过程不会重复创建定时器。
  */
 export function QueuePractice(props: { active: boolean }) {
   const stampGlyph = createGlyphStamp();
@@ -85,9 +81,9 @@ export function QueuePractice(props: { active: boolean }) {
         if (!disposed) setFxState('failed');
       });
   });
-  /** The judged draft — confirmed text only, never provisional composition. */
+  /** 已判定的草稿——仅包含已确认的文本，绝不包含临时的输入法组字文本。 */
   let lastValue = '';
-  /** Clock state outside reactivity: mutation sites call `syncClock` themselves. */
+  /** 响应式体系之外的时钟状态：修改时由调用点自行调用 `syncClock` 同步。 */
   let clockArmed = false;
   let needsInsertion = true;
   let startedAt = 0;
@@ -114,14 +110,14 @@ export function QueuePractice(props: { active: boolean }) {
 
   const elapsedMs = () => accumulated() + (running() ? Math.max(0, now() - startedAt) : 0);
 
-  /** Correct insertions per five characters per active minute. */
+  /** 活跃时间内每分钟打字速度（每 5 个正确输入字符折算为 1 个词，WPM）。 */
   const wpm = createMemo(() => {
     const ms = elapsedMs();
     if (ms <= 0) return null;
     return Math.max(0, attempts() - errors()) / 5 / (ms / 60_000);
   });
 
-  /** Every wrong inserted character over every attempt, corrections included. */
+  /** 所有尝试中输入错误的字符比例（包含后续修改更正的错误）。 */
   const errorRate = createMemo(() => (attempts() === 0 ? null : errors() / attempts()));
 
   const statusMessage = createMemo(() => {
@@ -150,14 +146,14 @@ export function QueuePractice(props: { active: boolean }) {
     setRunning(false);
   };
 
-  // The interval exists exactly while the clock runs — never per keystroke.
+  // 定时器仅在时钟运转期间存在——绝不在每次按键时重复创建。
   createEffect(() => {
     if (!running()) return;
     const timer = window.setInterval(() => setNow(Date.now()), TICK_INTERVAL_MS);
     onCleanup(() => window.clearInterval(timer));
   });
 
-  // Reactive clock inputs; plain-variable sites call `syncClock` directly.
+  // 响应式时钟输入项；普通变量变更处由调用点直接调用 `syncClock`。
   createEffect(() => {
     void props.active;
     void completed();
@@ -166,8 +162,7 @@ export function QueuePractice(props: { active: boolean }) {
     syncClock();
   });
 
-  // Settling the queue freezes the clock, drops focus and retracts whatever an
-  // aborted IME composition may have left in the disabled field.
+  // 排队结算时会冻结时钟、释放输入框焦点，并撤回禁用的输入框中可能残留的未完成 IME 组字内容。
   createEffect(() => {
     if (props.active) {
       syncClock();
@@ -208,7 +203,7 @@ export function QueuePractice(props: { active: boolean }) {
       setFieldText(lastValue);
       return;
     }
-    // Commit once: the settled value is judged exactly like a plain input.
+    // 仅提交一次：组字结算后的值与普通直接输入的判定规则完全相同。
     if (textarea) judge(textarea.value);
   };
   const handleInput = (event: Event) => {
@@ -225,8 +220,8 @@ export function QueuePractice(props: { active: boolean }) {
   };
 
   /**
-   * The one judged entry, mirroring the battle controller: clamp, normalise,
-   * diff against the previous confirmed value, then account the edit.
+   * 唯一的输入判定入口，与对局控制器逻辑一致：限制长度、字符归一化、
+   * 计算与上一次已确认文本的差异，进而统计编辑动作。
    */
   const judge = (rawValue: string) => {
     if (!props.active || completed()) return;
@@ -277,7 +272,7 @@ export function QueuePractice(props: { active: boolean }) {
       }
     }
     if (spell !== '' && next === spell) {
-      // Exact match marks completed exactly once: further input is ignored above.
+      // 完全匹配即标记完成（仅触发一次）：后续多余输入会被上方逻辑忽略。
       needsInsertion = true;
       setCompleted(true);
       setCompletedCount((total) => total + 1);
@@ -293,7 +288,7 @@ export function QueuePractice(props: { active: boolean }) {
     if (textarea && textarea.value !== '') textarea.value = '';
   };
 
-  /** 下一句 and 换一句 share one path: no immediate repeat, corpus-wide coverage. */
+  /** “下一句”与“换一句”共用同一逻辑：避免立即重复，确保覆盖整个语料库。 */
   const advanceSentence = () => {
     if (!props.active || composing()) return;
     needsInsertion = true;

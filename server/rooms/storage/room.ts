@@ -9,9 +9,8 @@ import { RESERVATION_TTL_MS } from '../../../shared/protocol';
 import { SEAT_TTL_MS } from '../rules';
 
 /**
- * Columns a room patch may name; identity and creation stamps are fixed once
- * the room exists. `next_alarm_at` is a runtime-owned hint the runtime may
- * update.
+ * 房间补丁可指定的字段；房间一旦存在，标识与创建时间戳即固定。
+ * `next_alarm_at` 是运行时持有的提示字段，运行时可对其进行更新。
  */
 const ROOM_PATCH_COLUMNS = [
   'host_id',
@@ -45,16 +44,16 @@ const ROOM_PATCH_COLUMNS = [
 
 export type RoomPatch = Partial<Pick<RoomRow, (typeof ROOM_PATCH_COLUMNS)[number]>>;
 
-/** Reads the room's one row, or `null` when no such room exists. */
+/** 读取房间的单条数据行，不存在该房间时返回 `null`。 */
 export async function getRoom(db: RoomQuery, roomId: string): Promise<RoomRow | null> {
   const rows = await db.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
   return rows[0] ?? null;
 }
 
 /**
- * Applies a patch over the known columns only, so a caller can never inject a column and every
- * write touches `updated_at`. Fields left `undefined` are cleared to `null`, matching the old
- * patch semantics where a transition explicitly resets what it no longer means.
+ * 仅针对已知字段应用更新补丁，调用方绝不能注入非法字段，且每次写入都会更新 `updated_at`。
+ * 值为 `undefined` 的字段被重置为 `null`，沿用旧的补丁语义，
+ * 阶段流转会显式重置其不再生效的字段。
  */
 export async function updateRoom(db: RoomQuery, roomId: string, patch: RoomPatch): Promise<void> {
   const entries = Object.entries(patch).filter(([key]) =>
@@ -70,17 +69,15 @@ export async function updateRoom(db: RoomQuery, roomId: string, patch: RoomPatch
 }
 
 /**
- * Creates the room and its initial roster inside the caller's transaction.
+ * 在调用方的事务内创建房间及其初始花名册。
  *
- * This is the seam the matchmaker calls to pair a quick match and the one the
- * private-room flow uses: it writes the room row and every reserved seat, and
- * it takes no admission lock of its own — the caller's transaction already
- * holds the runtime_control admission gate — and it starts no runtime. A room
- * row that already exists with the same shape is an idempotent replay, matching
- * the old object-room contract; any other pre-existing row is a caller bug.
+ * 这是匹配系统用于配对快速对局的切面，也是私人房间流程所调用的接口：
+ * 它写入房间数据行及每个预留席位，自身不获取准入锁 —— 调用方的事务已持有
+ * runtime_control 准入网关 —— 且不会启动任何运行时。
+ * 已经存在且结构完全相同的房间行视为幂等重放，符合旧版契约；
+ * 任何其他已存在的行均视为调用方代码缺陷。
  *
- * All persisted state is written before the transaction can commit, so a
- * later wake-up can never observe a half-created room.
+ * 所有持久化状态均在事务提交前写入完毕，因此后续的唤醒绝不会观察到半创建状态的房间。
  */
 export async function createRoom(tx: QueryDatabase, init: RoomInit): Promise<void> {
   const parsed = roomInitSchema.safeParse(init);
@@ -95,8 +92,8 @@ export async function createRoom(tx: QueryDatabase, init: RoomInit): Promise<voi
   }
   const now = Date.now();
 
-  // The host legitimately appears in `reserved` for quick rooms, so the host
-  // is not counted twice; anything else duplicated is rejected by the schema.
+  // 在快速房间中，房主合法地出现在 `reserved` 中，因此房主不会被重复计算；
+  // 任何其他重复项均会被 schema 验证拒绝。
   const roster = [host, ...(reserved ?? []).filter((entry) => entry.id !== host.id)];
   const seatExpiresAt = mode === 'quick' ? now + RESERVATION_TTL_MS : now + SEAT_TTL_MS;
   const reservationExpiresAt = mode === 'quick' ? now + RESERVATION_TTL_MS : null;
@@ -106,7 +103,7 @@ export async function createRoom(tx: QueryDatabase, init: RoomInit): Promise<voi
     host_id: host.id,
     mode,
     theme,
-    // Every room is hard: no request can choose a difficulty any more.
+    // 所有房间统一为困难难度：请求不再允许自选难度。
     difficulty: 'hard',
     phase: 'lobby',
     deadline: 0,
@@ -118,8 +115,8 @@ export async function createRoom(tx: QueryDatabase, init: RoomInit): Promise<voi
     locked: 0,
     persistence: 'idle',
     persist_attempts: 0,
-    // A fresh lobby always owes a wake-up: quick reservations expire, and
-    // private lobby seats expire when their holders go idle.
+    // 全新创建的大厅必然需要一次唤醒：快速预留会超时，
+    // 私人大厅席位在持有者闲置时也会超时。
     next_alarm_at: reservationExpiresAt ?? seatExpiresAt,
     created_at: now,
     updated_at: now,

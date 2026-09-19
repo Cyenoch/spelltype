@@ -7,42 +7,39 @@ import { FAILURE_MESSAGES, GENERATION_BUDGET_MS } from './spells';
 import type { GenerationFailure, GenerationInput, GenerationOutcome } from './spells';
 
 /**
- * One shared preset book per theme. Claims recheck freshness under a row lock; publication and
- * failure clearing are token-fenced updates. Provider work runs outside every transaction.
+ * 每个主题共享本预设法术书。在行锁保护下校验新鲜度后进行租约申领；
+ * 结果发布与失败清理均通过令牌围栏进行条件更新。调用大模型的耗时操作均在事务之外执行。
  */
 
 /**
- * What a shared-book request gets: a validated cached book, or the same honest, distinguishable
- * failure a direct generation would have produced. There is no fake or stale-marked-as-fresh book.
+ * 共享法术书请求的产物：一份校验通过的缓存法术书，或直接生成时所产生的同样诚实且可明确区分的失败结果。
+ * 绝不存在虚假法术书，或将陈旧内容谎标为新鲜法术书。
  */
 export type SpellBookOutcome = { ok: true; spells: Spell[] } | GenerationFailure;
 
 /**
- * Freshness is earned only by a successful publication: for this long after a book lands, every
- * due request is served from the cache and nothing is billed. A failed attempt never sets or
- * extends the window, and never blocks the next request from retrying.
+ * 仅成功发布才能赢得新鲜度：法术书入库后的该时间段内，所有到期的请求均由缓存直接提供服务，
+ * 期间不产生任何模型调用计费。失败的尝试绝不会设定或延长该时间窗口，也绝不阻碍后续请求发起重试。
  */
 export const BOOK_FRESH_MS = 5 * 60_000;
 
 /**
- * The durable in-flight lease spans exactly one worst-case generation measured from the claim.
- * It is crash protection: after a restart mid-generation, the next due request holds out the
- * remaining window before starting recovery, so a dead attempt's billing window is not
- * immediately re-entered. It is a conservative delay — not a guarantee that no upstream call is
- * somehow still running, and not a failure cooldown: a settled attempt clears its own lease, so
- * the next request after a failed refresh may retry immediately.
+ * 持久化的处理中租约时长恰好覆盖自申领起最坏情况下的单次生成用时。
+ * 这是用于崩溃防范的保护机制：在生成过程中途发生重启后，下一个到期的请求会等待完剩余的时间窗口，
+ * 然后才启动恢复流程，从而避免立即再次踏入死掉尝试的计费窗口。
+ * 这是一种保守的延迟等待——并不保证上游调用没有以某种方式仍在运行，也并非失败冷却期：
+ * 已结算的尝试会主动清除其自身的租约，因此刷新失败后的下一次请求可以立即重试。
  */
 export const BOOK_LEASE_MS = GENERATION_BUDGET_MS;
 
 /**
- * How often a cold reader re-checks a lease it does not own. The lease belongs to another
- * process (every transition is a database statement, so there is no shared memory to consult),
- * and that owner may publish at any moment: re-checking in bounded steps serves a freshly
- * published book within this cadence instead of after the full remaining lease window.
+ * 冷启动读取方重新检查非自身持有租约的轮询频率。租约归属于另一个进程
+ * （每次状态转换均为数据库语句，故无跨进程共享内存可供查询），且该所有者随时可能发布结果：
+ * 以有界步长定期重检，能在该节奏内迅速感知新发布的法术书，无需被动等待完整个剩余租约窗口。
  */
 export const BOOK_LEASE_RECHECK_MS = 250;
 
-/** The one row of one theme's cache: the published book, when it was published, and any live lease. */
+/** 单个主题缓存的数据行结构：已发布的法术书、发布时间以及任何存活的租约。 */
 interface CacheRow {
   book: Spell[] | null;
   publishedAt: number | null;
@@ -67,7 +64,7 @@ async function readRow(database: QueryDatabase, theme: string, lock?: 'update'):
   const row = rows[0];
   if (row === undefined) return EMPTY_ROW;
   return {
-    // A stored book that is not an array leaves the cache empty rather than failing the read path.
+    // 数据库中存储的法术书若非数组，则按空缓存处理，避免读取路径直接报错崩溃。
     book: Array.isArray(row.book) ? row.book : null,
     publishedAt: row.published_at,
     token: row.token,
@@ -76,9 +73,8 @@ async function readRow(database: QueryDatabase, theme: string, lock?: 'update'):
 }
 
 /**
- * Recheck the decoded book and the live lease under the theme row lock. A publisher can finish
- * after the caller's first read; that publication must prevent a second billed generation.
- * The transaction commits its claim before any provider work begins.
+ * 在主题行锁保护下重新检查解码后的法术书与存活租约。发布者可能在调用方首次读取之后刚好完成；
+ * 该发布必须阻止第二次产生费用的重复生成。该事务在任何模型提供商调用开始前提交其租约申领。
  */
 async function claimLease(
   database: Database,
@@ -107,7 +103,7 @@ async function claimLease(
   });
 }
 
-/** Publishes book + a fresh publication time and clears the lease — only for the current token. */
+/** 发布法术书及最新的发布时间，并清除租约——仅当匹配当前持有令牌时生效。 */
 async function publishBook(
   database: Database,
   theme: string,
@@ -123,7 +119,7 @@ async function publishBook(
   return rows.length === 1;
 }
 
-/** A settled failure clears only the lease; the book and its publication time stay untouched. */
+/** 确定的失败仅清除租约；法术书及其发布时间保持不变。 */
 async function clearLease(database: QueryDatabase, theme: string, token: string): Promise<void> {
   await database
     .update(spellBookCache)
@@ -131,37 +127,32 @@ async function clearLease(database: QueryDatabase, theme: string, token: string)
     .where(and(eq(spellBookCache.theme, theme), eq(spellBookCache.token, token)));
 }
 
-/** Narrow clock/sleep seams so tests drive real databases with a fixed clock. */
+/** 狭义的时间/睡眠插桩接口，以便测试可以在固定时钟下驱动真实数据库。 */
 export interface ThemeBookCacheOptions {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
 
-/** One theme's in-flight refresh, shared in memory so cold readers coalesce instead of re-billing. */
+/** 单个主题进行中的刷新任务，在内存中共享，使冷读取方能合并等待而非重复计费。 */
 interface Pending {
   token: string;
   promise: Promise<SpellBookOutcome>;
 }
 
 /**
- * The shared spell book for THEME_PRESETS themes: one database row per theme, one instance per
- * process. The rules, in order:
+ * 面向 THEME_PRESETS 预设主题的共享法术书管理：每个主题对应一行数据库记录，每个进程持有一个单例。
+ * 规则按先后顺序执行：
  *
- * 1. A live attempt in this process is authoritative for as long as it runs — whether or not its
- *    lease has lapsed, because the claim is written before the generation budget even starts,
- *    and only while the row still carries its token. Old-book readers get the current book
- *    immediately; a cold cache coalesces onto the one in-flight refresh and observes its real
- *    final result, success or rejection.
- * 2. Only when no live attempt is known locally does the row's lease speak for a remote owner —
- *    another process, or a lost one after a restart. An old book still serves immediately; a
- *    cold cache re-checks in bounded steps so the owner's publication is served promptly, and
- *    holds out only a dead lease's remaining window before recovering.
- * 3. A book published within BOOK_FRESH_MS is served as-is; nothing is billed.
- * 4. Otherwise — empty or stale, no live attempt — this request owns exactly one refresh: it
- *    claims the lease after a row-locked freshness recheck (a racing loser re-reads instead of
- *    double-billing), generates once (the generator's own bounded retry policy applies inside),
- *    publishes on success, and clears the lease on failure. The next request after a settled
- *    failure may retry immediately; there is no failure cooldown.
+ * 1. 当前进程内正在运行的尝试在其执行期间始终具有权威性——无论其租约是否已经失效，因为申领在生成预算开始前就已写入，
+ *    且仅在该行仍携带对应令牌时有效。旧法术书读取方立即可获得当前法术书；冷缓存则合并到这单次进行中的刷新中，
+ *    并观察其实际的最终结果（成功或被拒收）。
+ * 2. 仅当本地没有已知的存活尝试时，该行的租约才代表远程所有者——另一个进程，或重启后遗失的进程。
+ *    旧法术书仍可立即提供服务；冷缓存以有界步长重新检查，以便及时提供所有者发布的内容，
+ *    且在启动恢复流程前仅等待失效租约的剩余窗口。
+ * 3. 在 BOOK_FRESH_MS 之内发布的法术书原样提供服务；不产生模型调用计费。
+ * 4. 否则——数据为空或已过期，且无存活的尝试——当前请求独占拥有恰好一次刷新机会：在行锁保护下重新核验新鲜度后申领租约
+ *    （竞态中落败方将重新读取而非重复计费），执行单次生成（生成器内部自身的有界重试策略依然适用），
+ *    成功时发布，失败时清除租约。已定论的失败之后到来的下一个请求可以立即重试；不存在失败惩罚冷却期。
  */
 export class ThemeBookCache {
   private readonly database: Database;
@@ -178,10 +169,9 @@ export class ThemeBookCache {
   }
 
   /**
-   * The shared entry point. Only THEME_PRESETS themes may be cached — preset rows are keyed by
-   * the exact trimmed theme string, and custom themes are generated per match by the caller. A
-   * non-preset theme here is an internal contract violation, so it fails loudly without a model
-   * call; `createSpellBookGenerator` routes custom themes around this class instead.
+   * 共享入口。仅支持缓存 THEME_PRESETS 预设主题——预设行以精确修剪后的主题字符串为键，
+   * 自定义主题则由调用方按场次单独生成。在此传入非预设主题属于违反内部协议，因此会在不调用模型的情况下显式报错；
+   * `createSpellBookGenerator` 会将自定义主题绕过本类直接路由。
    */
   async getSpellBook(rawTheme: string): Promise<SpellBookOutcome> {
     const theme = rawTheme.trim();
@@ -203,15 +193,14 @@ export class ThemeBookCache {
         }
 
         if (state.token !== null && state.leaseExpiresAt !== null && state.leaseExpiresAt > now) {
-          // The lease belongs to a remote or lost owner: an old book still serves immediately,
-          // and a cold cache re-checks in bounded steps — the owner's publication shows up on
-          // the next read instead of after the full remaining window.
+          // 租约属于远程或失联的所有者：旧法术书依然立即可用，
+          // 冷缓存则以有界步长定期重检——所有者的发布将在下一次读取时显现，而非等待完整个剩余窗口。
           if (state.book !== null) return { ok: true, spells: state.book };
           const waitingFor = state.token;
           await this.sleep(Math.min(BOOK_LEASE_RECHECK_MS, state.leaseExpiresAt - now));
           state = await readRow(this.database, theme);
-          // The attempt ended or was superseded without a publication. Do not silently bill a
-          // second attempt for this waiter; a new request may claim the now-empty cache.
+          // 该次尝试已结束或被取代且未发布成功。不要为当前等待者静默计费发起第二次尝试；
+          // 新请求可以自行申领此时已清空的缓存。
           if (state.book === null && state.token !== waitingFor) {
             return { ok: false, reason: 'upstream', message: FAILURE_MESSAGES.upstream };
           }
@@ -229,9 +218,8 @@ export class ThemeBookCache {
         break;
       }
 
-      // Empty or stale with no live attempt: this request owns exactly one refresh. The claim
-      // can still lose to a racing process that judged the same row first; then the row holds a
-      // fresh foreign lease and the loop above decides again.
+      // 内容为空或过期且无存活尝试：当前请求拥有恰好一次刷新权限。
+      // 申领租约仍可能输给率先判定同一行的并发进程；此时该行持有崭新的外部租约，上述循环将重新决策。
       const token = crypto.randomUUID();
       if (!(await claimLease(this.database, theme, token, this.now))) continue;
       const refreshing = this.refresh(theme, token);
@@ -245,13 +233,13 @@ export class ThemeBookCache {
   }
 
   /**
-   * One refresh, end to end: claim durably, generate once, publish or clear, then report. The
-   * promise this returns is the same object every cold coalescer awaits, so they see exactly
-   * what this caller sees — including a database failure that rejects the whole refresh.
+   * 单次端到端完整刷新：持久化申领、生成一次、发布或清除，随后上报结果。
+   * 此处返回的 Promise 即为所有冷合并等待者所 await 的同一个对象，确保它们看到的与当前调用方完全一致——
+   * 包括导致整个刷新被拒绝的数据库故障。
    */
   private async refresh(theme: string, token: string): Promise<SpellBookOutcome> {
-    // The claim is already committed (the caller awaited it before calling), so a crash here
-    // cannot lose the lease, and no provider work runs under any database lock.
+    // 申领操作已经提交（调用方在调用前已 await 完成），因此此处若崩溃不会丢失租约，
+    // 且模型调用绝不在任何数据库锁的保护范围之内运行。
     let outcome: GenerationOutcome;
     try {
       outcome = await this.generate({ theme, variation: token });
@@ -263,9 +251,8 @@ export class ThemeBookCache {
       outcome = { ok: false, reason: 'upstream', message: FAILURE_MESSAGES.upstream };
     }
 
-    // Each transition is one guarded statement: a late result whose token was superseded
-    // publishes nothing and clears nothing, so it can never overwrite a newer generation —
-    // and it is reported as a failure, never served unpersisted.
+    // 每次流转均为单条带守卫条件的 SQL 语句：被取代的过期令牌产生的迟到结果既不发布也不清除任何内容，
+    // 确保其绝不会覆盖更新的生成——并将其作为失败上报，绝不会未持久化便提供服务。
     if (outcome.ok) {
       const published = await publishBook(this.database, theme, token, outcome.spells, this.now());
       if (!published) {
@@ -276,23 +263,20 @@ export class ThemeBookCache {
     }
 
     const latest = await readRow(this.database, theme);
-    // The settled owner shares the old book when one exists — on failure as well — and only a
-    // cache miss gets the explicit failure, exactly like a direct per-match generation.
+    // 无论成功还是失败，只要存在旧法术书，已定论的所有者均会共享旧书——
+    // 只有在缓存完全未命中（冷启动）时才会获得显式失败，与直接按场次生成完全一致。
     if (latest.book !== null) return { ok: true, spells: latest.book };
     return outcome;
   }
 }
 
 /**
- * The production composition: wraps a `GenerateSpells` (the per-match generator `startServer`
- * builds from the configured provider, or an injected fixture) so that THEME_PRESETS themes are
- * served through the shared cache and everything else passes through untouched — custom themes
- * keep their per-match generation and the caller's own variation.
+ * 生产环境组合函数：包装一个 `GenerateSpells`（`startServer` 根据配置的模型服务构建的按场次生成器，或注入的测试夹具），
+ * 使得属于 THEME_PRESETS 的主题走共享缓存，其余所有主题原样透传——自定义主题保持按场次生成并携带调用方自有的变体种子。
  *
- * A success served from stored cache state reports `attempts: 0`: the response is a cache hit,
- * and the provider cost was paid once by whichever request performed the refresh — the outcome
- * a caller receives from the cache never claims an attempt of its own. Direct generations
- * (custom themes) pass the underlying outcome through verbatim.
+ * 由已存储缓存状态命中的成功请求会报告 `attempts: 0`：因为该响应属于缓存命中，
+ * 提供商成本已由执行刷新的那一次请求支付过——调用方从缓存获得的结果从不宣称自己消耗了尝试次数。
+ * 直接生成（自定义主题）则原样透传底层的生成结果。
  */
 export function createSpellBookGenerator(
   database: Database,

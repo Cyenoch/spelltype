@@ -12,17 +12,17 @@ import { QueueStage } from './queue-stage';
 import { QueuePractice } from './queue-practice';
 import { styles } from './queue-view.styles';
 
-/** Server-owned matchmaking status alongside local-only typing practice. */
+/** 服务端掌控的匹配状态，以及仅在本地运行的打字练习面板。 */
 export function QueueView(props: { ctx: AppContext }) {
   const queue = createMatchQueue(props);
   const searching = createMemo(() => queue.state() === 'waiting');
   const settled = createMemo(() => queue.state() === 'cancelled' || queue.state() === 'blocked');
 
-  /** Live population, read from the homepage counters' poll (10s refresh, 5s stale). */
+/** 实时在线人数，读取自首页计数轮询接口（10 秒刷新，5 秒判定陈旧）。 */
   const activity = useQuery(() => activityOptions);
 
-  // Joining, leaving and rejoining all change the population this page reports,
-  // so the shared counters refresh instead of waiting out their poll interval.
+  // 加入、离开或重新排队均会改变本页面展示的在线人数，
+  // 因此主动使共享计数失效重新拉取，而非等待其常规轮询间隔。
   createEffect(
     on(
       () => queue.state(),
@@ -78,7 +78,7 @@ export function QueueView(props: { ctx: AppContext }) {
           <div
             class={stylex.props(ui.statTiles, styles.facts).className}
             data-testid="queue-activity-state"
-            // `stale`: the last real answer stays visible · `error`: nothing ever arrived.
+            // `stale`：保留上一次真实响应数值 · `error`：从未获取到任何数据。
             data-state={
               activity.isPending
                 ? 'loading'

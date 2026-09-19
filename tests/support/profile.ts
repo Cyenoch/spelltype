@@ -1,11 +1,10 @@
 /**
- * The profile view: its asynchronous stat load and the persisted match history a player reads back
- * after a settled match.
+ * 个人资料视图：其异步统计数据加载以及玩家在对局结算后回溯查阅的持久化历史战绩。
  */
 import { expect, type Page } from '@playwright/test';
 import { gotoApp } from './app';
 
-/** The profile has finished loading when the spinner is gone, no error is shown and games is numeric. */
+/** 当加载指示器消失、未显示错误且对局数为数字时，个人资料加载完成。 */
 async function waitForProfileLoaded(page: Page): Promise<void> {
   await expect(page.getByTestId('view-profile')).toBeVisible();
   await expect(page.getByTestId('profile-stats')).toBeVisible();
@@ -21,9 +20,8 @@ async function waitForProfileLoaded(page: Page): Promise<void> {
 }
 
 /**
- * Opens the profile view and waits for its data load to finish. The view and its stat tiles are
- * rendered synchronously (the games tile starts as a placeholder), so the load is observed via the
- * loading indicator, the error text and the games figure becoming numeric.
+ * 打开个人资料视图并等待其数据加载完成。视图及其统计卡片是同步渲染的（对局数卡片初始为占位符），
+ * 因此通过加载指示器、错误文本以及对局数变为纯数字来观测加载完成。
  */
 export async function openProfile(page: Page): Promise<void> {
   if (!(await page.getByTestId('home-profile').isVisible())) await gotoApp(page);
@@ -34,11 +32,11 @@ export async function openProfile(page: Page): Promise<void> {
 export interface HistoryRow {
   matchId: string;
   theme: string;
-  /** Combat damage dealt by this player, as a plain figure. */
+  /** 该玩家造成的战斗伤害数值。 */
   damage: number | null;
-  /** Remaining health when the match settled. */
+  /** 对局结算时的剩余生命值。 */
   hp: number | null;
-  /** Spells this player completed. */
+  /** 该玩家完成的法术数。 */
   spells: number | null;
   rank: number;
   cpm: number;
@@ -47,14 +45,14 @@ export interface HistoryRow {
   text: string;
 }
 
-/** A cell's figure, but only when the cell is nothing but that figure. */
+/** 单元格的数值，仅在单元格内容为纯数字时提取。 */
 function bareNumber(text: string): number | null {
   const raw = text.trim();
   return /^-?\d+(?:\.\d+)?$/.test(raw) ? Number(raw) : null;
 }
 
 export async function historyRows(page: Page): Promise<HistoryRow[]> {
-  // Never read the table before the asynchronous load settled (a zero-row account is valid).
+  // 绝不在异步加载完成前读取表格（零行记录的账号也是合法状态）。
   await waitForProfileLoaded(page);
   const rows = await page.getByTestId('history-row').all();
   return Promise.all(

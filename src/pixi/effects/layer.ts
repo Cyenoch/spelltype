@@ -16,12 +16,11 @@ import {
 import type { FxTextures } from './shapes';
 
 /**
- * Bolts, impacts, shockwaves, typing sparks and damage floats.
+ * 弹道、命中、冲击波、打字火花与伤害飘字。
  *
- * Every visual lives in a preallocated slot, so a match with hundreds of hits
- * never allocates during play and the layer can never grow past its bound. The
- * layer is pure presentation: it never decides damage, only shows what the
- * authoritative `CombatEvent` already said.
+ * 每个视觉元素都位于预分配的槽位中，因此即便一场对局有数百次命中，
+ * 对局过程中也不会有任何分配，且该图层绝不会超出其容量上限。
+ * 该图层是纯粹的呈现层：它从不决定伤害，只展示权威 `CombatEvent` 已经给出的结果。
  */
 export class FxLayer {
   readonly ground = new Container();
@@ -32,7 +31,7 @@ export class FxLayer {
   private readonly bolts: Bolts;
   private readonly impacts: Impacts;
   private readonly transients: Transients;
-  /** Shared with the effect families, so every randomised path stays deterministic. */
+  /** 与各效果族共享，使每条随机化路径保持确定性。 */
   private readonly jitter: () => number;
 
   constructor(textures: FxTextures, pools: Record<Element, SparkPool>, safeFlash: boolean) {
@@ -46,13 +45,13 @@ export class FxLayer {
 
     this.ground.addChild(this.transients.waves);
     this.air.addChild(this.bolts.view, this.impacts.view);
-    // The element pools live above the fighters with the rest of the air layer,
-    // and their containers are added here so a spawn is actually on screen.
+    // 元素粒子池与空中图层的其余部分一样位于斗士上方，
+    // 其容器在此处被加入，因此生成出的粒子确实会出现在画面上。
     for (const element of ELEMENT_ORDER) this.air.addChild(pools[element].view);
     this.air.addChild(this.transients.floats);
   }
 
-  /** Set once by the stage; fired when a bolt reaches its target. */
+  /** 由舞台设置一次；当弹道抵达目标时触发。 */
   set onLanded(handler: ((bolt: BoltLanded) => void) | null) {
     this.bolts.onLanded = handler;
   }
@@ -61,7 +60,7 @@ export class FxLayer {
     return this.bolts.onLanded;
   }
 
-  /** Starts a projectile flight. Purely visual; the DOM/rules are unaffected. */
+  /** 开始一次弹道飞行。纯视觉表现；DOM 与规则层不受影响。 */
   launch(
     seq: number,
     attackerId: string,
@@ -91,9 +90,8 @@ export class FxLayer {
   }
 
   /**
-   * One hit's visible aftermath: shockwave on the ground, element ring, flash,
-   * element shapes, shards and a floating damage number. `floatCeil` bounds the
-   * number's ascent (canvas-local y from the seating's reserved top band).
+   * 单次命中的可见后续：地面冲击波、元素光环、闪光、元素形状、碎片与上浮的伤害数字。
+   * `floatCeil` 限定数字的上浮上限（座位布局保留的顶部条带所决定的画布局部 y 坐标）。
    */
   impact(
     x: number,
@@ -111,12 +109,12 @@ export class FxLayer {
     this.transients.damageFloat(x, floatY, floatCeil, element, damage, strength);
   }
 
-  /** Expanding ground ring, used by hits and eliminations. */
+  /** 向外扩张的地面光环，供命中与淘汰使用。 */
   groundWave(x: number, y: number, tint: number, strength: number): void {
     this.transients.wave(x, y, tint, strength);
   }
 
-  /** The eliminated fighter's collapse: big ring, upward column of sparks, shards. */
+  /** 被淘汰斗士的倒下：大光环、向上的火花柱与碎片。 */
   elimination(x: number, y: number, element: Element): void {
     this.transients.wave(x, y, ELEMENT_COLORS[element], 1.6);
     this.impacts.eliminate(x, y, element);
@@ -124,10 +122,9 @@ export class FxLayer {
   }
 
   /**
-   * Rank-1 flourish at the end of a match: a golden seal on the floor, a rune
-   * crown rising over the winner's head and a ring of embers. Everything is a
-   * crisp stroked shape, because soft additive light disappears against the
-   * bright arena sky.
+   * 对局结束时的第一名庆祝特效：地面上的金色印记、
+   * 自获胜者头顶升起的符文冠冕，以及一圈余烬。
+   * 全部使用清晰的描边形状，因为柔和的叠加光在明亮的竞技场天空下会完全消失。
    */
   victoryPillar(x: number, crownY: number, groundY: number, tint: number): void {
     this.impacts.hold(
@@ -167,7 +164,7 @@ export class FxLayer {
     emitTypingSpark(this.pools[element], x, y, element, amount);
   }
 
-  /** Advances every live effect. Called once per frame by the stage. */
+  /** 推进所有存活中的效果。由舞台每帧调用一次。 */
   update(deltaMS: number): void {
     this.bolts.update(deltaMS);
     this.impacts.update(deltaMS);
@@ -175,20 +172,20 @@ export class FxLayer {
     for (const element of ELEMENT_ORDER) this.pools[element].update(deltaMS);
   }
 
-  /** True while a projectile is still flying towards this fighter. */
+  /** 当仍有弹道飞向该斗士时为 true。 */
   incomingFor(targetId: string): boolean {
     return this.bolts.incomingFor(targetId);
   }
 
-  /** True while any projectile is in flight, used by the reduced-motion settle. */
+  /** 当仍有任何弹道在飞行中时为 true，供减弱动效下的收尾判定使用。 */
   get airborne(): boolean {
     return this.bolts.airborne;
   }
 
   /**
-   * Live `prefers-reduced-motion` change: from the next spawn on, impact flashes
-   * are capped the same way they are for a match started in reduced motion. The
-   * caller clears in-flight transients itself; nothing here mid-flight changes.
+   * 运行时切换 `prefers-reduced-motion`：自下一次生成起，
+   * 命中闪光将按与「对局开始前即为减弱动效」相同的方式被压低。
+   * 调用方自行清除飞行中的瞬时特效；此处不会改变任何已在途中的内容。
    */
   setReducedMotion(reduced: boolean): void {
     this.impacts.setReducedMotion(reduced);

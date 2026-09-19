@@ -24,7 +24,7 @@ export interface RunningServer {
   close(): Promise<void>;
 }
 
-/** Production connects to an already-migrated database and claims the sole writer before listening. */
+/** Applies pending migrations and claims the sole writer before listening. */
 export async function startServer({
   config,
   generate,
@@ -33,9 +33,7 @@ export async function startServer({
   if (config.assetsRoot && !(await Bun.file(join(config.assetsRoot, 'index.html')).exists())) {
     throw new Error('Application assets are missing. Build the application before starting it.');
   }
-  const ownedDatabase = database
-    ? null
-    : await openDatabase(config.databaseUrl, { migrate: config.autoMigrate });
+  const ownedDatabase = database ? null : await openDatabase(config.databaseUrl);
   const connection = database ?? ownedDatabase!.db;
   const services: ServerServices = { database: connection, config, rooms: null };
   let publicServer: Server<RoomSocketData> | undefined;

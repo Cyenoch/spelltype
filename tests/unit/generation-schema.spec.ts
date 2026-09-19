@@ -1,14 +1,12 @@
 /**
- * Spell-book validation unit tests — the one gate between a model response and a live match.
+ * 咒文书校验单元测试 —— 模型响应与真实对局之间的唯一闸门。
  *
- * The gate is deliberately loose where the model is unreliable: the 39-50 length target and the
- * !/~ ending style are prompt guidance only, and the lengths the model actually produces must
- * reach players. Structure, count, dedup, the printable-ASCII character set on name/text, the
- * real-Chinese translation metadata and the loose length ceilings stay hard, so Chinese typing
- * text, full-width punctuation, emoji and control characters can never enter the English combat
- * data. A rejected candidate is retried once and then reported as its own failure category, so
- * this validation decides both whether a match can start and whether a bad payload can reach
- * players. Nothing here needs a provider: `validateSpellSet` is pure.
+ * 在模型不够可靠的方面，校验闸门故意保持宽松：39–50 的目标长度与 !/~ 结尾风格仅仅是提示词指引，
+ * 模型实际产出的长度必须能够顺利到达玩家。
+ * 结构、数量、去重、名称/文本的可打印 ASCII 字符集、真实中文翻译元数据以及宽松的长度上限保持严格，
+ * 使得中文打字文本、全角标点、emoji 和控制字符绝不可能进入英文战斗数据。
+ * 被拒绝的候选咒书会重试一次，随后作为独立的失败类别汇报，因此本校验既决定了对局能否开始，
+ * 也决定了损坏数据是否会被阻挡在玩家之外。这里不需要任何真实模型供应商：`validateSpellSet` 是纯函数。
  */
 import { describe, expect, it } from 'bun:test';
 import { validateSpellSet } from '../../server/generation/spells';
@@ -37,8 +35,8 @@ const ZH_BASES = [
 ];
 
 /**
- * An exact-`length` code point run of ASCII pseudo-words (4-letter groups split by spaces) whose
- * first letter is fixed by `offset`, so books of any length stay distinct and never end in a space.
+ * ASCII 伪词的精确长度码点序列（4 字母一组，空格分隔），首字母由 `offset` 固定，
+ * 使得任意长度的咒文书保持各不相同且绝不以空格结尾。
  */
 function wordRun(length: number, offset: number): string {
   let text = '';
@@ -51,7 +49,7 @@ function wordRun(length: number, offset: number): string {
   return text;
 }
 
-/** A conforming book whose spells are `length` code points long, distinct in text, name and translation. */
+/** 合规的咒文书，每条咒文长 `length` 个码点，文本、名称和翻译均各不相同。 */
 function book(length = 27): Spell[] {
   return Array.from({ length: SPELL_BOOK_SIZE }, (_, index) => ({
     name: `${NAME_BASES[index % NAME_BASES.length]} ${LETTERS[index % LETTERS.length].toUpperCase()}`,
@@ -66,7 +64,7 @@ function rejection(candidate: unknown): string | null {
   return result.ok ? null : result.detail;
 }
 
-/** The candidate is untrusted model output, so it is built as raw data rather than as a Spell. */
+/** 候选数据是不可信的模型输出，因此作为原始数据构造而非严格的 Spell 类型。 */
 function withFirst(over: Record<string, unknown>): { spells: unknown[] } {
   const spells = book(20);
   return { spells: [{ ...spells[0], ...over }, ...spells.slice(1)] };
@@ -74,7 +72,7 @@ function withFirst(over: Record<string, unknown>): { spells: unknown[] } {
 
 describe('咒文书校验', () => {
   it('接受真实模型实际产出的长度：39–50 只是提示，短咒文整本书照常通过', () => {
-    // Short model sentences and the length target must both remain playable.
+    // 模型的短句和目标长度都必须保持可玩。
     for (const length of [14, 16, 20, 24, 27, 38, 50]) {
       expect(rejection({ spells: book(length) }), `length ${length}`).toBeNull();
     }
@@ -122,7 +120,7 @@ describe('咒文书校验', () => {
 
   it('翻译是元数据：超长被截停，重复却无妨，也不受 ASCII 约束', () => {
     expect(rejection(withFirst({ translation: '烬'.repeat(65) }))).toBe('translation-length:65');
-    // Only the typed English texts must be unique; translations may repeat freely.
+    // 只有输入的英文文本必须唯一；翻译可以自由重复。
     const repeated = book();
     repeated[1] = { ...repeated[1], translation: repeated[0].translation };
     expect(rejection({ spells: repeated })).toBeNull();
@@ -157,7 +155,7 @@ describe('咒文书校验', () => {
   });
 
   it('咒文名称与文本长度按码点计数，名称 2 到 24 个字符', () => {
-    // 13 emoji are 13 code points (26 UTF-16 units): passing the length gate proves code-point counting.
+    // 13 个 emoji 是 13 个码点（26 个 UTF-16 单元）：通过长度门禁证明了是按码点计数的。
     expect(rejection(withFirst({ name: '🌸'.repeat(13) }))).toBe('name-chars');
     expect(rejection(withFirst({ name: 'E' }))).toBe('name-length:1');
     expect(rejection(withFirst({ name: wordRun(25, 0) }))).toBe('name-length:25');

@@ -5,7 +5,7 @@ import type { RoomQuery } from './query';
 import { COMBAT_EVENT_RING_SIZE } from '../../../shared/protocol';
 import type { CombatEvent } from '../../../shared/protocol';
 
-/** Decodes the stored ring; a damaged value reads as empty instead of breaking a room read. */
+/** 解码存储的环形缓冲区；损坏的值解析为空列表，而不是中断房间读取。 */
 function parseEvents(roomId: string, json: string | null): CombatEvent[] {
   if (!json) return [];
   try {
@@ -21,16 +21,15 @@ function parseEvents(roomId: string, json: string | null): CombatEvent[] {
   }
 }
 
-/** The most recent damage events of the current match, oldest first. */
+/** 当前比赛最近的伤害事件列表，时间最早的排在最前。 */
 export function readEvents(room: RoomRow): CombatEvent[] {
   return parseEvents(room.id, room.events_json);
 }
 
 /**
- * Appends a whole simultaneous volley and advances its sequence once. The ring
- * remains bounded; no snapshot can observe only the first target's hit. Runs
- * inside the caller's combat transaction, so the whole batch commits with the
- * damage it records.
+ * 追加整批并发齐射事件并递增其序列号一次。
+ * 环形缓冲区保持容量受限；快照绝不会只观察到第一个目标的命中。
+ * 在调用方的战斗事务内执行，因此整个事件批次与其记录的伤害一同提交。
  */
 export async function appendEvents(
   db: RoomQuery,

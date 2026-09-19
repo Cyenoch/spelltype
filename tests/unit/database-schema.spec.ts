@@ -1,13 +1,10 @@
 /**
- * The schema itself, exercised through the real migrated database — the constraints are the
- * multi-process safety net now that one PostgreSQL (PGlite here) database serves api and game
- * processes concurrently. Pinned here: room/ticket id formats, room state vocabularies, the
- * singleton runtime control row (mode vocabulary, one row only), seat slot uniqueness,
- * result-write idempotency, the one-ticket-per-account rule, session seat cascades, and the
- * integer-millisecond timestamp convention surviving a round trip. Transactions get their own
- * proof: a coordinator's pairing flow (room + seats + ticket in one transaction, committed or
- * rolled back whole) runs through code typed against `QueryDatabase`, the union every storage
- * function accepts.
+ * 数据库 Schema 本身，通过真实完成迁移的数据库进行验证 —— 现在由单个 PostgreSQL（此处为 PGlite）数据库
+ * 同时服务于 api 和 game 进程，因此约束构成了多进程安全的兜底网。此处固化的关键行为包括：房间/入场券 ID 格式、
+ * 房间状态枚举字典、单例运行时控制行（模式字典、只允许一行）、席位槽位唯一性、战绩写入幂等性、
+ * 每个账号仅限一张有效入场券规则、会话席位级联删除，以及往返存取后依然精确保持整型毫秒的时间戳约定。
+ * 事务逻辑也单独进行了验证：协调器的配对流程（单个事务内同时处理房间 + 席位 + 入场券，整体提交或整体回滚）
+ * 通过面向 `QueryDatabase` 类型的代码执行，这也是所有存储函数通用的联合类型。
  */
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -111,9 +108,8 @@ async function insertResult(store: QueryDatabase, roomId: string, matchId: strin
 }
 
 /**
- * Standardized SQLSTATE categories — the provider-independent contract of a failed write. The
- * drizzle wrapper's own message text is implementation detail; the categorized `code` on the
- * provider error in the cause chain is what any consumer (or another process) can rely on.
+ * 标准化 SQLSTATE 分类 —— 写入失败时跨数据库驱动的统一约定。
+ * drizzle 包装层的错误文本属于实现细节；cause 链中驱动原生错误的分类 `code` 才是调用方（或其他进程）可依赖的凭据。
  */
 const SQLSTATE = { unique: '23505', foreignKey: '23503', check: '23514' } as const;
 type SqlStateCategory = keyof typeof SQLSTATE;
@@ -129,7 +125,7 @@ function causeChainHasSqlState(error: unknown, sqlstate: string): boolean {
   return false;
 }
 
-/** Runs the write, asserts it fails, and that the failure carries the standardized SQLSTATE. */
+/** 执行写入操作，断言其失败，并验证失败信息携带标准化的 SQLSTATE。 */
 async function rejectsWithSqlState(
   run: () => Promise<unknown>,
   category: SqlStateCategory,
@@ -143,21 +139,21 @@ async function rejectsWithSqlState(
   throw new Error(`expected the write to fail with SQLSTATE ${SQLSTATE[category]} (${category})`);
 }
 
-describe('runtime control', () => {
-  it('is a singleton in maintenance-mode vocabulary, never two rows', async () => {
+describe('运行时控制', () => {
+  it('属于运维模式字典下的单例记录，绝不允许存在两行', async () => {
     const [row] = await db.select().from(runtimeControl);
     expect(row).toBeDefined();
     expect(row?.singleton).toBe(1);
     expect(['open', 'draining']).toContain(row?.mode);
     expect(typeof row?.revision).toBe('number');
     expect(typeof row?.updated_at).toBe('number');
-    // The fresh development install starts open, with no runtime claiming the writer lease yet.
+    // 全新开发环境初始化后处于 open 状态，尚无运行时认领写入者租约。
     expect(row?.mode).toBe('open');
     expect(row?.runtime_id).toBeNull();
     expect(row?.runtime_epoch).toBe(0);
     expect(row?.lease_until).toBeNull();
 
-    // A second control row is a deployment split waiting to happen: the singleton refuses it.
+    // 插入第二行控制记录会导致部署产生分歧风险：单例约束会拒绝该操作。
     const badMode: string = 'paused';
     await rejectsWithSqlState(
       () =>
@@ -176,10 +172,10 @@ describe('runtime control', () => {
   });
 });
 
-describe('rooms and seats', () => {
-  it('enforces the room state vocabulary and the 24-hex room id', async () => {
-    // The drizzle $type() annotations reject these at compile time; the casts simulate any
-    // untyped writer (raw SQL, another process) so the database CHECK constraints prove out.
+describe('房间与席位', () => {
+  it('强制校验房间状态枚举字典和 24 位十六进制房间 ID', async () => {
+    // drizzle 的 $type() 注解在编译期会拒绝这些非法值；此处类型转换模拟了无类型写入者（原生 SQL 或其他进程），
+    // 以此检验数据库层面的 CHECK 约束生效。
     const badPhase: string = 'paused';
     const badMode: string = 'duel';
     const badDifficulty: string = 'easy';
@@ -198,7 +194,7 @@ describe('rooms and seats', () => {
     await rejectsWithSqlState(() => insertRoom(db, 'NOT-HEX'), 'check');
   });
 
-  it('carries the domain defaults the port expects and round-trips integer milliseconds', async () => {
+  it('携带服务端口预期的领域默认值，且整型毫秒时间戳往返存取无损', async () => {
     const id = nextRoomId();
     await insertRoom(db, id);
     const [row] = await db.select().from(rooms).where(eq(rooms.id, id));
@@ -220,7 +216,7 @@ describe('rooms and seats', () => {
     expect(typeof row?.created_at).toBe('number');
   });
 
-  it('never allows two seats in one slot and defaults a fresh seat correctly', async () => {
+  it('绝不允许同一槽位占用两个席位，并正确赋予新席位默认值', async () => {
     const roomId = nextRoomId();
     const first = nextUserId();
     const second = nextUserId();
@@ -249,7 +245,7 @@ describe('rooms and seats', () => {
     });
   });
 
-  it('cascades seats away when a room row is removed', async () => {
+  it('删除房间记录时级联删除其所有席位', async () => {
     const roomId = nextRoomId();
     const userId = nextUserId();
     await insertRoom(db, roomId);
@@ -260,8 +256,8 @@ describe('rooms and seats', () => {
   });
 });
 
-describe('results', () => {
-  it('makes retried result writes idempotent and keeps the room reference honest', async () => {
+describe('战绩', () => {
+  it('确保战绩重试写入具备幂等性，并校验房间外键引用有效', async () => {
     const roomId = nextRoomId();
     const userId = nextUserId();
     await insertRoom(db, roomId);
@@ -269,7 +265,7 @@ describe('results', () => {
 
     await insertResult(db, roomId, matchId, userId);
     await rejectsWithSqlState(() => insertResult(db, roomId, matchId, userId), 'unique');
-    // The room runtime's replay path: a duplicate inside the settling transaction is a no-op.
+    // 房间运行时的重放逻辑：在结算事务内部，重复写入视为空操作（no-op）。
     await db
       .insert(results)
       .values({
@@ -298,8 +294,8 @@ describe('results', () => {
   });
 });
 
-describe('match tickets', () => {
-  it('allows one ticket per account with unique requests and a tight state vocabulary', async () => {
+describe('匹配入场券', () => {
+  it('限制每个账号仅持有一张入场券，要求请求 ID 唯一且限定状态枚举字典', async () => {
     const userId = nextUserId();
     const rivalUserId = nextUserId();
     await seedAccount(userId);
@@ -318,10 +314,9 @@ describe('match tickets', () => {
       });
 
     await insert({});
-    // Same account again: the one-ticket-per-account primary key fires, and the failed write
-    // leaves the account's single ticket untouched.
+    // 同一账号再次创建：触发单账号单入场券主键约束，且写入失败后原入场券保持不变。
     await rejectsWithSqlState(() => insert({}), 'unique');
-    // Same request id on a different account: the global request uniqueness fires.
+    // 不同账号使用相同请求 ID：触发全局请求 ID 唯一性约束。
     await rejectsWithSqlState(() => insert({ user_id: rivalUserId }), 'unique');
     expect(
       await db.select().from(matchTickets).where(eq(matchTickets.user_id, userId)),
@@ -346,7 +341,7 @@ describe('match tickets', () => {
     );
   });
 
-  it('lets a waiting ticket exist without a room and a matched ticket with one', async () => {
+  it('允许排队中的入场券无房间关联，匹配成功的入场券必须关联房间', async () => {
     const waitingUser = nextUserId();
     const matchedUser = nextUserId();
     const roomId = nextRoomId();
@@ -376,8 +371,8 @@ describe('match tickets', () => {
   });
 });
 
-describe('session seats', () => {
-  it('keeps session references honest and clears them when the session dies', async () => {
+describe('会话席位', () => {
+  it('保证会话引用的真实有效性，并在会话销毁时将其清除', async () => {
     const userId = nextUserId();
     await seedAccount(userId);
     const roomId = nextRoomId();
@@ -402,8 +397,8 @@ describe('session seats', () => {
   });
 });
 
-describe('departures', () => {
-  it('records one departure per account per room', async () => {
+describe('离场记录', () => {
+  it('每个房间每个账号仅记录一条离场信息', async () => {
     const roomId = nextRoomId();
     const userId = nextUserId();
     await insertRoom(db, roomId);
@@ -416,8 +411,8 @@ describe('departures', () => {
   });
 });
 
-describe('transactions', () => {
-  it('commits a pairing-shaped transaction whole through the QueryDatabase union', async () => {
+describe('事务支持', () => {
+  it('通过 QueryDatabase 联合类型完整提交配对业务形态的事务', async () => {
     const committed = nextRoomId();
     const rolledBack = nextRoomId();
     const userId = nextUserId();

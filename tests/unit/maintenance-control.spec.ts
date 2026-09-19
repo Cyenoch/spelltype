@@ -280,7 +280,7 @@ describe('cutover migration seeding and guards', () => {
   }
 });
 
-describe('production open migration-level policy', () => {
+describe('database open migration-level policy', () => {
   /** A throwaway PGlite FILE directory — required because `migrate: false` reopens it. */
   async function tempDataDir(): Promise<string> {
     const dir = await mkdtemp(path.join(tmpdir(), 'spelltype-pglite-policy-'));
@@ -339,12 +339,17 @@ describe('production open migration-level policy', () => {
 
     // An older image (this build) opening the newer schema: the prefix it knows matches, so
     // compatible rollback must succeed — there are no down-migrations.
-    const rolledBack = await openDatabase(url, { migrate: false });
-    opened.push(rolledBack);
-    expect(await readMaintenance(rolledBack.db)).toMatchObject({ mode: 'open' });
+    for (const migrate of [false, true]) {
+      const rolledBack = await openDatabase(url, { migrate });
+      try {
+        expect(await readMaintenance(rolledBack.db)).toMatchObject({ mode: 'open' });
+      } finally {
+        await rolledBack.close();
+      }
+    }
   });
 
-  it('refuses an open that is missing a migration this build requires', async () => {
+  it('rejects missing migrations in read-only mode and automatically upgrades by default', async () => {
     const dataDir = await tempDataDir();
     const url = `pglite://${dataDir}`;
     const legacy = await openDatabase(url, {
@@ -355,6 +360,9 @@ describe('production open migration-level policy', () => {
     await rejects(async () => {
       opened.push(await openDatabase(url, { migrate: false }));
     }, Error);
+    const upgraded = await openDatabase(url);
+    opened.push(upgraded);
+    expect(await readMaintenance(upgraded.db)).toMatchObject({ mode: 'open' });
   });
 
   it('refuses an open whose expected migration hash diverges', async () => {
@@ -365,9 +373,11 @@ describe('production open migration-level policy', () => {
     });
     await diverged.close();
 
-    await rejects(async () => {
-      opened.push(await openDatabase(url, { migrate: false }));
-    }, Error);
+    for (const migrate of [false, true]) {
+      await rejects(async () => {
+        opened.push(await openDatabase(url, { migrate }));
+      }, Error);
+    }
   });
 });
 

@@ -1,9 +1,9 @@
 import * as stylex from '@stylexjs/stylex';
 
-/** Local styles for the private-room form; shared controls, panels and notices come from `ui`. */
+/** 自定义房间表单的局部样式；共享控件、面板和提示框均来自 `ui`。 */
 export const styles = stylex.create({
-  /** The preset strip is part of the theme block below it: a quiet stone shelf
-   *  grouping the choice chips so they read as one control cluster. */
+  /** 预设主题栏作为其下方主题配置块的一部分：采用低调的石质搁架样式
+   *  将选项标签分组，使其呈现为统一的控制组。 */
   presetRow: {
     marginBottom: 12,
     padding: 12,
@@ -21,12 +21,12 @@ export const styles = stylex.create({
     backgroundRepeat: 'repeat',
   },
 
-  /** Submitting is the primary action; it is spaced off the fields it depends on. */
+  /** 提交按钮是主要操作；与上方的依赖输入字段保持适度间距。 */
   submitRow: {
     marginTop: 16,
   },
 
-  /** The shared `steps` style covers the list itself, not its items. */
+  /** 共享的 `steps` 样式针对列表本身，而非其列表项。 */
   step: {
     marginBottom: '.4em',
   },

@@ -1,8 +1,8 @@
 import * as stylex from '@stylexjs/stylex';
 
 /**
- * The shared notice is neutral; views that need a tone or a nested action row
- * compose these on top of `ui.notice`.
+ * 公共提示框默认样式为中性色调；需要特定语气色调或内嵌操作按钮行的视图，
+ * 可以在 `ui.notice` 的基础上叠加组合这些样式。
  */
 export const noticeStyles = stylex.create({
   warn: {
@@ -12,7 +12,7 @@ export const noticeStyles = stylex.create({
     backgroundRepeat: 'no-repeat,repeat',
     color: '#ffe4b8',
   },
-  /** A notice that carries its own buttons keeps them off its copy. */
+  /** 自带操作按钮的提示框，使按钮与上方文案保持适当间距。 */
   actions: {
     marginTop: 8,
   },

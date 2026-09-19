@@ -1,30 +1,29 @@
 import { Application } from 'pixi.js';
 
-/** Backing-store ceiling so a 4K arena does not allocate a 4K×4K buffer. */
+/** 后备缓冲区上限，使 4K 竞技场不会分配 4K×4K 的缓冲区。 */
 const MAX_BACKING_PIXELS = 2_600_000;
 
 /**
- * The arena renderer and the policies that belong to it: init options, the
- * backing-store resolution, the on-demand paint counter and the resize wiring.
+ * 竞技场渲染器及其相关策略：初始化选项、后备缓冲区分辨率、
+ * 按需绘制计数器与尺寸变化监听接线。
  */
 export interface StageApp {
   readonly app: Application;
   readonly rendererName: string;
-  /** True when the arena fell back to the 2D canvas renderer. */
+  /** 当竞技场回退到 2D canvas 渲染器时为 true。 */
   readonly canvasRenderer: boolean;
   /**
-   * Every render the stage performs outside the ticker (initial layout, resize,
-   * reduced-motion repaint) goes through here, so `data-paints` is an honest
-   * count of on-demand paints and `data-frames` of ticker-driven ones.
+   * 舞台在帧循环之外执行的每一次渲染（初始布局、尺寸变化、减弱动效重绘）都走这里，
+   * 因此 `data-paints` 是按需绘制的诚实计数，`data-frames` 则是帧循环驱动的计数。
    */
   paint: () => void;
-  /** Re-derives the backing-store resolution for the current screen size. */
+  /** 针对当前屏幕尺寸重新推导后备缓冲区分辨率。 */
   syncResolution(): void;
-  /** Routes renderer resizes and host resizes to `listener`. */
+  /** 将渲染器的尺寸变化与宿主的尺寸变化转发给 `listener`。 */
   watchResize(listener: () => void): void;
-  /** Detaches the renderer listener and the host observer. */
+  /** 解除渲染器监听器与宿主观察器的绑定。 */
   stopWatchingResize(): void;
-  /** Destroys the application and its canvas: after the scene graph, before the textures. */
+  /** 销毁应用及其画布：在场景图之后、纹理之前。 */
   destroy(): void;
 }
 
@@ -40,7 +39,7 @@ export async function createStageApp(host: HTMLElement): Promise<StageApp> {
     backgroundAlpha: 0,
     resizeTo: host,
     antialias: pixelRatio <= 1.5,
-    // High-DPI is capped by both the device ratio and the total pixel budget.
+    // 高 DPI 同时受设备像素比与总像素预算两重限制。
     resolution: Math.min(pixelRatio, 1.75, areaBound),
     autoDensity: true,
     autoStart: false,
@@ -55,8 +54,8 @@ export async function createStageApp(host: HTMLElement): Promise<StageApp> {
   const rendererName = app.renderer.name;
   const canvasRenderer = rendererName === 'canvas';
   if (canvasRenderer) {
-    // A 2D canvas at device resolution is slower than the GPU path by an order of
-    // magnitude; the arena keeps every shape it has, just at 1:1 pixels.
+    // 以设备分辨率运行的 2D canvas 比 GPU 路径慢一个数量级；
+    // 竞技场保留其全部形状，只是按 1:1 像素绘制。
     app.renderer.resolution = 1;
     app.resize();
   }
@@ -107,10 +106,9 @@ export async function createStageApp(host: HTMLElement): Promise<StageApp> {
 
     destroy(): void {
       disposed = true;
-      // No `releaseGlobalResources` here: Pixi's global pools are shared with the
-      // page backdrop, which stays alive across rooms, and draining them under a
-      // live renderer is exactly what corrupts it. They are released when the
-      // last application on the page goes away.
+      // 此处不调用 `releaseGlobalResources`：Pixi 的全局池与页面背景共享，
+      // 而后者会跨房间存活，在渲染器仍存活时排空它们正是会破坏它的原因。
+      // 它们会在页面上最后一个应用消失时被释放。
       app.destroy({ removeView: true }, { children: true });
     },
   };

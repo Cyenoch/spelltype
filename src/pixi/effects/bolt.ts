@@ -8,7 +8,7 @@ import type { FxTextures } from './shapes';
 
 export interface BoltLanded {
   seq: number;
-  /** The caster's spell cursor at launch, so the impact art matches the cast. */
+  /** 发射时施法者的咒文游标，使命中美术与本次施法相对应。 */
   spellIndex: number;
   attackerId: string;
   targetId: string;
@@ -79,7 +79,7 @@ function createBoltSlot(textures: FxTextures): BoltSlot {
 export class Bolts {
   readonly view = new Container();
 
-  /** Set by the layer; fired when a bolt reaches its target. */
+  /** 由图层设置；当弹道抵达目标时触发。 */
   onLanded: ((bolt: BoltLanded) => void) | null = null;
 
   private readonly textures: FxTextures;
@@ -100,7 +100,7 @@ export class Bolts {
     }
   }
 
-  /** Starts a projectile flight. Purely visual; the DOM/rules are unaffected. */
+  /** 开始一次弹道飞行。纯视觉表现；DOM 与规则层不受影响。 */
   launch(
     seq: number,
     attackerId: string,
@@ -155,8 +155,8 @@ export class Bolts {
 
     slot.view.visible = true;
     slot.view.alpha = 1;
-    // Bolt children are positioned in absolute arena coordinates by `pathAt`,
-    // so the container itself must not also carry the launch offset.
+    // 弹道的子元素由 `pathAt` 以竞技场绝对坐标定位，
+    // 因此容器本身不能再叠加发射点偏移。
     slot.view.position.set(0, 0);
   }
 
@@ -210,7 +210,7 @@ export class Bolts {
     }
   }
 
-  /** True while a projectile is still flying towards this fighter. */
+  /** 当仍有弹道飞向该斗士时为 true。 */
   incomingFor(targetId: string): boolean {
     for (const slot of this.slots) {
       if (slot.active && slot.targetId === targetId) return true;
@@ -218,7 +218,7 @@ export class Bolts {
     return false;
   }
 
-  /** True while any projectile is in flight, used by the reduced-motion settle. */
+  /** 当仍有任何弹道在飞行中时为 true，供减弱动效下的收尾判定使用。 */
   get airborne(): boolean {
     for (const slot of this.slots) {
       if (slot.active) return true;
@@ -258,13 +258,13 @@ export class Bolts {
     const length = Math.hypot(dx, dy) || 1;
     out.x += (-dy / length) * bow;
     out.y += (dx / length) * bow;
-    // Sag peaks mid-flight and vanishes at both ends, so a ballistic bolt still
-    // arrives exactly on the target instead of landing below it.
+    // 下坠量在飞行中段达到峰值、两端归零，因此弹道弹丸仍能精确命中目标，
+    // 而不会落在其下方。
     out.y += style.drop * t * (1 - t) * 4;
   }
 
-  // Slot pickup scans by index rather than `.find`: hits call this several times
-  // and a throwaway closure per call is an allocation in the hot path.
+  // 槽位拾取按索引扫描而非使用 `.find`：命中路径会多次调用它，
+  // 每次调用创建一个一次性闭包就是热路径上的一次分配。
   private takeSlot(): BoltSlot {
     for (let index = 0; index < this.slots.length; index += 1) {
       const slot = this.slots[index];

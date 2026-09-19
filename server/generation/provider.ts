@@ -2,7 +2,7 @@ import { createDeepSeek } from '@ai-sdk/deepseek';
 import type { LanguageModel } from 'ai';
 import type { AiConfig } from '../config';
 
-/** Default model alias; the server configuration may select another model. */
+/** 默认模型别名；服务端配置可选择其他模型。 */
 export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-flash';
 
 export class MissingDeepSeekKeyError extends Error {
@@ -13,14 +13,14 @@ export class MissingDeepSeekKeyError extends Error {
 }
 
 /**
- * True when a DeepSeek credential is present. Safe to expose (boolean only):
- * the key itself is never logged, returned, or embedded in responses.
+ * 当配置了 DeepSeek 凭据时返回 true。可安全向外暴露（仅为布尔值）：
+ * 密钥本身绝不会被打印到日志中，亦不会返回或嵌入在响应体中。
  */
 export function isAiConfigured(config: AiConfig): boolean {
   return Boolean(config.apiKey);
 }
 
-/** Production model construction; tests inject their own model factory into generation. */
+/** 生产环境模型构造函数；单元测试在生成阶段注入自有的模型工厂。 */
 export function createSpellModel(config: AiConfig): LanguageModel {
   if (!config.apiKey) throw new MissingDeepSeekKeyError();
   return createDeepSeek({ apiKey: config.apiKey })(config.model);

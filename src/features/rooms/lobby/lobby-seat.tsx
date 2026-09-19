@@ -19,11 +19,10 @@ const BADGE_TONE = {
   synthetic: 'badgeSynthetic',
 } as const;
 
-/** The badges one seat shows, in the order the lobby has always shown them. */
+/** 席位展示的徽章列表，按大厅一贯的顺序排列。 */
 function seatBadges(player: Player, hostId: string): SeatBadge[] {
   const badges: SeatBadge[] = [];
-  // A synthetic opponent names itself first: it is never presented as an offline
-  // or secretly online human.
+  // 非真人对手首先表明自身类型：绝不伪装成离线或隐身的人类玩家。
   if (player.kind !== 'human')
     badges.push({
       label: OPPONENT_KIND_LABELS[player.kind],
@@ -43,11 +42,10 @@ function seatBadges(player: Player, hostId: string): SeatBadge[] {
 }
 
 /**
- * One seat on the duel stage. The self side and a lone rival get the large
- * round portrait; additional rivals and open invitation slots read as compact
- * row cards so three of them never outgrow the stage. An empty quick-match
- * slot keeps the queue's veiled rival — the scan says "the opponent is on the
- * way" — while an empty private slot is just an invitation.
+ * 决斗舞台上的单个席位。自身席位及独占对手席位采用大型圆形头像；
+ * 额外的对手与开放的邀请席位则展示为紧凑的单行卡片，确保 3 个席位也不会超出舞台尺寸。
+ * 快速匹配模式下的空席位保留匹配队列中的面纱对手头像——扫描动画表达“对手正在路上”——
+ * 而私密房间的空席位则纯粹作为等待好友邀请的空位。
  */
 export function Seat(props: {
   slot: number;
@@ -55,13 +53,13 @@ export function Seat(props: {
   player: Player | undefined;
   selfId: string;
   hostId: string;
-  /** Row card with a small portrait: extra rivals and open invitation slots. */
+  /** 带小头像的单行卡片：用于多出的对手及开放的邀请席位。 */
   compact?: boolean;
-  /** The quick-match slot whose reserved opponent has not arrived yet. */
+  /** 预留的对手尚未进入的快速匹配席位。 */
   searching?: boolean;
-  /** Name shown for an empty seat: `未知` while a rival is pending. */
+  /** 空席位展示的名称：对手正在连接时显示为 `未知`。 */
   emptyLabel: string;
-  /** What an empty seat should tell the viewer to do next. */
+  /** 提示玩家针对空席位下一步该执行的操作文案。 */
   emptyNote: string;
 }) {
   const isSelf = createMemo(() => props.player?.id === props.selfId);

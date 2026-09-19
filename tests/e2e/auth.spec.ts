@@ -1,15 +1,12 @@
 /**
- * Accounts, sessions and the auth boundary, observed from the browser.
+ * 从浏览器端观测的账号、会话与认证边界。
  *
- * Every login walks the real redirect chain: the auth view's link hands the browser to
- * `/api/auth/wechat/start`, the harness routes the bridge hostname to the local WeChat bridge
- * double (which signs the same relay payloads the sibling service does), and the browser comes
- * back through the real callback with its own cookies. The scenarios cover the lifecycle a player
- * lives through (login, refresh, sign out, anonymous refusals), the invite that survives a login,
- * bridge failures, forged callback signatures and token replay, and what happens when a session
- * dies while a room socket is open.
- * Token crypto and state-ledger behaviour are pinned against the app directly in
- * `tests/unit/wechat-login.spec.ts`.
+ * 每次登录均走通真实的重定向链条：认证界面的链接将浏览器导向 `/api/auth/wechat/start`，
+ * 测试脚手架将桥接域名路由至本地微信桥接替身（签发与真实对端服务相同的中继有效载荷），
+ * 浏览器携带自身 Cookie 通过真实的回调返回。
+ * 测试场景覆盖玩家经历的完整生命周期（登录、刷新、登出、匿名拒绝）、登录时携带的邀请信息、
+ * 桥接故障、伪造的回调签名与令牌重放，以及房间 socket 打开期间会话失效时的行为。
+ * 令牌密码学与状态账本行为在 `tests/unit/wechat-login.spec.ts` 中直接针对应用本身进行锁定。
  */
 import { expect } from '@playwright/test';
 import { test } from '../support/test';
@@ -41,8 +38,7 @@ test('微信登录建立会话、刷新保持登录、登出后失效；未登�
 }) => {
   const { context, page, username } = await signedInContext(browser, 'auth');
 
-  // Identity stays independent of the game runtime; the status document carries
-  // only the maintenance pointer and informational identity, never secrets.
+  // 身份保持独立于游戏运行时；状态文档仅携带维护状态指针和描述性身份信息，绝不包含敏感机密。
   const session = await apiJson<{ user: unknown }>(context, '/api/session');
   const status = await apiJson<{ maintenance: { mode: string }; buildId: string }>(
     context,
@@ -62,8 +58,7 @@ test('微信登录建立会话、刷新保持登录、登出后失效；未登�
   await page.reload();
   await expectSignedOut(page);
 
-  // A signed-out visitor is refused everywhere, including the room socket of a real room, and an
-  // unknown room id never becomes a usable room.
+  // 已登出的访客在所有接口上均被拒绝，包括真实房间的 socket，且未知的房间号绝不会变成可用房间。
   expect((await apiJson(context, '/api/profile')).status).toBe(401);
   expect((await gameJson(context, `/rooms/${roomId}`)).status).toBe(401);
   expect(
@@ -77,8 +72,7 @@ test('微信登录建立会话、刷新保持登录、登出后失效；未登�
   const socketResult = await page.evaluate(
     ({ path, protocol }) =>
       new Promise<string>((resolve) => {
-        // The current wire protocol is offered explicitly: this probe must stay an
-        // authentication-refusal test, never degenerate into a protocol-failure test.
+        // 显式提供当前的传输协议：此探针必须保持为鉴权拒绝测试，绝不能退化为协议失败测试。
         const socket = new WebSocket(`ws://${location.host}${path}`, protocol);
         socket.onopen = () => resolve('open');
         socket.onclose = (event) => resolve(`close:${event.code}`);
@@ -89,8 +83,8 @@ test('微信登录建立会话、刷新保持登录、登出后失效；未登�
   );
   expect(socketResult).toMatch(/^(?:error|close:)/);
 
-  // The auth surface is a single WeChat handoff, not a credential form: the link points at the
-  // app's own start endpoint, so the browser — not any script — performs the login navigation.
+  // 认证界面是单一的微信交接，而非凭据输入表单：链接指向应用自有的发起端点，
+  // 因此由浏览器本身（而非任何脚本代码）执行登录跳转。
   await openAuth(page);
   const authView = page.getByTestId('view-auth');
   expect(await authView.ariaSnapshot()).not.toMatch(/textbox/);
@@ -98,7 +92,7 @@ test('微信登录建立会话、刷新保持登录、登出后失效；未登�
   await expect(loginLink).toBeVisible();
   await expect(loginLink).toHaveAttribute('href', /\/api\/auth\/wechat\/start/);
 
-  // The same WeChat identity still works after signing out: same account, session restored.
+  // 登出后使用相同微信身份依然有效：相同账号，会话恢复。
   await signIn(page, username);
   expect((await apiJson(context, '/api/profile')).status).toBe(200);
   await context.close();
@@ -114,8 +108,7 @@ test('失败的登录把错误与邀请一起带回，重试成功后直达房�
   await expect(guestPage.getByTestId('view-auth')).toBeVisible();
   await expect(guestPage.getByTestId('invite-notice')).toContainText(roomId);
 
-  // The bridge itself refuses the handshake: the callback must land on the auth view with the
-  // announced error, the invite still attached, and no session to show for it.
+  // 桥接本身拒绝握手：回调必须降落到认证界面并提示明确错误，邀请信息依然保留，且无会话产生。
   const guestName = uniqueName('invited');
   harness().rewriteNextWechatRelay((destination) => {
     destination.searchParams.delete('token');
@@ -129,7 +122,7 @@ test('失败的登录把错误与邀请一起带回，重试成功后直达房�
   expect(failure.searchParams.get('room')).toBe(roomId);
   expect((await apiJson<{ user: unknown }>(guest, '/api/session')).body.user).toBeNull();
 
-  // The retry is an ordinary login: the invite carries the player straight into the lobby.
+  // 重试属于常规登录：邀请信息直接将玩家带入大厅。
   await signIn(guestPage, guestName);
   await expect(guestPage.getByTestId('lobby-panel')).toBeVisible();
   await waitForLobbyPlayers(guestPage, [host.username, guestName]);
@@ -170,8 +163,8 @@ test('同一登录令牌只能换取一次会话：重放被拒绝', async ({ br
   const spentToken = capturedToken;
   if (!spentToken) throw new Error('The successful login relay was not captured.');
 
-  // The token this login carried is spent. Signing out and presenting the very same token again
-  // must fail instead of minting a second session for whoever captured it.
+  // 本次登录携带的令牌已被消费。登出并再次出示完全相同的令牌必须失败，
+  // 不能为截获该令牌的人签发第二个有效会话。
   await signOut(page);
   await openAuth(page);
   harness().rewriteNextWechatRelay((destination) =>
@@ -199,9 +192,8 @@ test('会话过期时服务端关闭房间连接且客户端不再重连，重�
   await gotoApp(other.page, `/?room=${roomId}`);
   await waitForLobbyPlayers(hostPage, [hostName, other.username]);
 
-  // A live connection carries the expiry that was validated at handshake time, so shorten
-  // the session and force a fresh handshake: the server must then close the socket itself
-  // with the session-expired code.
+  // 活动连接携带握手时校验的过期时间，因此缩短会话并强制发起全新握手：
+  // 服务端随后必须以会话过期状态码主动关闭 socket。
   const hostIdentity = await selfIdentity(host);
   await expireSessionsFor(hostIdentity.userId, 12_000);
   await hostPage.reload();
@@ -209,13 +201,12 @@ test('会话过期时服务端关闭房间连接且客户端不再重连，重�
 
   await expect.poll(() => closeLog(), { timeout: 60_000 }).toContain(WS_CLOSE.sessionExpired);
 
-  // A terminal close is not retried: the client must not sit in a reconnect loop.
+  // 终态关闭不再重试：客户端绝不能陷入死循环重连。
   const afterClose = (await closeLog()).length;
   await settle(9000);
   expect((await closeLog()).length).toBe(afterClose);
 
-  // The player is told to sign in again, the protected API is already refusing the session, and
-  // signing in again — the same WeChat identity — restores a working session.
+  // 提示玩家重新登录，受保护的 API 已经拒绝会话，而重新登录（相同的微信身份）能够恢复正常可用的会话。
   await expect
     .poll(
       async () =>

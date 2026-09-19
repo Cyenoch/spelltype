@@ -1,9 +1,8 @@
-// docker compose driver. Every invocation is scoped to the resolved project
-// name, the resolved COMPOSE_FILE set and deploy/compose.env, so the CLI and
-// the operator always manipulate the exact same stack — including override
-// layers such as deploy/compose.dokploy.yaml routing. Deploy-level overrides
-// (the pinned image) are injected through the process environment, which
-// compose interpolation prefers over env files.
+// docker compose 驱动模块。每次调用均严格限定于已解析的项目名称、
+// 解析出的 COMPOSE_FILE 集合以及 deploy/compose.env，
+// 确保 CLI 与运维人员始终操作完全相同的技术栈——包括诸如
+// deploy/compose.dokploy.yaml 路由等覆盖层。部署级别的覆盖项（固定的镜像 ID）
+// 通过进程环境变量注入，compose 变量插值会优先使用进程环境变量而非 env 文件。
 
 import { z } from 'zod';
 import type { DeployContext } from './env';
@@ -49,7 +48,7 @@ function composeBaseArgs(ctx: DeployContext): string[] {
   return args;
 }
 
-/** Runs docker compose with the CLI's canonical project/file/env arguments. */
+/** 使用 CLI 规范的项目/文件/环境变量参数执行 docker compose。 */
 export async function compose(
   ctx: DeployContext,
   args: string[],
@@ -59,15 +58,15 @@ export async function compose(
 }
 
 /**
- * Every docker compose command interpolates the whole file model, so
- * SPELLTYPE_APP_IMAGE must always be set even for commands that never create
- * an app/migrate container (ps, stop, inspect). Commands that DO create
- * containers always receive the real pinned imageId explicitly.
+ * 每个 docker compose 命令都会插值整个文件模型，因此
+ * 即使对于从不创建 app/migrate 容器的命令（如 ps、stop、inspect），
+ * 也必须始终设置 SPELLTYPE_APP_IMAGE。而真正创建容器的命令
+ * 则始终显式接收真实的固定 imageId。
  */
 function childComposeEnv(imageId: string | undefined): Record<string, string | undefined> {
   const childEnv: Record<string, string | undefined> = { ...process.env };
-  // COMPOSE_FILE is removed: the resolved set is passed as explicit --file
-  // flags, and the two must never disagree.
+  // 移除 COMPOSE_FILE：解析出的文件集合作为显式的 --file 参数传入，
+  // 两者绝不能产生分歧。
   delete childEnv.COMPOSE_FILE;
   childEnv.SPELLTYPE_APP_IMAGE =
     imageId ?? process.env.SPELLTYPE_APP_IMAGE ?? '_SPELLTYPE_APP_IMAGE_NOT_SET_';
@@ -96,12 +95,12 @@ async function runCompose(
   return { command, exitCode, stdout: '', stderr: '' };
 }
 
-/** Runs docker compose, inheriting stdio (progress visible), throwing on failure. */
+/** 执行 docker compose，继承标准输入输出（显示执行进度），失败时抛出异常。 */
 async function composeInherit(ctx: DeployContext, args: string[], imageId?: string): Promise<void> {
   await runCompose(ctx, args, imageId, { capture: false });
 }
 
-/** Resolves an image reference to its exact immutable ID. */
+/** 将镜像引用解析为其确切不可变的 ID。 */
 export async function resolveImageId(reference: string): Promise<string> {
   const run = await spawnCaptured(['docker', 'image', 'inspect', reference, '--format', '{{.Id}}']);
   const id = run.stdout.trim();
@@ -114,10 +113,9 @@ export async function resolveImageId(reference: string): Promise<string> {
 }
 
 /**
- * Proves both server entries are executable in the candidate and reads the
- * compiled build identity — before any maintenance happens, so a broken
- * candidate can never close the service. Both bundles must agree on the
- * identity: one image, one build.
+ * 验证候选镜像中的两个服务端入口均可正常执行，并读取编译后的构建标识。
+ * 该操作在进入任何维护状态前执行，以确保有缺陷的候选版本绝不会导致服务关闭。
+ * 两个入口的构建标识必须一致：同一个镜像，同一次构建。
  */
 export async function checkCandidate(imageId: string): Promise<{ buildId: string }> {
   const checks = await Promise.all(
@@ -146,7 +144,7 @@ export async function checkCandidate(imageId: string): Promise<{ buildId: string
   return { buildId: migrate.buildId };
 }
 
-/** Refuses ambiguous or failed inspection rather than mistaking it for an absent app. */
+/** 检查失败或结果歧义时直接拒绝，而非误判为应用不存在。 */
 export async function inspectRunningApp(
   ctx: DeployContext,
 ): Promise<{ containerId: string; imageId: string } | null> {
@@ -169,7 +167,7 @@ export async function stopApp(ctx: DeployContext): Promise<void> {
   await composeInherit(ctx, ['stop', 'app']);
 }
 
-/** Recreates the app container pinned to one exact image ID, no dependencies. */
+/** 重新创建应用容器，固定为确切的镜像 ID，无依赖项启动。 */
 export async function startApp(ctx: DeployContext, imageId: string): Promise<void> {
   log(`starting app at ${imageId}`);
   await composeInherit(ctx, ['up', '-d', '--no-deps', '--force-recreate', 'app'], imageId);
@@ -181,22 +179,22 @@ export async function startApp(ctx: DeployContext, imageId: string): Promise<voi
   }
 }
 
-/** Ensures the database service is up and passing its healthcheck. */
+/** 确保数据库服务处于运行状态且通过健康检查。 */
 export async function ensureDatabase(ctx: DeployContext): Promise<void> {
   log('ensuring the database is up');
   await composeInherit(ctx, ['up', '-d', '--wait', '--wait-timeout', '120', 'database']);
 }
 
 /**
- * Runs the one-shot migration with the pinned candidate image. Never runs
- * concurrently with an app container; the caller guarantees the ordering.
+ * 使用指定的候选镜像运行单次前向数据库迁移。
+ * 绝不与应用容器并发运行；调用方负责保证其执行顺序。
  */
 export async function runMigrate(ctx: DeployContext, imageId: string): Promise<void> {
   log('applying the one-shot forward migration');
   await composeInherit(ctx, ['run', '--rm', 'migrate'], imageId);
 }
 
-/** Builds the candidate image from the repository checkout. */
+/** 根据代码仓库检出构建候选镜像。 */
 export async function buildImage(repoRoot: string, tag: string, buildId: string): Promise<void> {
   const child = Bun.spawn(
     ['docker', 'build', '--build-arg', `BUILD_ID=${buildId}`, '--tag', tag, repoRoot],

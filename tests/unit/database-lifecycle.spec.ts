@@ -22,6 +22,8 @@ import {
   openDatabase,
   type OpenedDatabase,
 } from '../../server/db';
+import { readServerConfig } from '../../server/config';
+import { startServer } from '../../server/start';
 
 const NOW = 1_700_000_000_000;
 const TIMEOUT = 120_000;
@@ -74,6 +76,36 @@ describe('openDatabase on pglite file directories', () => {
     expect(rows[0]?.created_at).toBe(NOW);
     expect(typeof rows[0]?.created_at).toBe('number');
     await second.close();
+  });
+
+  it('automatically migrates an empty database with production config and restarts safely', async () => {
+    const { url } = await tempDataDir();
+    const config = await readServerConfig({
+      NODE_ENV: 'production',
+      DATABASE_URL: 'postgres://127.0.0.1/spelltype',
+      PUBLIC_ORIGIN: 'https://spelltype.example',
+      WECHAT_BRIDGE_BASE_URL: 'https://bridge.example',
+      WECHAT_BRIDGE_APP_ID: 'startup-test',
+      WECHAT_BRIDGE_APP_KEY: 'startup-test-app-key',
+      HOST: '127.0.0.1',
+      PORT: '0',
+    });
+    // Exercise production config, substituting only an isolated database and no built assets.
+    config.databaseUrl = url;
+    config.assetsRoot = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const server = await startServer({ config });
+      try {
+        const response = await fetch(`${server.url}/health`);
+        expect(response.status).toBe(200);
+      } finally {
+        await server.close();
+      }
+    }
+    const database = await openDatabase(url, { migrate: false });
+    opened.push(database);
+    await insertAccount(database.db, 'production-startup');
+    expect((await database.db.select().from(accounts))[0]?.id).toBe('production-startup');
   });
 
   it('refuses a second owner until the first closes, then hands the directory over', async () => {

@@ -1,12 +1,11 @@
 /**
- * StyleX port of the retired `queue.css`.
+ * 已废弃的 `queue.css` 的 StyleX 迁移实现。
  *
- * Every value below is copied from that stylesheet: the share of the theme that lives in
- * CSS variables is still referenced by name (`var(--ink)`, …), and the compound selectors
- * the old file used as hooks (`.duelist--self .duelist__art`, `[data-state="waiting"] …`)
- * are resolved at the JSX call site, where the state that drove them already lives.
+ * 下方所有数值均源自原样式表：存放在 CSS 变量中的主题部分仍通过变量名引用（`var(--ink)` 等），
+ * 原文件中用作选择器钩子的复合选择器（`.duelist--self .duelist__art`, `[data-state="waiting"] …`）
+ * 则直接在 JSX 调用处根据对应的响应式状态解构应用。
  *
- * System reduced-motion preferences disable decorative animation.
+ * 系统的减少动态效果偏好会禁用装饰性动画。
  */
 import * as stylex from '@stylexjs/stylex';
 
@@ -45,7 +44,7 @@ const sweep = stylex.keyframes({
 });
 
 export const styles = stylex.create({
-  /* ------------------------------------------------------------ stage --- */
+  /* ------------------------------------------------------------ 匹配舞台 --- */
 
   stage: {
     position: 'relative',
@@ -80,7 +79,7 @@ export const styles = stylex.create({
     '@media (max-width: 420px)': { padding: '26px 22px' },
   },
 
-  /* Faint arena ring, so the stage reads as a place rather than a card. */
+  /* 隐约的竞技场光环，使舞台呈现为一个具体场景而非扁平卡片。 */
   stageRing: {
     '::after': {
       content: '""',
@@ -98,7 +97,7 @@ export const styles = stylex.create({
     },
   },
 
-  /* The travelling sheen only exists while the search is live. */
+  /* 扫掠光泽仅在搜索进行中时激活展示。 */
   stageSheen: {
     '::before': {
       content: '""',
@@ -118,7 +117,7 @@ export const styles = stylex.create({
     },
   },
 
-  /* --------------------------------------------------------- duelists --- */
+  /* --------------------------------------------------------- 对决双方 --- */
 
   duelist: {
     position: 'relative',
@@ -139,7 +138,7 @@ export const styles = stylex.create({
     '@media (max-width: 720px)': { gridArea: 'rival' },
   },
 
-  /* A settled screen is visibly not searching. */
+  /* 匹配结算后的界面，视觉上明确退出搜索状态。 */
   duelistRivalSettled: {
     opacity: 0.6,
   },
@@ -189,7 +188,7 @@ export const styles = stylex.create({
     filter: 'blur(2.5px) saturate(0.6) brightness(0.85)',
   },
 
-  /* The unnamed opponent: a veil that scans, never a fabricated portrait. */
+  /* 尚未揭晓的对手：使用扫描面纱呈现，绝不使用虚构头像。 */
   veil: {
     position: 'absolute',
     top: 0,
@@ -288,7 +287,7 @@ export const styles = stylex.create({
     '@media (max-width: 420px)': { fontSize: '.75rem' },
   },
 
-  /* ------------------------------------------------------------ sigil --- */
+  /* ------------------------------------------------------------ 魔法印记 --- */
 
   sigil: {
     position: 'relative',
@@ -332,7 +331,7 @@ export const styles = stylex.create({
     '@media (prefers-reduced-motion: reduce)': { animationName: 'none' },
   },
 
-  /* A comet arc sweeping the ring: the visible "still searching" signal. */
+  /* 掠过光环的彗星光弧：视觉上呈现“搜索中”的动态信号。 */
   ringSweep: {
     top: '6%',
     right: '6%',
@@ -354,7 +353,7 @@ export const styles = stylex.create({
     '@media (prefers-reduced-motion: reduce)': { animationName: 'none' },
   },
 
-  /* A poll that failed is still a live search, just a slower one. */
+  /* 轮询偶发失败时仍属于进行中的搜索，仅速度降频。 */
   ringSweepRetry: {
     opacity: 0.45,
   },
@@ -384,8 +383,8 @@ export const styles = stylex.create({
     '@media (prefers-reduced-motion: reduce)': { animationName: 'none' },
   },
 
-  /* Orbiting motes: each wrapper spans the ring so its own rotation moves the
-     dot around the centre instead of around itself. */
+  /* 环绕微粒：每个包裹层跨越整个圆环，使其自身旋转带动微粒围绕中心公转，
+     而非仅自身自转。 */
   mote: {
     position: 'absolute',
     top: 0,
@@ -419,7 +418,7 @@ export const styles = stylex.create({
   moteB: { transform: 'rotate(128deg)' },
   moteC: { transform: 'rotate(246deg)' },
 
-  /* A soft glow behind the crest; opacity-only so centring survives the pulse. */
+  /* 徽记背后的柔和光晕；仅调节透明度，避免呼吸脉冲影响居中定位。 */
   spark: {
     position: 'absolute',
     top: '50%',
@@ -454,7 +453,7 @@ export const styles = stylex.create({
     '@media (prefers-reduced-motion: reduce)': { animationName: 'none' },
   },
 
-  /* ------------------------------------------------------------ brief --- */
+  /* ------------------------------------------------------------ 简报面板 --- */
 
   workspace: {
     display: 'grid',
@@ -467,7 +466,7 @@ export const styles = stylex.create({
     marginBottom: 0,
   },
 
-  /** Title and the 1v1 chip read as one unit. */
+  /** 标题与 1v1 标签在视觉上融为一个单元。 */
   titleGroup: {
     display: 'flex',
     alignItems: 'baseline',
@@ -490,7 +489,7 @@ export const styles = stylex.create({
     margin: '0 0 14px',
   },
 
-  /** The shared notice is neutral; a failed poll is the one tone this screen shows. */
+  /** 公共提示框默认中性；轮询失败是本屏幕唯一展示的有色调警告。 */
   noticeError: {
     backgroundImage:
       'linear-gradient(rgba(88, 20, 34, 0.72), rgba(88, 20, 34, 0.72)), var(--surface-stone)',
@@ -506,7 +505,7 @@ export const styles = stylex.create({
   },
   fact: { minWidth: 0, '@media (max-width: 640px)': { padding: '14px 10px' } },
 
-  /** Live-population footnote: loading, stale, or a failed refresh. */
+  /** 实时在线人数脚注：加载中、陈旧或刷新失败。 */
   activityNote: {
     margin: '0 0 14px',
     fontSize: '.82rem',

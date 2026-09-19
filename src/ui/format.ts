@@ -1,6 +1,6 @@
 /**
- * Single source for user-facing vocabulary. Views read these maps directly so
- * a new phase, element or end reason cannot fall back to a raw protocol token.
+ * 面向用户的界面词汇唯一数据源。视图直接读取这些映射，
+ * 避免新增阶段、元素或结束原因时回退到原始协议标识符。
  */
 import {
   THEME_PRESETS,
@@ -31,8 +31,8 @@ export const PHASE_LABELS: Record<Phase, string> = {
 };
 
 /**
- * Preset themes share one cached spell book per theme; custom themes are cast per match.
- * Membership mirrors the server's own rule: the trimmed theme text equals a preset's theme.
+ * 预设主题共享每个主题缓存的咒文书；自定义主题则每局重新生成。
+ * 匹配逻辑遵循服务端自身规则：去除首尾空格后的主题文本与预设主题一致。
  */
 export function isPresetTheme(theme: string): boolean {
   const trimmed = theme.trim();
@@ -40,9 +40,9 @@ export function isPresetTheme(theme: string): boolean {
 }
 
 /**
- * How a finished match was decided. All are legitimate endings, never an error. The two synthetic
- * endings are the opponent's own doing: `bot_concession` is a yielded training opponent,
- * `inactivity` is the room ending a match nobody was casting in.
+ * 对局结束判定的判定原因。所有选项均为合法的对局结束方式，绝非错误。
+ * 两个衍生结束原因均由对手行为触发：`bot_concession` 为训练对手认输，
+ * `inactivity` 则是房间在长时间全员无有效施法时代为结束对局。
  */
 export const END_REASON_LABELS: Record<EndReason, string> = {
   elimination: '场上存活者不足两人，战斗结束',
@@ -51,7 +51,7 @@ export const END_REASON_LABELS: Record<EndReason, string> = {
   inactivity: '长时间无有效施法，战斗结束',
 };
 
-/** What a seat is. Human seats stay unlabelled in the UI; only synthetic kinds get a badge. */
+/** 席位属性。真人席位在 UI 中不加特殊标签；仅非真人类型显示徽章。 */
 export const OPPONENT_KIND_LABELS: Record<OpponentKind, string> = {
   human: '真人',
   ghost: '幻影',
@@ -60,7 +60,7 @@ export const OPPONENT_KIND_LABELS: Record<OpponentKind, string> = {
 
 export const ELEMENTS: readonly Element[] = ['arcane', 'fire', 'ice', 'storm'];
 
-/** Longest common prefix length, counted in code points. */
+/** 最长公共前缀长度，以 Unicode 码点（code points）计数。 */
 export function prefixLength(target: string, typed: string): number {
   const a = Array.from(target);
   const b = Array.from(typed);
@@ -70,7 +70,7 @@ export function prefixLength(target: string, typed: string): number {
   return i;
 }
 
-/** First index (code points) where typed diverges from target, or -1. */
+/** 输入文本与目标文本首次出现不一致的索引（码点计数），无不匹配则返回 -1。 */
 export function firstMismatch(target: string, typed: string): number {
   const a = Array.from(target);
   const b = Array.from(typed);
@@ -94,17 +94,16 @@ export function formatAccuracyPercent(ratio: number | null): string {
   return `${(ratio * 100).toFixed(1)}%`;
 }
 
-/** Clamp a 0–1 ratio to a 0–100 integer for `aria-valuenow` and bar widths. */
+/** 将 0~1 的比率限制并转换为 0~100 的整数，用于 `aria-valuenow` 和进度条宽度。 */
 export function percentOf(part: number, whole: number): number {
   if (!Number.isFinite(part) || !Number.isFinite(whole) || whole <= 0) return 0;
   return Math.max(0, Math.min(100, Math.round((part / whole) * 100)));
 }
 
 /**
- * One clean game amount: integers stay plain, fractions round to at most two
- * decimals with no trailing zeros. An equal-split share like `40 / 3` reads
- * `13.33`, never `13.333333333333334`; every damage or health number the UI
- * prints goes through here.
+ * 规范化的游戏数值显示：整数保持原样，小数最多保留两位且无多余末尾 0。
+ * 均分伤害如 `40 / 3` 显示为 `13.33`，绝不显示为 `13.333333333333334`；
+ * UI 中展示的所有伤害或生命数值均通过本函数格式化。
  */
 export function formatAmount(value: number): string {
   if (!Number.isFinite(value)) return '0';
@@ -118,9 +117,8 @@ export function clampHealth(hp: number, maxHp: number): number {
 }
 
 /**
- * `1234 / 2400` — the one health pair format used by the arena, HUD and
- * results. Health may be fractional (equal-split damage), so both sides are
- * cleaned through `formatAmount` instead of rounded away.
+ * `1234 / 2400` —— 竞技场、HUD 和结算界面共用的生命值对格式。
+ * 生命值可能为小数（均分伤害），因此两端均通过 `formatAmount` 处理而非直接四舍五入抹去小数。
  */
 export function formatHealth(hp: number, maxHp: number): string {
   return `${formatAmount(clampHealth(hp, maxHp))} / ${formatAmount(Math.max(0, maxHp))}`;

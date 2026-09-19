@@ -1,16 +1,13 @@
 /**
- * Client protocol-ordering and corruption boundary, driven through the real room surface.
+ * 客户端协议时序与数据损坏边界，通过真实的房间界面驱动。
  *
- * The page's own WebSocket is subclassed before its first document load so a test can reach the
- * one live room socket. Authoritative state that the server really sent is captured from the
- * wire, doctored in the test, and replayed INTO the client with `socket.dispatchEvent` — an
- * injected probe that exercises only the client's ordering and validation rules (stale
- * snapshots, mid-composition identity changes, gate-less states, version mismatch). There is no
- * production hook for this; every injection below is marked as one.
+ * 页面的原生 WebSocket 在首次文档加载前被派生继承，使测试能够触达唯一的活动房间 socket。
+ * 服务端在链路上真实发送的权威状态被捕获并经测试修改后，通过 `socket.dispatchEvent` 重新灌入客户端 ——
+ * 这是一种注入探针，专门用于测试客户端自身的排序和校验规则（过时快照、输入法组合中途的身份变更、
+ * 无门禁状态、版本不匹配）。产品代码中对此不存在任何后门钩子；以下所有注入均被显式标明。
  *
- * What this file proves that wire-level tests cannot: the field, the gate indicator and the
- * binding react exactly as the protocol contract demands when snapshots arrive out of order or
- * malformed, and a stale HTTP verdict that lands after a newer connection can never clobber it.
+ * 本文件证明了链路级测试所无法证明的内容：当快照乱序到达或格式损坏时，输入框、门禁指示器与数据绑定
+ * 完全按照协议契约要求做出反应，且在较新连接建立之后到达的过时 HTTP 诊断结论绝不能破坏新连接。
  */
 import { expect, type Browser, type BrowserContext, type Page } from '@playwright/test';
 import { test } from '../support/test';
@@ -35,7 +32,7 @@ import { newContext, signUp, signedInContext, uniqueName, type Session } from '.
 
 declare global {
   interface Window {
-    /** The page's most recently opened WebSocket, installed before the first document load. */
+    /** 页面最近打开的 WebSocket，在首个文档加载前注入安装。 */
     __spelltypeSocket?: WebSocket;
     __spelltypeSockets?: WebSocket[];
   }
@@ -45,13 +42,13 @@ test.beforeEach(async () => {
   await fixture().reset();
 });
 
-/* ------------------------------------------------------------- local helpers */
+/* ------------------------------------------------------------- 本地辅助函数 */
 
 interface SnapshotFeed {
   latest(): RoomSnapshot | null;
 }
 
-/** Tracks every server frame from now on and keeps the newest authoritative snapshot. */
+/** 从现在开始跟踪每一个服务端消息帧，并保留最新的权威快照。 */
 function snapshotFeed(page: Page): SnapshotFeed {
   let latest: RoomSnapshot | null = null;
   page.on('websocket', (socket) => {
@@ -60,21 +57,21 @@ function snapshotFeed(page: Page): SnapshotFeed {
         const parsed = JSON.parse(String(event.payload)) as { type?: string; room?: RoomSnapshot };
         if (parsed.type === 'state' && parsed.room) latest = parsed.room;
       } catch {
-        /* framing noise */
+        /* 忽略无效成帧噪声 */
       }
     });
   });
   return { latest: () => latest };
 }
 
-/** The self player row of a snapshot. */
+/** 快照中查看者自有的玩家行。 */
 function selfOf(snapshot: RoomSnapshot, selfId: string): Player {
   const player = snapshot.players.find((entry) => entry.id === selfId);
   if (!player) throw new Error(`snapshot has no player ${selfId}`);
   return player;
 }
 
-/** Waits until the feed has captured a snapshot satisfying `when`. */
+/** 等待直到 feed 捕获到满足 `when` 条件的快照。 */
 async function capturedSnapshot(
   feed: SnapshotFeed,
   when: (snapshot: RoomSnapshot) => boolean,
@@ -88,8 +85,8 @@ async function capturedSnapshot(
 }
 
 /**
- * INJECTED PROBE: replays `snapshot` into the page's live socket as if the server had sent it.
- * Exercises the client's own ordering and validation only — the room never sees this frame.
+ * 注入探针：将 `snapshot` 作为模拟服务端发送的数据重放到页面的活动 socket 中。
+ * 仅用于测试客户端自身的排序与校验逻辑 —— 房间服务端绝不会看到该消息帧。
  */
 async function injectSnapshot(page: Page, snapshot: RoomSnapshot): Promise<void> {
   await page.evaluate((room) => {
@@ -102,7 +99,7 @@ async function injectSnapshot(page: Page, snapshot: RoomSnapshot): Promise<void>
   }, snapshot);
 }
 
-/** Fires the two reconnect triggers the client listens for. */
+/** 触发客户端监听的两个重连触发器。 */
 async function fireReconnectTriggers(page: Page): Promise<void> {
   await page.evaluate(() => {
     window.dispatchEvent(new Event('online'));
@@ -122,8 +119,8 @@ interface InstrumentedRoom {
 }
 
 /**
- * A real two-player room whose host page carries the socket exposure: real accounts, real
- * navigation, real sockets. The guest is an ordinary seat that only idles.
+ * 真实的双人房间，其房主页面带有 socket 暴露能力：真实账号、真实导航、真实 socket。
+ * 访客为普通的空闲席位。
  */
 async function instrumentedRoom(browser: Browser, theme: string): Promise<InstrumentedRoom> {
   const hostContext = await newContext(browser);
@@ -177,7 +174,7 @@ async function instrumentedRoom(browser: Browser, theme: string): Promise<Instru
   };
 }
 
-/** Types an accepted prefix and forces one real server rejection on the current spell. */
+/** 输入一段已接受的前缀，并在当前法术上强制触发一次真实的服务端拒绝。 */
 async function rejectCurrentSpell(page: Page, roomId: string): Promise<void> {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const snapshot = await roomSnapshot(page.context(), roomId);
@@ -206,14 +203,14 @@ async function rejectCurrentSpell(page: Page, roomId: string): Promise<void> {
   throw new Error('could not stage a rejection');
 }
 
-/* ------------------------------------------------------------------- ordering */
+/* ------------------------------------------------------------------- 时序校验 */
 
 test('注入的过期纪元与过期光标快照不会回退已接受的新状态', async ({ browser }) => {
   test.setTimeout(420_000);
   const room = await instrumentedRoom(browser, '排序契约');
   const { hostPage, feed, capture, roomId, selfId } = room;
 
-  // A real rejection moves the client to epoch 1 with the restored draft and the reason.
+  // 真实拒绝将客户端推进到纪元 1，并恢复草稿和原因。
   await completeSpell(hostPage);
   await rejectCurrentSpell(hostPage, roomId);
   const real = await capturedSnapshot(feed, (view) => (view.selfInputGate?.draftEpoch ?? 0) >= 1);
@@ -221,8 +218,8 @@ test('注入的过期纪元与过期光标快照不会回退已接受的新状�
   expect(acceptedDraft).toBe(real.spell!.text.slice(0, 4));
   expect(await inputValue(hostPage)).toBe(acceptedDraft);
 
-  // INJECTED: the same snapshot with the epoch wound back and the reason erased. The client
-  // must drop it wholesale — field, reason and stats stay at the newer accepted state.
+  // 注入测试：纪元被回拨且原因被抹除的同一快照。客户端必须整包丢弃该快照 ——
+  // 输入框、原因和统计数据保持在较新的已接受状态。
   await injectSnapshot(hostPage, {
     ...real,
     selfInput: '',
@@ -231,8 +228,7 @@ test('注入的过期纪元与过期光标快照不会回退已接受的新状�
   expect(await inputValue(hostPage)).toBe(acceptedDraft);
   expect((await gateIndicator(hostPage)).reason).toBe('completion_too_early');
 
-  // INJECTED: a snapshot whose spell cursor points backwards. Same wholesale drop: the target
-  // and the cursor stay at the newer state.
+  // 注入测试：法术游标倒退的快照。同样整包丢弃：目标和游标保持在较新状态。
   await injectSnapshot(hostPage, {
     ...real,
     spell: { ...real.spell!, text: 'rewound target' },
@@ -242,8 +238,7 @@ test('注入的过期纪元与过期光标快照不会回退已接受的新状�
   });
   expect(await spellText(hostPage)).not.toBe('rewound target');
 
-  // The client is unharmed: a real keystroke is judged against the real target and emitted
-  // under the current identity.
+  // 客户端毫发无损：真实的敲击按真实目标判定，并在当前身份下发送。
   const target = await spellText(hostPage);
   await typingInput(hostPage).click();
   await hostPage.keyboard.insertText(target.slice(acceptedDraft.length, acceptedDraft.length + 1));
@@ -261,12 +256,12 @@ test('旧对局的迟到快照不能把已前进的房间切回', async ({ brows
   const { hostPage, guest, feed, roomId } = room;
   const matchA = await battleMatchId(hostPage);
 
-  // The last REAL snapshot of match A, captured while it was live.
+  // 对决 A 的最后一份真实快照，在其活跃期间捕获。
   const snapshotA = await capturedSnapshot(feed, (view) => view.matchId === matchA);
   expect(snapshotA.spell).not.toBeNull();
 
-  // Settle match A quickly (the guest forfeits), then rebuild a match B in the same room with
-  // both seats back: the route now lives in match B and holds match A in its exited set.
+  // 快速结算对决 A（访客认输），然后在同一房间中由双方重新就座重开对决 B：
+  // 路由当前处于对决 B，并将对决 A 记录在已退出集合中。
   await guest.page.getByTestId('battle-leave').click();
   await expect.poll(() => battlePhase(hostPage), { timeout: 30_000 }).toBe('finished');
   await hostPage.getByTestId('rematch').click();
@@ -280,8 +275,8 @@ test('旧对局的迟到快照不能把已前进的房间切回', async ({ brows
   expect(matchB).not.toBe(matchA);
   const targetB = await spellText(hostPage);
 
-  // INJECTED: match A's real snapshot with the clock bumped, so ONLY the match-exit guard can
-  // reject it. The room view must not switch back to the abandoned match.
+  // 注入测试：时钟被推进的对决 A 真实快照，使得仅有对决退出守卫能够拒绝它。
+  // 房间视图绝不能跳回已被放弃的对决。
   await injectSnapshot(hostPage, { ...snapshotA, serverNow: Date.now() });
   expect(await battleMatchId(hostPage)).toBe(matchB);
   expect(await spellText(hostPage)).toBe(targetB);
@@ -296,8 +291,8 @@ test('新身份在组合中到达、更高纪元恢复并入延迟绑定；组�
   const room = await instrumentedRoom(browser, '延迟绑定契约');
   const { hostPage, feed, capture, selfId } = room;
 
-  // Pre-type the text the merged binding will adopt: this makes the browser's own composition
-  // cancel deterministic (it reverts the field to this exact value), whatever the event order.
+  // 预先输入合并绑定将采纳的文本：使得浏览器的输入法组合取消具有确定性
+  // （将输入框还原为此精确值），无论事件顺序如何。
   const initial = await capturedSnapshot(
     feed,
     (view) => view.phase === 'playing' && Boolean(view.spell),
@@ -308,7 +303,7 @@ test('新身份在组合中到达、更高纪元恢复并入延迟绑定；组�
   await capturedSnapshot(feed, (view) => view.selfInput === mergedDraft);
   const baseline = await capturedSnapshot(feed, (view) => Boolean(view.selfInputGate));
 
-  // An open composition over the accepted text.
+  // 在已接受文本之上的未决输入法组合状态。
   const cdp = await hostPage.context().newCDPSession(hostPage);
   await cdp.send('Input.imeSetComposition', {
     text: 'ceshi',
@@ -317,8 +312,8 @@ test('新身份在组合中到达、更高纪元恢复并入延迟绑定；组�
   });
   await expect.poll(() => inputValue(hostPage)).toBe(`${mergedDraft}ceshi`);
 
-  // INJECTED #1: the next spell's identity arrives mid-composition. The binding parks it as a
-  // deferred start instead of touching the candidate text.
+  // 注入测试 1：下一个法术的身份在输入法组合中途到达。
+  // 绑定将其挂起为延迟启动，而不干扰候选文本。
   const nextTarget = `${mergedDraft}red target`;
   await injectSnapshot(hostPage, {
     ...baseline,
@@ -330,8 +325,8 @@ test('新身份在组合中到达、更高纪元恢复并入延迟绑定；组�
   });
   expect(await inputValue(hostPage)).toBe(`${mergedDraft}ceshi`);
 
-  // INJECTED #2: a higher-epoch restore for that parked identity. It must MERGE into the
-  // deferred start (new draft, new epoch), still without touching the composition.
+  // 注入测试 2：针对该挂起身份的更高纪元恢复快照。
+  // 它必须合并到延迟启动中（新草稿、新纪元），依然不干扰输入法组合。
   await injectSnapshot(hostPage, {
     ...baseline,
     spell: { ...baseline.spell!, text: nextTarget },
@@ -347,8 +342,8 @@ test('新身份在组合中到达、更高纪元恢复并入延迟绑定；组�
   });
   expect(await inputValue(hostPage)).toBe(`${mergedDraft}ceshi`);
 
-  // The browser's real cancel ends the composition: the merged draft is adopted, and neither
-  // the discarded composition value nor its trailing replay emits anything at all.
+  // 浏览器真实的取消操作结束输入法组合：合并后的草稿被采纳，
+  // 废弃的组合值及其后续重放均不会发送任何内容。
   const framesBefore = sentMessages(capture).filter((frame) => frame.type === 'input').length;
   await cdp.send('Input.imeSetComposition', {
     text: '',
@@ -361,7 +356,7 @@ test('新身份在组合中到达、更高纪元恢复并入延迟绑定；组�
   expect(framesDuring.length).toBe(framesBefore);
   expect(framesDuring.some((frame) => (frame.text ?? '').includes('ceshi'))).toBe(false);
 
-  // A real next key commits under the NEW identity and the MERGED epoch, exactly once.
+  // 真实的下一个按键在新身份和合并后的纪元下提交，恰好触发一次。
   await hostPage.keyboard.insertText(nextTarget.slice(mergedDraft.length, mergedDraft.length + 1));
   const after = sentMessages(capture).filter((frame) => frame.type === 'input');
   const newIdentityFrames = after.filter(
@@ -381,8 +376,8 @@ test('空门槛结束判定，随后同一身份的有效门槛真正重绑', as
   const { hostPage, feed, capture, selfId } = room;
   const baseline = await capturedSnapshot(feed, (view) => Boolean(view.selfInputGate));
 
-  // INJECTED: a playing snapshot whose gate and stats are gone (the damaged-seat view). The
-  // field must stop judging and stop sending entirely.
+  // 注入测试：门禁与统计均丢失的 playing 状态快照（损坏席位视图）。
+  // 输入框必须停止判定并彻底停止发送。
   await injectSnapshot(hostPage, { ...baseline, selfInputGate: null, selfInputStats: null });
   const framesBefore = sentMessages(capture).filter((frame) => frame.type === 'input').length;
   await typingInput(hostPage).click();
@@ -392,8 +387,8 @@ test('空门槛结束判定，随后同一身份的有效门槛真正重绑', as
     framesBefore,
   );
 
-  // INJECTED: the real gated snapshot for the same identity again. The binding must truly
-  // rebind: the field adopts the server draft and judging resumes under that gate.
+  // 注入测试：同一身份的真实带门禁快照再次到达。绑定必须切实重新绑定：
+  // 输入框采纳服务端草稿并在该门禁下恢复判定。
   await injectSnapshot(hostPage, baseline);
   const target = await spellText(hostPage);
   await hostPage.keyboard.insertText(target.slice(0, 1));
@@ -411,8 +406,8 @@ test('快照版本不符是终态：刷新按钮出现，在线与可见事件�
   const { hostPage, feed } = room;
   const baseline = await capturedSnapshot(feed, (view) => Boolean(view.spell));
 
-  // INJECTED: a successful state frame naming another wire protocol. The client treats it as
-  // terminal update-required, closes its own connection and never reopens it.
+  // 注入测试：声明另一传输协议的成功状态帧。客户端将其视为需要升级的终态，
+  // 主动关闭连接且绝不重连。
   const socketsBefore = await hostPage.evaluate(() => window.__spelltypeSockets!.length);
   await injectSnapshot(hostPage, { ...baseline, protocolVersion: 'spelltype.v0' });
   await expect(hostPage.getByTestId('room-error')).toContainText('客户端版本已更新');
@@ -431,8 +426,8 @@ test('迟到的HTTP裁决不会冲击新连接：离线/上线换代后，旧的
   const room = await instrumentedRoom(browser, '诊断契约');
   const { hostPage } = room;
 
-  // Hold the diagnosis's first read (the session check). Once released it answers 401 — a
-  // verdict that WOULD tear the connection down as auth-expired, if it were not stale.
+  // 拦截诊断的首个读取（会话检查）。放行后返回 401 ——
+  // 若非过时，该裁定本应以认证过期为由拆除连接。
   let held: (() => void) | null = null;
   const releaseHeld = Promise.withResolvers<void>();
   await hostPage.context().route('**/api/session', async (route) => {
@@ -449,15 +444,14 @@ test('迟到的HTTP裁决不会冲击新连接：离线/上线换代后，旧的
     await route.continue();
   });
 
-  // The socket dies an ordinary death: the client starts its HTTP diagnosis and waits on the
-  // held session read.
+  // socket 正常断开：客户端启动其 HTTP 诊断并在被挂起的会话读取上等待。
   const socketsBefore = await hostPage.evaluate(() => window.__spelltypeSockets!.length);
   await hostPage.evaluate(() => window.__spelltypeSocket!.close());
   await settle(300);
   expect(held).not.toBeNull();
 
-  // While the stale diagnosis pends, offline/online cycles the generation: the offline detach
-  // drops the dead socket and the online trigger opens a fresh, OPEN connection.
+  // 在过时诊断挂起期间，offline/online 轮转连接代际：
+  // offline 丢弃已死 socket，online 触发建立全新的已连接 socket。
   await hostPage.evaluate(() => window.dispatchEvent(new Event('offline')));
   await hostPage.evaluate(() => window.dispatchEvent(new Event('online')));
   await expect
@@ -467,8 +461,8 @@ test('迟到的HTTP裁决不会冲击新连接：离线/上线换代后，旧的
     .toBe('open');
   expect(await hostPage.evaluate(() => window.__spelltypeSockets!.length)).toBe(socketsBefore + 1);
 
-  // NOW the stale 401 verdict lands, one generation too late. It must be dropped wholesale:
-  // the room stays open, no terminal notice, no auth eviction, and no third socket ever forms.
+  // 此时，过时的 401 诊断结论终于到达（晚了一个代际）。它必须被整包丢弃：
+  // 房间保持打开，无终局提示，无登出驱逐，且绝不产生第三个 socket。
   held!();
   await settle(2000);
   expect(await hostPage.getByTestId('connection-status').getAttribute('data-state')).toBe('open');

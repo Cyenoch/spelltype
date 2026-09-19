@@ -1,11 +1,10 @@
 /**
- * Elimination authority under the shared-power contract: one completion's power splits evenly
- * across every other living player, so damage is a group outcome rather than a clockwise duel —
- * the idle seats bleed together, the seat that fell can no longer deal damage, and the ranks
- * follow the settlement order (survivor first, later fall above earlier fall).
+ * 共享威力契约下的淘汰判定权威：单次完成的法术威力在其他所有存活玩家之间平均分配，
+ * 因此伤害是集体承受的结果，而非顺时针的单挑 ——
+ * 未行动的席位一同失血，已出局的席位无法再造成伤害，且排名遵循结算顺序（幸存者第一，较晚出局者高于较早出局者）。
  *
- * The refusal is proven against a differential control — a living player's completion is accepted
- * moments later — so the check is about the eliminated seat rather than about a malformed frame.
+ * 拒绝判定通过差分对照予以证明 —— 存活玩家的施法在片刻后被正常接受 ——
+ * 从而确保该校验源于席位已出局，而非因为数据帧格式错误。
  */
 import { expect } from '@playwright/test';
 import { test } from '../support/test';
@@ -50,7 +49,7 @@ test('伤害均摊到所有存活对手，出局者再也无法造成伤害，�
   await startMatch(attacker.page);
   await Promise.all(room.sessions.map((session) => waitForCombat(session.page)));
 
-  // Seats are exactly the three real participants, ordered by slot, with no filler seats.
+  // 席位准确对应三名真实参赛者，按槽位排序，无填充占位席位。
   const seats = await seatOrder(attacker.page);
   expect(seats).toHaveLength(3);
   expect([...seats].sort()).toEqual(identities.map((identity) => identity.userId).sort());
@@ -59,9 +58,8 @@ test('伤害均摊到所有存活对手，出局者再也无法造成伤害，�
   const practice = book[0];
   const liveMatchId = await battleMatchId(attacker.page);
 
-  // Group outcome: the helper's first completion damages BOTH other living seats — half of the
-  // spell's power each — while the caster keeps full health. The old clockwise rule would have
-  // left one of them untouched.
+  // 集体结算：二号玩家的首次施法同时伤害其他两个存活席位 —— 各承受法术威力的一半 ——
+  // 而施法者自身保持满血。旧的顺时针规则本会让其中一人毫发无损。
   const half = completionDamage(practice) / 2;
   await completeSpell(second.page);
   await expect
@@ -74,8 +72,8 @@ test('伤害均摊到所有存活对手，出局者再也无法造成伤害，�
     .toBe(INITIAL_HEALTH - half);
   expect((await seatHealth(attacker.page, helperId)).hp).toBe(INITIAL_HEALTH);
 
-  // The victim sits one hit behind the helper, so the attacker's continuing casts — which hit
-  // every living seat equally — fell the victim first while the match goes on.
+  // 受害者比二号玩家落后一次受击，因此攻击者后续的持续施法（均摊命中每个存活席位）
+  // 会在比赛继续进行的过程中率先击倒受害者。
   expect(await defeatSeat(attacker.page, victimId)).toBeGreaterThan(0);
   expect(await battlePhase(attacker.page)).toBe('playing');
   expect(await seatIsOut(attacker.page, victimId)).toBe(true);
@@ -83,15 +81,15 @@ test('伤害均摊到所有存活对手，出局者再也无法造成伤害，�
   expect((await seatHealth(attacker.page, helperId)).hp).toBeGreaterThan(0);
   expect((await seatHealth(attacker.page, attackerIdentity.userId)).hp).toBeGreaterThan(0);
 
-  // The defeated player's own view is out of the fight, with the field locked.
+  // 已被击败玩家的自身视图退出战斗，输入框被锁定。
   await expect(third.page.getByTestId('eliminated-notice')).toHaveAttribute(
     'data-state',
     'eliminated',
   );
   await expect(typingInput(third.page)).not.toBeEditable();
 
-  // A defeated player's completion is exactly the packet the room would have accepted from them
-  // one hit earlier (same match, same index, same text). It must now be refused.
+  // 已淘汰玩家的施法数据包，与房间此前本会接受的数据包完全一致（相同比赛、相同索引、相同文本）。
+  // 此时该数据包必须被拒绝。
   const survivorHpBefore = (await seatHealth(attacker.page, attackerIdentity.userId)).hp;
   const helperHpBefore = (await seatHealth(attacker.page, helperId)).hp;
   await sendRawMessages(third.page, room.roomId, [
@@ -103,8 +101,8 @@ test('伤害均摊到所有存活对手，出局者再也无法造成伤害，�
   const afterDeadSend = await roomSnapshot(attacker.context, room.roomId);
   expect(afterDeadSend.events.every((event) => event.attackerId !== victimId)).toBe(true);
 
-  // Differential control: the living helper's real completion is accepted moments later and
-  // lands on the only remaining opponent.
+  // 差分对照：存活的二号玩家真实的施法完成在片刻后被接受，
+  // 并切实命中唯一剩余的对手。
   await completeSpell(second.page);
   await expect
     .poll(async () => (await seatHealth(attacker.page, attackerIdentity.userId)).hp, {
@@ -112,8 +110,8 @@ test('伤害均摊到所有存活对手，出局者再也无法造成伤害，�
     })
     .toBe(survivorHpBefore - completionDamage(book[1]));
 
-  // The last opponent falls: the match settles by elimination, survivor first, and of the fallen
-  // the one who fell later ranks higher (the ordering rules themselves are unit-tested).
+  // 最后一名对手倒下：比赛因击杀淘汰而结算，幸存者排第一，在倒下者中，
+  // 较晚倒下的排名更高（排序规则本身已在单元测试中覆盖）。
   await playUntilFinished(attacker.page);
   expect(await endReason(attacker.page)).toBe('elimination');
   const rows = await finalRows(attacker.page);

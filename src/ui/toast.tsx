@@ -46,7 +46,7 @@ export function ToastHost() {
   );
 }
 
-/** The server's own failure line, when the response carried a JSON `{ error }` body. */
+/** 当响应携带 JSON `{ error }` 消息体时，提取服务端返回的错误信息。 */
 function detailOf(error: DetailedError): string | null {
   const body: unknown = error.detail?.data;
   if (!body || typeof body !== 'object' || !('error' in body)) return null;
@@ -55,10 +55,10 @@ function detailOf(error: DetailedError): string | null {
 }
 
 /**
- * One readable line for whatever a request or a route threw. A `DetailedError`'s
- * own message is its status line (`409 Conflict`), which no player should read,
- * so the server's JSON error wins; a `TypeError` means the browser could not
- * complete the request, with its wording replaced by the caller's line.
+ * 将请求或路由抛出的异常转换为一行可读文本。
+ * `DetailedError` 自身的消息是 HTTP 状态行（如 `409 Conflict`），绝不应直接展示给玩家，
+ * 因此优先采用服务端返回的 JSON 错误提示；`TypeError` 通常意味着浏览器网络请求失败，
+ * 其内容会被调用方提供的兜底文案所替换。
  */
 export function messageOf(error: unknown, fallback = '操作失败，请稍后重试。'): string {
   if (error instanceof DetailedError) return detailOf(error) ?? fallback;

@@ -12,9 +12,9 @@ import type { AppContext } from '../../app/context';
 import { styles } from './home.styles';
 
 /**
- * The signed-in player's own card: account summary plus the stats of the account
- * the session belongs to. The query is keyed by that account and stays disabled
- * for guests, so a late answer can never write another account's numbers here.
+ * 已登录玩家的专属卡片：包含账户概览及该会话所属账户的详细战绩。
+ * 数据查询以该账户为主键，访客状态下保持禁用，
+ * 确保延迟返回的请求绝不会在此处展示其他账户的战绩数据。
  */
 export function PlayerCard(props: { ctx: AppContext }) {
   const navigate = useNavigate();
@@ -54,8 +54,8 @@ export function PlayerCard(props: { ctx: AppContext }) {
     profile.error instanceof DetailedError &&
     profile.error.statusCode !== 401;
 
-  // An expired session is a shell-level concern: it is reported once, outside
-  // rendering, and never as a stats error.
+  // 会话过期属于外层壳组件层面的全局关注点：在外层统一上报一次，
+  // 绝不作为普通的战绩获取错误展示。
   createEffect(() => {
     if (userId() && profile.error instanceof DetailedError && profile.error.statusCode === 401) {
       props.ctx.handleAuthFailure('登录已过期，请重新登录。');

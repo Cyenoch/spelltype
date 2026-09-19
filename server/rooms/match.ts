@@ -27,17 +27,14 @@ import { getGhost, publishGhostsTx } from '../ghosts';
 import { matchRanks, participantKind, terminalReason } from './opponents';
 
 /**
- * Locks the roster and prepares a fresh match, reusing the source book for a Ghost. Runs
- * inside the caller's transaction, so the room can never be observed half-
- * started; the answers a refused start writes are the room's own error field.
+ * 锁定名单并准备新对局，若为残影对手则复用源法术书。
+ * 在调用方的事务内执行，因此绝不会观察到半启动的房间状态；
+ * 拒绝启动所写入的回复是房间自身的数据字段。
  *
- * Two admission rules gate the opening, both read durably from the same
- * transaction that commits the start: global maintenance admission from
- * `runtime_control` (draining pauses new matches while a running match and its
- * published quick reservation keep their own clocks), and the input-time mode,
- * which is validated here and locked onto the room row for the whole life of
- * the match. Both refusals are answers, never throws: a caller that carries
- * other committed work — a join, a seat reconciliation — keeps it.
+ * 开始阶段受两条准入规则限制，两者均从提交开始的同一个事务中持久化读取：
+ * 1. 来自 `runtime_control` 的全局维护准入（排空状态会暂停新对局，而运行中的对局及其已发布的快速预留保持各自的时钟）；
+ * 2. 打字时间策略模式，在此处进行验证并在整个对局生命周期中锁定至房间数据行。
+ * 两种拒绝均为业务响应而非抛出异常：携带其他已提交工作（加入、席位对齐）的调用方可保留该工作。
  */
 export async function startMatchTx(
   tx: Transaction,
@@ -45,7 +42,7 @@ export async function startMatchTx(
   room: RoomRow,
   inputPolicyMode: InputPolicyMode,
 ): Promise<boolean> {
-  // Unavailable state is an error, not a maintenance answer; never conceal a failed transaction.
+  // 状态不可用属于错误，而非维护响应；绝不掩盖失败的事务。
   const maintenance = await readMaintenance(tx);
   if (maintenance.mode !== 'open') {
     await updateRoom(tx, roomId, { error: '服务器维护中，暂不开始新对局。' });
@@ -57,9 +54,8 @@ export async function startMatchTx(
     await updateRoom(tx, roomId, { error: '施法规则配置异常，暂不能开始新对局。' });
     return false;
   }
-  // One critical section owns the whole opening: the stale-seat purge, the
-  // readiness count and the match lock commit together or not at all, so a
-  // rolled-back start can never leave a half-purged roster behind.
+  // 单个临界区拥有整个开始过程：清理陈旧席位、就绪统计以及锁定对局要么一起提交，要么完全不提交，
+  // 从而确保回滚的开始操作绝不会留下清理了一半的花名册。
   await deleteReservedSeats(tx, roomId);
   if ((await countPlayers(tx, roomId)) < MIN_PLAYERS) {
     await updateRoom(tx, roomId, { error: '至少需要 2 名已连接玩家才能开始。' });
@@ -100,10 +96,9 @@ export async function startMatchTx(
 }
 
 /**
- * A quick match starts when every human seat is online; synthetic seats need no socket.
- * A published reservation keeps its own clock — even while the server is draining, the posted
- * reservation may still be joined and read, and it starts the moment global admission reopens,
- * until its TTL passes.
+ * 当所有真人玩家席位均在线时，快速对局自动开始；虚拟席位不需要套接字连接。
+ * 已发布的预留维持其自身的计时 —— 即使在服务器排空期间，已发布的预留仍可被加入和读取，
+ * 并且只要全局准入重新开放，它就会立即开始，直到其 TTL 到期。
  */
 export async function maybeAutoStartTx(
   tx: Transaction,
@@ -123,16 +118,14 @@ export async function maybeAutoStartTx(
 }
 
 /**
- * Settles the match exactly once, inside the caller's transaction — the frozen
- * speeds, every player's history row and the phase that stops all input commit
- * together or not at all. A storage failure leaves the match running instead of
- * half-settled: no speed without results, no results without an end, and the
- * persisted cast intent stays the recovery source for any window not yet applied.
+ * 仅在调用方的事务内对比赛进行一次严格的终局结算 ——
+ * 冻结的打字速度、每位玩家的历史记录行以及停止所有输入的对局阶段要么一起提交，要么完全不提交。
+ * 存储失败将使对局保持运行状态而非半结算状态：没有结算结果就没有打字速度，没有终局就没有历史结果，
+ * 且持久化的施法意图仍是尚未应用的任何窗口的恢复来源。
  *
- * `endedAt` is authoritative rather than the (possibly late) timer: either the
- * instant the last opponent fell or the match deadline. A settled match never
- * accepts input again, and every player's speed is frozen at their own finish
- * — the winner of the clock is not the only player whose time stops.
+ * `endedAt` 具有权威性，而非依赖（可能发生延迟的）定时器：取最后一名对手被击倒的瞬间或比赛截止时间。
+ * 结算后的比赛绝不再接受任何输入，并且每位玩家的打字速度在其各自完赛时冻结 ——
+ * 时钟到期的胜者并非唯一停止计时的玩家。
  */
 export async function finishMatchTx(
   tx: Transaction,
@@ -142,7 +135,7 @@ export async function finishMatchTx(
 ): Promise<void> {
   const room = await getRoom(tx, roomId);
   if (!room || room.phase !== 'playing' || room.match_id === null) return;
-  // All accepted casts must land before results can become immutable.
+  // 所有已接受的施法必须全部落地生效，结算结果才能变为不可变。
   if (await readVolley(tx, roomId)) throw new Error('room:unsettled_volley');
   if (!roomPolicyValid(room)) {
     reportGateStateInvalid(room);
@@ -196,10 +189,8 @@ export async function finishMatchTx(
   await insertResults(tx, rows);
   await publishGhostsTx(tx, room, players);
 
-  // The allocation is consumed by the finished match: a queue ticket can be
-  // dropped instead of waiting on a room that will never be playable again.
-  // `saved` is the truth the moment this transaction commits — there is no
-  // outbox left to drain and no separate save step to retry.
+  // 配额由已完结的比赛消耗：排队凭证可以直接丢弃，而无需等待一个绝不再可游玩的房间。
+  // 该事务提交的瞬间 `saved` 即为最终真实状态 —— 没有待排空的发件箱，也没有单独的重试保存步骤。
   await updateRoom(tx, roomId, {
     phase: 'finished',
     deadline: 0,

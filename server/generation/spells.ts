@@ -7,11 +7,11 @@ import { MissingDeepSeekKeyError } from './provider';
 import { charCount } from '../scoring';
 
 export interface GenerationInput {
-  /** Untrusted, already length/character-checked theme (data, never instructions). */
+  /** 不受信任的、已通过长度与字符校验的主题（纯数据，绝非指令）。 */
   theme: string;
   /**
-   * Caller-provided variation so repeated generations on one theme differ. A direct per-match
-   * call passes the match identity; the shared-book cache passes its refresh token.
+   * 调用方提供的变体标识，使得同一主题的多次生成产生差异。
+   * 直接按场次调用的场景传入比赛标识；共享法术书缓存则传入其刷新令牌。
    */
   variation: string;
 }
@@ -21,7 +21,7 @@ export type GenerationFailureReason = 'unconfigured' | 'timeout' | 'upstream' | 
 export interface GenerationFailure {
   ok: false;
   reason: GenerationFailureReason;
-  /** User-visible Chinese message; never contains provider internals or secrets. */
+  /** 用户可见的中文提示信息；绝不包含提供商内部细节或密钥机密。 */
   message: string;
 }
 
@@ -34,24 +34,22 @@ export interface GenerationSuccess {
 export type GenerationOutcome = GenerationSuccess | GenerationFailure;
 
 /**
- * Attempts are bounded: at most 2 model calls per generateSpellSet invocation, and only
- * nonconforming output is retried. Timeouts and upstream failures return immediately, so a
- * failing provider is never re-billed within one invocation. Any further attempt needs a new
- * caller decision: a fresh private match, or — for the shared preset books — the next due cache
- * request after a failed refresh. Nothing here retries in a loop on its own.
+ * 尝试次数受到严格限制：每次调用 generateSpellSet 最多进行 2 次模型调用，且仅对不合规输出进行重试。
+ * 超时和上游故障会立即返回，确保在单次调用内绝不会向上游故障服务重复计费。
+ * 任何进一步的重试均需要调用方做出新决策：发起新的自建房对局，或——对于共享预设法术书——在刷新失败后等待下一次到期的缓存请求。
+ * 此处绝不会自行死循环重试。
  *
- * The budget covers a whole book of SPELL_BOOK_SIZE spells, which is a much
- * longer completion than one round's worth of text, so the single-call timeout
- * is generous while the total stays bounded to two calls.
+ * 该时间预算覆盖整本包含 SPELL_BOOK_SIZE 条法术的法术书，相比单轮文本其输出体量大得多，
+ * 因此单次调用超时给得较为宽裕，而总调用次数被严格限制为至多两次。
  */
 export const GENERATION_ATTEMPTS = 2;
 export const GENERATION_ATTEMPT_TIMEOUT_MS = 45_000;
 export const GENERATION_BUDGET_MS = 95_000;
 
 /**
- * Runaway guard, not a quality lever. A book of SPELL_BOOK_SIZE spells costs
- * roughly 2-3k tokens (names, texts and JSON scaffolding), so this only stops a
- * looping model from producing an unbounded — and billed — response.
+ * 失控兜底保护，而非质量调节杠杆。一本包含 SPELL_BOOK_SIZE 条法术的法术书大约消耗
+ * 2000-3000 tokens（包含法术名称、句子文本和 JSON 结构体），设置此上限仅为防止模型陷入死循环
+ * 产生无休止的（且会被计费的）响应。
  */
 const MAX_OUTPUT_TOKENS = 8_192;
 
@@ -63,39 +61,35 @@ export const FAILURE_MESSAGES: Record<GenerationFailureReason, string> = {
 };
 
 /**
- * The one hard length target, stated in every prompt: each text aims for 39-50 code points,
- * punctuation included. It steers generation only — the validation gate stays the loose 64-char
- * ceiling, because measured on the real endpoint the model writes a whole book at one "natural
- * sentence" length and never tracks a band, so enforcing the target rejected almost every book.
+ * 每个 prompt 中均声明的唯一次硬性长度目标：每段文本目标长度为 39-50 个字符（标点计入）。
+ * 它仅用于引导生成——校验网关仍保留宽松的 64 字符上限，因为在实际线上端点实测中，
+ * 模型习惯以一种“自然句长”书写整本书，并不会刻意保持在一个区间内，若严格执行此目标会导致几乎所有法术书被误杀拒收。
  */
 const TARGET_TEXT_MIN_CHARS = 39;
 const TARGET_TEXT_MAX_CHARS = 50;
 
 /**
- * The whole typable US-keyboard range: English letters, digits, the ordinary space and every
- * keyboard punctuation mark. Anything outside printable ASCII — Chinese, emoji, smart quotes,
- * accented letters, control characters — can never enter a generated book.
+ * 美式键盘完整可输入范围：英文字母、数字、普通空格和各类键盘标点符号。
+ * 任何超出可打印 ASCII 范围的字符——中文、emoji、弯引号（smart quotes）、带音标字母、控制字符——绝不可进入生成的法术书中。
  */
 const KEYBOARD_CHARS = '\\x20-\\x7e';
 const TEXT_PATTERN = new RegExp(`^[${KEYBOARD_CHARS}]+$`, 'u');
 const NAME_PATTERN = TEXT_PATTERN;
 
-/** Practical English name bound: from a word ("Hex") to a full title ("Rift of the Hollow Moon"). */
+/** 实用的英文名称长度限制：从单个词汇（"Hex"）到完整称号（"Rift of the Hollow Moon"）。 */
 const MIN_NAME_CHARS = 2;
 const MAX_NAME_CHARS = 24;
 
 /**
- * The only hard limit on a spell's text, in code points: a loose ceiling that stops a runaway
- * spell from breaking damage pacing and the typing UI. Anything readable the model writes is
- * accepted; the 39-50 prompt target above just steers generation.
+ * 咒文文本的唯一硬性长度上限（按字符计）：宽松的上限旨在防止过长咒文破坏伤害节奏和打字 UI。
+ * 模型产出的任何具备可读性的内容均可被接受；上述 39-50 字符的提示词目标仅用于引导生成。
  */
 const MAX_TEXT_CHARS = 64;
 
 /**
- * The translation is display-only metadata beside the typed English text: a simplified Chinese
- * rendering of that exact sentence. It must be real Chinese — at least one Han character, so an
- * English or pinyin stand-in can never pass — and the ceiling only stops runaway metadata. It
- * never joins the typed text, so it is deliberately exempt from the ASCII rule.
+ * 中文翻译是打字英文文本旁的仅供展示元数据：该句英文的简体中文翻译。
+ * 必须是真正的中文——至少包含一个汉字，从而杜绝纯英文或拼音占位——长度上限仅用于防止失控的元数据。
+ * 它从不混入玩家打字的文本中，因此特意不受 ASCII 规则约束。
  */
 const HAN_CHARACTER = /\p{Script=Han}/u;
 const MAX_TRANSLATION_CHARS = 64;
@@ -147,7 +141,7 @@ interface AttemptRequest {
   modelFactory: () => LanguageModel;
   input: GenerationInput;
   timeoutMs: number;
-  /** Machine-readable reason the previous candidate was rejected, if any. */
+  /** 上一次候选结果被拒收的机器可读原因（若有）。 */
   hint: string;
 }
 
@@ -184,17 +178,16 @@ async function attemptOnce(
         description: `一场比赛的 ${SPELL_BOOK_SIZE} 条法术`,
         schema: spellBookSchema,
       }),
-      // Thinking is off so sampling (temperature/topP) actually applies and the
-      // response stays short and bounded; DeepSeek ignores both while thinking.
-      // The public DeepSeek endpoint has no native JSON-schema response format,
-      // so the SDK's json_object compatibility mode (schema in the system
-      // message) is the documented path; the response is still parsed and
-      // validated against this schema before it can reach a room.
+      // 关闭思考过程（thinking），使采样参数（temperature/topP）能真正生效，
+      // 并保持输出精简短小受控；DeepSeek 在开启思考时会忽略这两项参数。
+      // 公共 DeepSeek 端点没有原生 JSON-schema 响应格式，
+      // 因此使用 SDK 的 json_object 兼容模式（schema 注入系统提示词）是官方文档推荐的做法；
+      // 输出结果在流入房间之前仍会在此处严格根据 schema 解析与校验。
       providerOptions: { deepseek: { thinking: { type: 'disabled' }, strictJsonSchema: false } },
       temperature: 1.15,
       topP: 0.95,
       maxOutputTokens: MAX_OUTPUT_TOKENS,
-      // Provider-level retries would silently re-bill the same match.
+      // 模型提供商层面的自动重试会导致同一场比赛被静默重复计费。
       maxRetries: 0,
       abortSignal: controller.signal,
     });
@@ -218,9 +211,9 @@ async function attemptOnce(
 }
 
 /**
- * The shape failure of a candidate book, named the way the retry hint reports it. The book is read
- * through the very schema the model was asked for, so structure is validated once — here — and the
- * content rules below are the only other gate.
+ * 候选法术书的结构性校验失败原因，与重试提示（retry hint）报告的名称一致。
+ * 法术书直接通过请求模型时所用的同一个 schema 解析读取，因此结构校验在此处一次性完成——
+ * 下方的具体内容规则是唯一的后续检查关卡。
  */
 function shapeDetail(error: z.ZodError): string {
   const path = error.issues[0]?.path ?? [];
@@ -234,10 +227,9 @@ function shapeDetail(error: z.ZodError): string {
 }
 
 /**
- * Prompt guidance never gates admission: the 39-50 length target and the !/~ ending style only
- * steer the model. Trim incidental surrounding whitespace, but preserve the exact typable text,
- * including spaces and punctuation. Real-Chinese translation metadata, uniqueness and the loose
- * ceilings still protect the shared book.
+ * 提示词中的引导性要求绝不作为阻断准入的硬性门槛：39-50 的长度目标和 !/~ 结尾风格仅用于引导模型。
+ * 去除首尾附带的空白符，但严格保留可输入的具体文本（包括内部空格与标点）。
+ * 真正的中文翻译元数据、唯一性检查以及宽松的长度上限依然共同守护着共享法术书的质量。
  */
 export function validateSpellSet(
   candidate: unknown,
@@ -280,10 +272,9 @@ export function validateSpellSet(
 }
 
 /**
- * One invocation = at most GENERATION_ATTEMPTS model requests for one complete spell book.
- * Returns the validated book or an honest, distinguishable failure. Never falls back to a
- * fixed question bank. Callers own the cadence: a room invokes once per match attempt, and
- * the shared-book cache invokes once per due refresh.
+ * 单次调用 = 最多为一本完整法术书向模型发起 GENERATION_ATTEMPTS 次请求。
+ * 返回校验合规的法术书，或返回诚实且可明确区分的错误原因。绝不回退到固定题库。
+ * 调用方自行把控节奏：自建房每个比赛尝试发起一次，共享法术书缓存每个到期刷新发起一次。
  */
 export async function generateSpellSet(
   modelFactory: () => LanguageModel,

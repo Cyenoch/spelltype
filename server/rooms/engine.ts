@@ -35,14 +35,14 @@ import { maybeAutoStartTx } from './match';
 import { reservationStateOf, endReservation } from './reservation';
 import type { RoomRuntime } from './runtime';
 
-/** One refused join, delivered in-band after the HTTP upgrade has already succeeded. */
+/** 单次加入被拒绝的情况，在 HTTP 升级已经成功后通过通道内通知。 */
 type JoinRefusal = { closeCode: number; message: string };
 
 /**
- * One room's live engine: its sockets, its serialized command queue and its
- * timer. Every mutation — a frame, a join, a catch-up pass, a revocation —
- * enters the queue, so two commands never interleave for the same room, and
- * each command's state changes commit in fenced transactions.
+ * 单个房间的活跃引擎：管理其套接字、串行化命令队列及其定时器。
+ * 任何状态变更 —— 数据帧、加入、追赶处理、凭证撤销 ——
+ * 均进入该队列，因此同一个房间的两个命令绝不会交错执行，
+ * 且每个命令的状态变更都在隔离保护的事务中提交。
  */
 export class RoomEngine {
   readonly registry = new SocketRegistry();
@@ -65,11 +65,10 @@ export class RoomEngine {
       inputPolicyMode: runtime.inputPolicyMode,
       transact: (fn) =>
         this.runtime.database.transaction(async (tx) => {
-          // The ownership fence is the first statement of every mutation
-          // transaction, so a late owner cannot write after its lease is lost:
-          // it locks runtime_control (admission and ownership) before any room
-          // row. The room itself is locked too, so every command's state
-          // changes serialize per room under a held fence.
+          // 所有权界限是每个变更事务的第一条语句，
+          // 确保过期的所有者在租约丢失后无法写入：
+          // 在读取任何房间数据行之前先锁定 runtime_control（准入与所有权）。
+          // 房间本身也被锁定，因此每个命令的状态变更在持有的界限下按房间串行化。
           await this.runtime.assertOwnership(tx);
           const owned = await tx
             .select({ id: rooms.id })
@@ -89,7 +88,7 @@ export class RoomEngine {
     });
   }
 
-  /** Serializes every room command; FIFO order preserves open → frames → close. */
+  /** 串行化每个房间命令；FIFO 顺序确保 open → frames → close 的顺序。 */
   enqueue<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.tail.then(fn, fn);
     this.tail = run.then(
@@ -101,7 +100,7 @@ export class RoomEngine {
 
   // ------------------------------------------------------------- socket events
 
-  /** Adopts one upgraded socket: metadata and event wiring land before any frame can arrive. */
+  /** 接纳一个升级后的套接字：元数据和事件绑定在任何帧到达之前就绪。 */
   connect(data: RoomSocketData, socket: RoomSocket): void {
     if (this.stopped) {
       closeSocket(socket, WS_CLOSE_RESTART, 'server restarting');
@@ -122,8 +121,8 @@ export class RoomEngine {
         return;
       }
       try {
-        // An attachment that cannot name this build's wire protocol never joins:
-        // it is told once and cut off, and the room reconciles around its loss.
+        // 无法指明本构建版本网络传输协议的连接绝不被允许加入：
+        // 通知一次后立即切断，房间随之对其离去进行协调对齐。
         if (!currentProtocolSocket(auth)) {
           await rejectStaleSocket(this.scope, socket, auth);
           await this.afterSocketCut();
@@ -142,7 +141,7 @@ export class RoomEngine {
     });
   }
 
-  /** Routes one frame into the room's queue; nothing is lost while a join is still pending. */
+  /** 将单个数据帧路由至房间队列；在加入仍在挂起等待时不会丢失任何帧。 */
   message(socket: RoomSocket, raw: string | Uint8Array): void {
     void this.enqueue(async () => {
       const meta = this.registry.metaOf(socket);
@@ -150,10 +149,9 @@ export class RoomEngine {
         closeSocket(socket, 1008, 'unknown connection');
         return;
       }
-      // An attachment that does not speak this build's protocol may deliver a
-      // queued frame: parse nothing from a protocol this room does not speak.
-      // Strip its authority first, then the usual trio — the close callback
-      // will find the seat already unbound and skip them.
+      // 未使用本构建版本协议的连接可能会发送排队的数据帧：
+      // 绝不从该房间不支持的协议中解析任何内容。
+      // 先剥离其权限，然后执行常规的三部曲 —— 关闭回调将发现席位已被解绑并跳过它们。
       if (!currentProtocolSocket(meta)) {
         await rejectStaleSocket(this.scope, socket, meta);
         await this.afterSocketCut();
@@ -183,10 +181,9 @@ export class RoomEngine {
         sendTo(socket, { type: 'error', message: '消息格式错误。' });
         return;
       }
-      // An input without the mandatory draft epoch is an old client in
-      // everything but its self-declared version: cut it off like one instead of
-      // answering every packet with a generic schema error. Any other invalid
-      // data stays an ordinary schema rejection below.
+      // 缺少强制性草稿世代（epoch）的输入除了其自声明的版本外均属于旧版客户端：
+      // 直接将其切断，而不是对每个数据包都回复通用的 schema 错误。
+      // 任何其他无效数据在下方仍作为常规 schema 拒绝处理。
       if (
         typeof parsed === 'object' &&
         parsed !== null &&
@@ -216,7 +213,7 @@ export class RoomEngine {
     });
   }
 
-  /** Cleans up one closed socket; the queue serializes this against concurrent joins. */
+  /** 清理已关闭的套接字；队列将其与并发加入操作串行化。 */
   disconnect(socket: RoomSocket): void {
     const meta = this.registry.detach(socket);
     if (!meta) return;
@@ -226,10 +223,8 @@ export class RoomEngine {
       const now = Date.now();
       const released = await this.scope.transact(async (tx) => {
         const unbound = await unbindSeat(tx, this.roomId, meta, now);
-        // Dropping this room's reference to the session is checked and written
-        // inside the same transaction that accepts connections, so a connection
-        // that re-registers this session cannot slip its insert in front of
-        // this delete and have its reference erased.
+        // 删除该房间对会话的引用在接纳连接的同一个事务内完成检查和写入，
+        // 因此重新注册该会话的连接绝不会在此删除操作前插入导致其引用被抹除。
         await dropSessionRef(tx, this.roomId, this.registry, meta.sessionHash, socket);
         return unbound;
       });
@@ -243,11 +238,9 @@ export class RoomEngine {
   // ----------------------------------------------------------------- join flow
 
   /**
-   * The authoritative join. The session reference, the seat and the new
-   * connection become authoritative inside one fenced transaction, so a
-   * logout, a seat change or a concurrent start can never observe half of it.
-   * A refused join is delivered in-band — an error frame and a close — because
-   * the HTTP upgrade has already succeeded.
+   * 权威性加入流程。会话引用、席位和新连接在同一个受保护的事务内生效为权威状态，
+   * 因此登出、席位变更或并发开始绝不会观察到半就绪状态。
+   * 被拒绝的加入在通道内下发 —— 错误帧及关闭 —— 因为 HTTP 升级此前已成功。
    */
   private async join(
     session: AuthenticatedSession,
@@ -255,8 +248,8 @@ export class RoomEngine {
     auth: SocketAuth,
   ): Promise<void> {
     const refusal = await this.scope.transact(async (tx): Promise<JoinRefusal | null> => {
-      // Registration loses the race against a logout exactly once: the single
-      // conditional statement only accepts a live session row.
+      // 注册与登出的竞态仅发生一次：
+      // 单个条件语句仅接受活跃有效的会话行。
       if (!(await registerSessionRoom(tx, session.tokenHash, this.roomId))) {
         return { closeCode: WS_CLOSE.sessionExpired, message: '登录状态已失效，请重新登录。' };
       }
@@ -268,8 +261,8 @@ export class RoomEngine {
         return { closeCode: WS_CLOSE.closed, message: '匹配已结束，请重新匹配。' };
       }
       if (await abandonedMatch(tx, this.roomId, auth.userId, room.match_id)) {
-        // An explicitly abandoned match never readmits the account that left it —
-        // not after a delayed generation continuation, not on a stale tab.
+        // 明确主动放弃的比赛绝不再重新接纳离开该对局的账户 ——
+        // 无论是在延迟的生成后续处理之后，还是在旧标签页上。
         return { closeCode: WS_CLOSE.closed, message: '你已离开本场对局。' };
       }
 
@@ -291,18 +284,16 @@ export class RoomEngine {
         }
       }
 
-      // A newer connection supersedes older sockets of the same account; their
-      // close events are ignored later via conn_id, so they cannot mark the
-      // new connection as disconnected.
+      // 较新的连接取代同一账户的旧套接字；
+      // 稍后会通过 conn_id 忽略它们的关闭事件，因此旧连接不会将新连接标记为已断开。
       for (const other of this.registry.list()) {
         if (other === socket) continue;
         const otherMeta = this.registry.metaOf(other);
         if (otherMeta && otherMeta.userId === auth.userId)
           closeSocket(other, WS_CLOSE.replaced, 'replaced by a newer connection');
       }
-      // The seat's live connection is bound inside the same transaction that
-      // registered and accepted it, so a revocation sweep can never see an
-      // open socket that the seat does not yet point at.
+      // 席位的活跃连接在注册并接受它的同一个事务中完成绑定，
+      // 因此撤销扫描绝不会观察到席位尚未指向的打开套接字。
       await updatePlayer(tx, this.roomId, auth.userId, {
         conn_id: auth.connId,
         slot_expires_at: null,
@@ -325,9 +316,8 @@ export class RoomEngine {
   // ------------------------------------------------------------ external state
 
   /**
-   * Re-reads the room's committed state and reconciles what the engine cannot
-   * see by itself: a reservation the matchmaker cancelled in the database, a
-   * pairing whose TTL lapsed, a room row that is gone.
+   * 重新读取房间的已提交状态，并协调引擎自身无法直接感知的内容：
+   * 匹配调度在数据库中取消的预留、TTL 过期的配对、已消失的房间数据行。
    */
   refresh(): Promise<void> {
     return this.enqueue(async () => {
@@ -342,11 +332,10 @@ export class RoomEngine {
         room.mode === 'quick' &&
         (room.reservation_state === 'cancelled' || room.reservation_state === 'expired')
       ) {
-        // The coordination layer cancelled or expired this pairing in the
-        // database. Mirror the reservation ending the room itself would have
-        // performed: if seats remain, the room tells them the reason and then
-        // closes their connections; if the seats are already gone, only the
-        // stale connections are closed.
+        // 协调调度层在数据库中取消或标记了该配对过期。
+        // 镜像房间自身原本会执行的预留结束逻辑：
+        // 若席位仍存，房间通知其原因并关闭连接；
+        // 若席位已消失，则仅关闭陈旧连接。
         const state = room.reservation_state;
         const ended = await endReservation(this.scope, state, RESERVATION_MESSAGES[state]);
         if (!ended) closeAllSockets(this.registry, WS_CLOSE.closed, state);
@@ -367,7 +356,7 @@ export class RoomEngine {
     });
   }
 
-  /** Runs the due-transition catch-up loop; the timer rearms from persisted state. */
+  /** 运行到期流转追赶循环；定时器根据持久化状态重新挂载。 */
   catchup(): Promise<void> {
     return this.enqueue(async () => {
       if (this.stopped) return;
@@ -375,8 +364,7 @@ export class RoomEngine {
         for (let step = 0; step < MAX_CATCHUP_STEPS; step++) {
           const outcome = await advanceOnce(this.scope);
           if (outcome.generation !== undefined) {
-            // The attempt continues outside the queue; it clears its own
-            // in-flight marker and rearms the timer when it settles.
+            // 尝试在队列外继续执行；其在结算时会自行清除挂起标记并重新挂载定时器。
             void this.runGeneration(outcome.generation);
             break;
           }
@@ -386,9 +374,8 @@ export class RoomEngine {
         await this.arm();
       }
     }).catch((error) => {
-      // A failed transition (database outage) retries with a bounded floor
-      // instead of hammering; a failed catch-up never loses the deadline,
-      // which lives in the room row.
+      // 失败的流转（数据库故障）以有界的退避间隔重试，而不是频繁冲击；
+      // 追赶失败绝不会丢失保存在房间行中的截止时间。
       console.error(
         '[room] catch-up failed',
         this.roomId,
@@ -399,8 +386,8 @@ export class RoomEngine {
   }
 
   /**
-   * Leaves the room for one account; rethrows the room's own refusals to the
-   * caller so the HTTP layer can map them.
+   * 为单个账户执行离开房间操作；向调用方重新抛出房间自身的拒绝异常，
+   * 以便 HTTP 层能够进行映射转换。
    */
   leaveRoom(userId: string): Promise<void> {
     return this.enqueue(async () => {
@@ -411,12 +398,11 @@ export class RoomEngine {
   }
 
   /**
-   * Stops every socket authenticated by this session token. Authority first,
-   * synchronously: every matching attachment — including one that is already
-   * closing, whose queued frames are still authorized by the seat's conn_id —
-   * loses it before any close. The caller answers the logout only once every
-   * room confirms, so a socket that is still open must fail this call instead
-   * of passing silently.
+   * 停止由此会话令牌验证的所有套接字。权限优先，且同步剥离：
+   * 每个匹配的连接 —— 包括正在关闭但排队帧仍由席位 conn_id 授权的连接 ——
+   * 在任何关闭之前都会失去该权限。
+   * 调用方仅在每个房间均确认后才响应登出，因此仍处于打开状态的套接字
+   * 必须使此调用失败，而不是静默放行。
    */
   revokeSession(tokenHash: string): Promise<boolean> {
     return this.enqueue(async () => {
@@ -478,10 +464,9 @@ export class RoomEngine {
   }
 
   /**
-   * The reconcile/snapshot/alarm trio that follows a socket whose authority was
-   * stripped early (stale protocol, input overload): the close callback finds
-   * the seat already unbound and skips them, so they run here instead — once
-   * per cut, not per socket.
+   * 针对权限被提前剥离的套接字（协议过旧、输入超载）执行的协调/快照/告警三部曲：
+   * 关闭回调会发现席位已被解绑并跳过它们，因此改在此处运行 ——
+   * 每次切断运行一次，而非按套接字运行。
    */
   private async afterSocketCut(): Promise<void> {
     await this.scope.transact((tx) => reconcileHost(tx, this.roomId, this.registry));
@@ -497,7 +482,7 @@ export class RoomEngine {
         await updateRoom(tx, this.roomId, { next_alarm_at: retryAt });
       });
     } catch {
-      // The retry row is a hint only; the in-memory timer below still fires.
+      // 重试行仅作为提示；下方的内存定时器仍会正常触发。
     }
     this.setTimer(retryAt);
   }
@@ -505,14 +490,13 @@ export class RoomEngine {
   // --------------------------------------------------------------- generation
 
   /**
-   * Runs one claimed generation attempt outside the command queue: the long
-   * provider await blocks nothing, and the result re-enters as a serialized
-   * command that re-validates the match token before it touches state.
+   * 在命令队列之外运行已认领的生成尝试：
+   * 耗时较长的大模型调用不会阻塞任何操作，
+   * 且结果以串行化命令形式重新进入队列，在修改状态前重新验证对局 token。
    */
   private async runGeneration(token: string): Promise<void> {
-    // Set before the first await: the catch-up pass that starts this attempt
-    // rearms timers right after, and the flag must already mark the attempt
-    // as locally owned or the rearm would read as a crashed claim.
+    // 在首次 await 之前设置：启动本次尝试的追赶流程会紧接着重新挂载定时器，
+    // 该标志必须预先将尝试标记为本地所有，否则重新挂载会被视作崩溃遗留的 claim。
     this.scope.inFlightGeneration = token;
     try {
       const room = await getRoom(this.scope.db, this.roomId);
@@ -555,7 +539,7 @@ export class RoomEngine {
 
   // ------------------------------------------------------------------ shutdown
 
-  /** Stops the timer and closes every socket with the recoverable restart code. */
+  /** 停止定时器并使用可恢复重启错误码关闭所有套接字。 */
   async stop(): Promise<void> {
     this.stopped = true;
     this.setTimer(null);
@@ -566,10 +550,10 @@ export class RoomEngine {
 }
 
 const CATCHUP_RETRY_MS = 2_000;
-// Longer deadlines wake at this ceiling and re-arm against their original timestamp.
+// 超过此上限的截止时间将在此上限处唤醒，并针对其原始时间戳重新挂载定时器。
 const MAX_TIMER_DELAY_MS = 2_147_483_647;
 
-/** The reasons a cancelled or expired pairing carries to its seats. */
+/** 取消或超时的配对向其席位传达的原因提示。 */
 const RESERVATION_MESSAGES: Record<'cancelled' | 'expired', string> = {
   cancelled: '匹配已取消，请重新匹配。',
   expired: '匹配超时，请重新匹配。',

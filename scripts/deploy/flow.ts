@@ -1,11 +1,10 @@
-// Deployment flows: build, secrets, install (bootstrap), deploy, rollback,
-// maintenance operations and status. Every flow treats durable maintenance as
-// the single source of truth: admission is closed (draining) before any
-// container stops, timeouts abort without killing games, a failed update
-// stays closed, and resuming always goes through the revision + runtime-epoch
-// CAS with the epoch proven against public /health immediately before. The
-// exact previous image ID is recorded locally so rollback restores precisely
-// what ran before — it never down-migrates the schema.
+// 部署流程：构建、密钥配置、安装（引导启动）、部署、回滚、
+// 维护操作以及状态查询。所有流程均将持久化维护状态作为
+// 唯一的真实数据源（Single Source of Truth）：在停止任何容器前先关闭准入（draining 状态），
+// 超时中止操作时绝不强杀正在进行的对局，更新失败时保持维护关闭状态，
+// 且恢复准入始终通过带有 revision（版本号）与 runtime-epoch（运行时纪元）的 CAS 机制，
+// 并在此之前立即通过公开的 /health 接口验证运行时纪元。
+// 本地会准确记录上一版本的镜像 ID，以便回滚能够精确还原之前的运行状态——且绝不对数据库结构进行向下回滚（down-migrate）。
 
 import { existsSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
@@ -96,11 +95,10 @@ interface DrainOutcome {
 }
 
 /**
- * Closes admission via the durable revision CAS and waits (bounded) until
- * every blocking count is zero. On timeout it throws WITHOUT stopping
- * anything: games keep running and maintenance stays draining, so nothing is
- * ever killed. All maintenance operations run inside the running app
- * container — host Docker privilege is the authorization.
+ * 通过带有持久化 revision 的 CAS 操作关闭准入，并在超时限制内等待
+ * 所有阻塞项计数归零。超时时抛出异常且不停止任何容器：
+ * 对局继续运行，维护状态保持在 draining，绝不强杀任何游戏。
+ * 所有维护操作均在运行中的应用容器内执行——以宿主机的 Docker 权限作为鉴权凭据。
  */
 async function drainApp(ctx: DeployContext, waitTimeoutS: number): Promise<DrainOutcome> {
   const status = await getServiceStatus(ctx);
@@ -136,7 +134,7 @@ async function drainApp(ctx: DeployContext, waitTimeoutS: number): Promise<Drain
   }
 }
 
-/** Re-checks the durable state immediately before the old container stops. */
+/** 在停止旧容器前，立即再次检查持久化维护状态。 */
 async function assertStillDrained(ctx: DeployContext, revision: number): Promise<void> {
   const current = await inspectRunning(ctx);
   if (current.revision !== revision || !current.ready) {
@@ -147,9 +145,8 @@ async function assertStillDrained(ctx: DeployContext, revision: number): Promise
 }
 
 /**
- * Reopens admission through the full CAS: the revision is re-read from the
- * durable row and the runtime epoch comes from a fresh public /health proof
- * of the live runtime lease.
+ * 通过完整的 CAS 机制重新开放准入：revision 从持久化数据行重新读取，
+ * 而运行时纪元（runtime epoch）则来自对当前活跃运行时租约进行公开 /health 探测的最新凭据。
  */
 async function resumeAfterChecks(ctx: DeployContext, revision: number): Promise<void> {
   const health = await getRuntimeHealth(ctx);
@@ -190,9 +187,9 @@ function reportClosedFailure(scope: string, imageId: string, error: unknown): 1 
   return 1;
 }
 
-// --- commands ----------------------------------------------------------------
+// --- CLI 命令实现 ------------------------------------------------------------
 
-/** Builds the candidate image from the checkout; prints its exact image ID. */
+/** 根据当前代码检出构建候选镜像；打印其确切的镜像 ID。 */
 export async function cmdBuild(options: { tag?: string }): Promise<number> {
   const ctx = await loadContext({ requireOrigin: false });
   const lock = acquireLock(ctx.lockFile, 'build');
@@ -220,7 +217,7 @@ export async function cmdBuild(options: { tag?: string }): Promise<number> {
   }
 }
 
-/** Creates the 0600 credential files from exported environment values. */
+/** 根据导出的环境变量创建权限为 0600 的凭据文件。 */
 export async function cmdSecrets(): Promise<number> {
   const ctx = await loadContext({ requireOrigin: false });
   const password = process.env.POSTGRES_PASSWORD?.trim();
@@ -242,7 +239,7 @@ export async function cmdSecrets(): Promise<number> {
     ['deepseek_api_key', deepseekKey],
     ['database_url', databaseUrl],
   ];
-  // Optional machine token for the /api/ops/maintenance API (CI/scripts).
+  // 用于 /api/ops/maintenance API（供 CI/自动化脚本使用）的可选机器令牌。
   const maintenanceToken = process.env.MAINTENANCE_TOKEN?.trim();
   if (maintenanceToken !== undefined) {
     if (!/^[0-9a-f]{64}$/.test(maintenanceToken)) {
@@ -267,8 +264,8 @@ export async function cmdSecrets(): Promise<number> {
 }
 
 /**
- * Initial bootstrap, safe with no app container and an empty database:
- * database -> migrate (durable draining) -> app -> /health -> resume (CAS).
+ * 初始引导安装，在无应用容器且数据库为空的安全状态下执行：
+ * 启动数据库 -> 执行迁移（持久化 draining 状态）-> 启动应用 -> 探测 /health -> 恢复准入（CAS）。
  */
 export async function cmdInstall(options: { image: string }): Promise<number> {
   const ctx = await loadContext({ requireOrigin: true });
@@ -318,9 +315,9 @@ export async function cmdInstall(options: { image: string }): Promise<number> {
 }
 
 /**
- * Ordinary update: verify candidate -> drain (CAS, bounded) -> stop old app
- * -> migrate once -> start candidate -> verify health/identity -> resume CAS.
- * Any failure after the stop keeps maintenance closed.
+ * 常规更新流程：验证候选镜像 -> drain 停服排空（CAS，带超时限制）-> 停止旧应用
+ * -> 执行一次数据库迁移 -> 启动候选容器 -> 验证健康检查与版本标识 -> CAS 恢复准入。
+ * 停止容器后的任何失败均保持维护关闭状态。
  */
 export async function cmdDeploy(options: {
   image: string;
@@ -395,11 +392,10 @@ export async function cmdDeploy(options: {
 }
 
 /**
- * Explicit rollback to the recorded previous image (or --image). It drains
- * first when games are running, never runs migrations and never down-migrates;
- * `--schema-compatible` asserts the previous build tolerates the current
- * forward schema. When the app is already stopped (failed-update state), it
- * reads the durable state with a one-shot maintenance container and proceeds.
+ * 显式回滚至记录的上一版本镜像（或通过 --image 指定）。
+ * 若有对局正在进行则先执行 drain 排空，绝不执行迁移，也绝不向下回滚数据库；
+ * `--schema-compatible` 声明上一个构建版本能够兼容当前前向迁移后的数据结构。
+ * 当应用已经停止时（如处于更新失败状态），它会通过单次维护容器读取持久化状态并继续回滚。
  */
 export async function cmdRollback(options: {
   image?: string;
@@ -428,7 +424,7 @@ export async function cmdRollback(options: {
           'no previous image is recorded in deploy-state.json; pass --image <ref> to roll back to an explicit reference',
         );
       }
-      await resolveImageId(previous.imageId); // must still exist locally
+      await resolveImageId(previous.imageId); // 镜像必须依然存在于本地
       target = previous;
     }
     if (
@@ -502,14 +498,13 @@ export async function cmdRollback(options: {
 }
 
 /**
- * Standalone maintenance operations. Two transports:
- *  - default: one-shot maintenance entry inside the running app container
- *    (host Docker privilege; used by local deployment/bootstrap);
- *  - --http: the bearer-only /api/ops/maintenance machine API, for remote
- *    CI/platform automation without Docker access (config via environment:
- *    SPELLTYPE_OPS_URL or SPELLTYPE_PUBLIC_ORIGIN + MAINTENANCE_TOKEN[_FILE]).
- * `wait` is a pure observer on either transport: bounded, mutation-free, and
- * it reports ready only while the draining revision never moved.
+ * 独立维护操作。提供两种通信方式：
+ *  - 默认方式：在运行中的应用容器内执行单次维护入口
+ *    （使用宿主机 Docker 权限；用于本地部署与引导初始化）；
+ *  - --http：仅支持 Bearer 令牌的 /api/ops/maintenance 机器 API，适用于无 Docker 权限的
+ *    远程 CI/平台自动化（通过环境变量配置：SPELLTYPE_OPS_URL 或 SPELLTYPE_PUBLIC_ORIGIN + MAINTENANCE_TOKEN[_FILE]）。
+ * 无论哪种通信方式，`wait` 均为纯观察操作：有超时限制、无状态变更，
+ * 且仅在 draining 版本未发生变动时报告就绪。
  */
 export async function cmdMaintenance(
   action: 'status' | 'drain' | 'wait' | 'resume',
@@ -602,7 +597,7 @@ export async function cmdMaintenance(
   }
 }
 
-/** Operator overview: compose state, runtime proof, maintenance, image history. */
+/** 运维状态概览：compose 运行状态、运行时凭据、维护状态及镜像历史。 */
 export async function cmdStatus(): Promise<number> {
   const ctx = await loadContext({ requireOrigin: false });
   const state = await readState(ctx);
@@ -634,7 +629,7 @@ export async function cmdStatus(): Promise<number> {
   return 0;
 }
 
-/** Removes a stale host lock after the operator confirmed the holder is dead. */
+/** 在运维人员确认持锁进程已真正退出后，清除残留的宿主机锁。 */
 export async function cmdUnlock(): Promise<number> {
   const stateDir = process.env.SPELLTYPE_STATE_DIR?.trim() || join(repoRoot, '.deploy');
   const holder = clearStaleLock(join(stateDir, '.deploy-lock'));

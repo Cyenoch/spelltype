@@ -3,7 +3,8 @@ import { readServerConfig } from '../server/config';
 import { startServer } from '../server/start';
 
 const config = await readServerConfig();
-if (!config.autoMigrate) throw new Error('Local development requires NODE_ENV=development.');
+if (Bun.env.NODE_ENV === 'production')
+  throw new Error('Local development requires NODE_ENV=development.');
 const backend = await startServer({ config });
 const origin = new URL(config.publicOrigin);
 let frontend: ViteDevServer;

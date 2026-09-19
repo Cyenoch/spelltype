@@ -8,19 +8,18 @@ export interface BackgroundScene {
   destroy(): void;
 }
 
-/** Ambient motes kept alive at once; the reduced-motion scene keeps a sparse field. */
+/** 同时保持存活的氛围微尘数量；减弱动效场景保留更稀疏的粒子场。 */
 const MOTE_TARGET = 64;
 const MOTE_TARGET_REDUCED = 16;
-/** How long one arena backdrop is shown before the next one fades in. */
+/** 一张竞技场背景图显示多久后淡入下一张。 */
 const PLATE_INTERVAL_MS = 26_000;
 const PLATE_FADE_MS = 2_400;
 const PARALLAX_SHIFT = 22;
 
 /**
- * Page-wide academy backdrop: the generated arena art crossfading behind the
- * interface, a drifting mote field, a soft element glow and gentle pointer
- * parallax. It degrades to a single static frame under reduced-motion and
- * releases every texture it acquired when it is torn down.
+ * 全页面的学院背景场景：生成式竞技场美术在界面背后交叉淡入淡出，
+ * 叠加漂浮微尘场、柔和元素辉光与轻微指针视差。
+ * 在减弱动效偏好下退化为单张静态帧，并在销毁时释放它获取的每一份纹理。
  */
 export async function createBackgroundScene(host: HTMLElement): Promise<BackgroundScene> {
   const app = new Application();
@@ -55,7 +54,7 @@ export async function createBackgroundScene(host: HTMLElement): Promise<Backgrou
   const sparkTexture = records[arenaUrls.length + 1] ?? null;
   const plates = arenas.length > 0 ? arenas : fallbackTexture ? [fallbackTexture] : [];
   if (plates.length === 0 || !sparkTexture) {
-    // Nothing to draw with: report the failure instead of running an empty loop.
+    // 无可绘制内容：报告失败，而不是空转一个循环。
     app.destroy({ removeView: true }, { children: true });
     releaseTextures(acquired);
     throw new Error('背景素材加载失败');
@@ -76,7 +75,7 @@ export async function createBackgroundScene(host: HTMLElement): Promise<Backgrou
   const incoming = new Sprite(plates[0]);
   incoming.anchor.set(0.5);
   incoming.visible = plates.length > 1;
-  // Starts hidden: it fades in over the base, so it must be drawn after it.
+  // 初始隐藏：它在底图之上淡入，因此必须绘制在底图之后。
   incoming.alpha = 0;
 
   const glow = new Sprite(sparkTexture);
@@ -233,13 +232,12 @@ export async function createBackgroundScene(host: HTMLElement): Promise<Backgrou
       app.renderer.off('resize', layout);
       app.ticker.remove(tick);
       motes.destroy();
-      // This scene is the page's backdrop and outlives every room: its teardown
-      // is the last one on the page, so it is the right place to drain Pixi's
-      // process-wide pools. Scene-scoped teardown deliberately leaves them alone.
+      // 该场景是页面背景，生命周期长于任何房间：它的销毁是页面上最后一次销毁，
+      // 因此这里正是排空 Pixi 进程级对象池的合适位置。场景级销毁会有意避开这些资源。
       app.destroy({ removeView: true, releaseGlobalResources: true }, { children: true });
-      // Releasing can unload arena art, so it comes after the application: the
-      // renderer holds a bind group per texture it has drawn until its own
-      // teardown, and a source destroyed under it would report as still bound.
+      // 释放操作可能卸载竞技场美术，因此放在应用销毁之后：
+      // 渲染器会为每张已绘制纹理持有绑定组直到自身销毁，若在其之前销毁纹理源，
+      // 会报出「仍处于绑定状态」。
       releaseTextures(acquired);
     },
   };

@@ -1,11 +1,11 @@
 /**
- * Deterministic combat rules shared by the room and its tests.
- * Everything here is pure: no clock, no storage, no randomness.
+ * 房间与测试共用的确定性战斗规则。
+ * 此处所有逻辑均为纯函数：无时钟依赖、无持久化存储、无随机性。
  */
 import { DAMAGE_PER_CHARACTER } from '../shared/protocol';
 import type { Spell } from '../shared/protocol';
 
-/** Unicode code point count (a surrogate pair counts once, lone surrogates once). */
+/** Unicode 码点数量（代理对计为 1 个字符，孤立代理也计为 1 个）。 */
 export function charCount(value: string): number {
   let count = 0;
   for (let i = 0; i < value.length; i++) {
@@ -20,34 +20,32 @@ export function charCount(value: string): number {
 }
 
 /**
- * Damage of one completed spell, before the target's remaining health clamps it.
- * The payload is the spell's Unicode code point length, so a longer spell is
- * strictly stronger and accurate typing is the only throughput lever.
+ * 完整施放法术造成的伤害值（在目标剩余生命值将其截断前）。
+ * 载荷为法术的 Unicode 码点长度，因此更长的法术绝对更具威力，
+ * 准确输入是提升输出速率的唯一杠杆。
  */
 export function damageOf(text: string): number {
   return DAMAGE_PER_CHARACTER * charCount(text);
 }
 
 export interface EditDelta {
-  /** Characters newly introduced by this snapshot (insertions and replacements). */
+  /** 本次快照新引入的字符数（新增与替换）。 */
   inserted: number;
-  /** Characters removed by this snapshot; deletions are never typing attempts. */
+  /** 本次快照删除的字符数；删除绝不计为键入尝试。 */
   deleted: number;
-  /** Newly introduced characters that do not match the target at their position. */
+  /** 新引入但与目标文本对应位置不匹配的字符数。 */
   errors: number;
-  /** Longest prefix of the snapshot that matches the target, in code points. */
+  /** 快照与目标文本匹配的最长前缀（按码点计算）。 */
   progress: number;
 }
 
 /**
- * Robust edit-diff between two accepted input snapshots against the target text.
+ * 两次已接受的输入快照与目标文本之间的高可用编辑差异比对。
  *
- * The changed span is the region left after stripping the longest common prefix
- * and the longest common suffix, so mid-string insertion, deletion and
- * selection-replacement all produce the same accounting a caret-only model
- * would. Replaying an identical snapshot (reconnect, duplicate message,
- * composition end) yields all zeros, so repeated delivery cannot inflate
- * attempts or accuracy.
+ * 变更区间是去除最长公共前缀和最长公共后缀后剩余的区域，
+ * 因此无论在字符串中间插入、删除还是选区替换，其结算效果都与纯光标模型完全一致。
+ * 重放完全相同的快照（如重连、重复消息、输入法完成合成）会全部返回 0，
+ * 确保重复传递绝不会虚增尝试次数或准确率。
  */
 export function diffSnapshot(previous: string, next: string, target: string): EditDelta {
   const before = Array.from(previous);
@@ -82,9 +80,9 @@ export function diffSnapshot(previous: string, next: string, target: string): Ed
 }
 
 /**
- * A player's spell for a private, monotonic, zero-based index. The index wraps
- * around the shared book, so a match longer than the book repeats the same
- * ordered practice spells instead of running out of content.
+ * 玩家在私有、单调递增、从 0 开始的索引处对应的法术。
+ * 索引在共享法术书上循环取模，因此当对局用时超出法术书容量时，
+ * 会按原顺序循环练习法术，而不会出现内容耗尽的情况。
  */
 export function spellAt(book: readonly Spell[], index: number): Spell | null {
   if (book.length === 0) return null;
@@ -94,19 +92,18 @@ export function spellAt(book: readonly Spell[], index: number): Spell | null {
 
 export interface MatchStanding {
   userId: string;
-  /** Remaining health at the end of the match. */
+  /** 对局结束时的剩余生命值。 */
   hp: number;
   eliminatedAt: number | null;
 }
 
 /**
- * Final competition ranks (1, 1, 3) for one match.
+ * 单场对局的最终竞赛排名（例如 1, 1, 3）。
  *
- * Survivors come first, ordered only by remaining health. Fallen players follow,
- * ordered only by elimination time; a simultaneous volley gives every victim the
- * same timestamp. Equal health or elimination time means a shared rank, including
- * first place when the last survivors knock each other out. Output statistics
- * never break a survival tie.
+ * 幸存者排在前面，仅按剩余生命值降序排序。阵亡玩家紧随其后，
+ * 仅按阵亡时间降序排序；若遭受齐射同时阵亡，则所有受害者具有相同的时间戳。
+ * 生命值或阵亡时间相同则并列排名，包括最后幸存者同归于尽时的并列第一名。
+ * 输出的统计数据绝不会破坏幸存平局。
  */
 export function survivalRanks(standings: readonly MatchStanding[]): Map<string, number> {
   const survivors = standings
@@ -141,8 +138,8 @@ export function survivalRanks(standings: readonly MatchStanding[]): Map<string, 
 }
 
 /**
- * Accuracy over confirmed typing attempts. Corrections never erase an error;
- * zero attempts is unknown, not a perfect score.
+ * 基于已确认键入尝试的准确率。回退修正不会抹去错误记录；
+ * 尝试次数为 0 时返回未知（null），而非满分。
  */
 export function accuracyOf(attempts: number, errors: number): number | null {
   if (attempts <= 0) return null;
@@ -151,9 +148,8 @@ export function accuracyOf(attempts: number, errors: number): number | null {
 }
 
 /**
- * Correct confirmed characters per active minute, whole number. `activeSeconds`
- * is combat time only (never lobby, generation or countdown) and stops at the
- * player's elimination or at the end of the match.
+ * 活跃时间内每分钟确认的正确字符数（取整）。`activeSeconds`
+ * 仅计算战斗时间（绝不包含大厅等待、生成或倒计时），并在玩家阵亡或对局结束时停止计时。
  */
 export function cpmOf(validChars: number, activeSeconds: number): number {
   if (activeSeconds <= 0 || validChars <= 0) return 0;
@@ -161,9 +157,9 @@ export function cpmOf(validChars: number, activeSeconds: number): number {
 }
 
 /**
- * The eligibility values below are derived only from validated server state. Anything outside the
- * shape the gate can trust — a zero or negative cost, a half-integer length, a non-finite clock —
- * is corrupted state, not a free pass: the caller must refuse the cast rather than recompute.
+ * 下方用于准入资格判定的值仅派生自经过校验的服务器状态。
+ * 任何超出判定门限信任范围的数据（零或负数开销、非整数长度、非有限时钟等）
+ * 均视为损坏的状态而非放行条件：调用方必须拒绝本次施法，而不是重新计算。
  */
 const INPUT_GATE_STATE_INVALID = 'input_gate_state_invalid';
 
@@ -178,9 +174,9 @@ function inputGateTime(value: number): number {
 }
 
 /**
- * Earliest instant the completion of a `targetLength`-code-point spell, made available at
- * `openedAt`, may count under a floor of `minMsPerCodePoint` real milliseconds per code point.
- * Both the floor and the length are positive whole numbers — a zero cost is never "ready".
+ * 某个在 `openedAt` 开放、长度为 `targetLength` 个码点的法术，
+ * 在每个码点最少耗时 `minMsPerCodePoint` 真实毫秒的底线限制下，
+ * 最早被允许计入完成的时间戳。底线与长度均为正整数——零耗时绝不能被视作“准备就绪”。
  */
 export function inputNotBefore(
   targetLength: number,
@@ -196,9 +192,9 @@ export function inputNotBefore(
 }
 
 /**
- * How far past the floor a completion received at `receivedAt` got, as a plain ratio of real
- * elapsed milliseconds to the spell's full cost. Zero before the spell was available; never
- * rounded, never capped, and a policy metric only — never a cheat score.
+ * 计算在 `receivedAt` 收到的完成输入超出输入底线的比率，
+ * 表现为实际经过的真实毫秒数相对于法术完整开销的简单比值。
+ * 法术开放前为 0；绝不四舍五入、不设上限，且仅作为策略指标，绝非作弊评分。
  */
 export function inputCompletionRatio(
   targetLength: number,

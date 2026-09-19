@@ -21,7 +21,7 @@ const RIVAL_NOTES: Record<QueueState, string> = {
   maintenance: '本次匹配未开始',
 };
 
-/** Decorative search stage; system reduced-motion preferences disable animation. */
+/** 装饰性匹配舞台；系统减少动态效果偏好时会禁用动画。 */
 export function QueueStage(props: { state: QueueState; username: string; retry: boolean }) {
   const searching = createMemo(() => props.state === 'waiting');
   const settled = createMemo(

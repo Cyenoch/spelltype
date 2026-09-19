@@ -27,18 +27,18 @@ import { matchRanks, participantKind } from './opponents';
 type SnapshotContext = {
   room: RoomRow;
   players: PlayerRow[];
-  /** Parsed once per push and shared by every recipient's snapshot. */
+  /** 每次推送时解析一次，并在所有接收者的快照之间共享。 */
   book: Spell[];
   events: CombatEvent[];
-  /** The seats' current connection ids: the only sockets allowed to receive state. */
+  /** 各席位当前的连接 ID：唯一允许接收状态的套接字集合。 */
   conns: Set<string>;
   ranks: Map<string, number> | null;
   serverNow: number;
 };
 
 /**
- * The room's own snapshot query. The same admission rules apply as at the handshake, so an account
- * that is not seated is told why instead of reading a room it does not belong to.
+ * 房间自身的快照查询。应用与握手时相同的准入规则，因此未入座的账户
+ * 会收到对应原因提示，而不是读取到其不归属的房间。
  */
 export async function snapshotFor(
   db: RoomQuery,
@@ -60,8 +60,7 @@ export async function snapshotFor(
     if ((await countPlayers(db, roomId)) >= MAX_PRIVATE_PLAYERS)
       throw new RoomRejection('room:full', '房间已满。');
   } else if (await abandonedMatch(db, roomId, user.id, room.match_id)) {
-    // An explicit departure is permanent for this match: the account reads the
-    // room no more than an account that never joined it.
+    // 主动离开对本次对局是永久性的：该账户读取房间的权限并不比从未加入的账户多。
     throw new RoomRejection('room:reservation_gone', '你已离开本场对局。');
   }
   return buildSnapshot(await snapshotContext(db, roomId, registry, room), user.id);
@@ -79,8 +78,7 @@ async function snapshotContext(
   return {
     room,
     players,
-    // The book is public the moment generation succeeds; an unreadable or
-    // absent one simply leaves every player without a spell.
+    // 法术书在生成成功后即对所有人公开；无法读取或缺失法术书仅会导致所有玩家没有可用法术。
     book: BOOK_PHASES[room.phase] ? readSpellBook(room) : [],
     events: room.match_id !== null ? readEvents(room) : [],
     conns: await currentConns(db, roomId, registry),
@@ -90,9 +88,8 @@ async function snapshotContext(
 }
 
 /**
- * Correct confirmed characters per active minute at this instant: completed
- * characters plus the current accepted prefix, over combat time only. The
- * clock stops at the viewer's own elimination, so a corpse's speed is frozen.
+ * 当前时刻每活动分钟正确确认的字符数（CPM）：已完成字符数加上当前已接受的前缀，
+ * 仅以战斗耗时计算。时钟在观察者自身被淘汰时停止，因此阵亡玩家的打字速度被冻结。
  */
 function cpmFor(row: PlayerRow, room: RoomRow, now: number): number {
   const startedAt = room.started_at;
@@ -103,7 +100,7 @@ function cpmFor(row: PlayerRow, room: RoomRow, now: number): number {
 
 function buildSnapshot(context: SnapshotContext, viewerId: string): RoomSnapshot {
   const room = context.room;
-  // Only the viewer's own spell ever leaves the room: rivals' texts are never sent.
+  // 只有观察者自己的法术才会离开房间发出：对手的文本绝不会发送。
   const book = context.book;
   const players: Player[] = context.players.map((row) => {
     const spell = spellAt(book, row.spell_index);
@@ -145,18 +142,16 @@ function buildSnapshot(context: SnapshotContext, viewerId: string): RoomSnapshot
     };
   });
   const viewer = context.players.find((row) => row.user_id === viewerId) ?? null;
-  // An eliminated player has no spell to type and no live draft to replay.
+  // 被淘汰的玩家既无可用法术可打，也没有活跃草稿可供重放。
   const spell =
     viewer !== null && viewer.eliminated_at === null ? spellAt(book, viewer.spell_index) : null;
   const typing = viewer !== null && room.phase === 'playing' && viewer.eliminated_at === null;
-  // The gate is the viewer's private contract with the room: it is published while the
-  // viewer is alive in a playing match with a current spell to type — the spell is the
-  // target; a settled-or-settling table with no standing opponent does not hide it. It is
-  // published only when the stored eligibility actually agrees with the room's locked
-  // policy, and a seat whose current spell is missing is damaged like any other incoherent
-  // state: null gates plus an explicit error — never a forged zero-moment "ready" — so the
-  // client stops submitting instead of treating the state as sane. Nothing here writes: a
-  // snapshot read never repairs or amplifies a damaged row.
+  // 限制门控是观察者与房间之间的私有契约：它仅在观察者于进行中的对局存活且有当前法术可输入时发布 ——
+  // 当前法术为目标；已结算或正在结算的牌桌即使没有现存对手也不会将其隐藏。
+  // 仅当持久化的资格状态与房间锁定的策略实际一致时才会发布，
+  // 当前法术缺失的席位与其他损坏状态一样被视为损坏：
+  // 返回 null 门控外加显式错误 —— 绝不会伪造零时刻“就绪” —— 从而使客户端停止提交，
+  // 而不是将此状态视为正常。此处不执行任何写操作：快照读取绝不会修复或放大已损坏的行。
   let selfInputGate: SelfInputGate = null;
   let selfInputStats: SelfInputStats = null;
   let damagedGate = false;
@@ -211,11 +206,10 @@ function buildSnapshot(context: SnapshotContext, viewerId: string): RoomSnapshot
 }
 
 /**
- * Sends every seat its own snapshot. Delivery follows the same authority rule
- * as everything else: only a connection the seat currently points at may
- * receive that seat's state, so a revoked or replaced socket stops being a
- * delivery target even if its physical close has not landed — it is told and
- * closed instead, and the room never depends on a close succeeding.
+ * 向每个席位发送其专有快照。分发遵循与其他操作相同的权限规则：
+ * 仅当席位当前指向该连接时才可接收该席位的状态，因此被撤销或被替换的套接字
+ * 不再是分发目标，即便其实际物理断开尚未完成 —— 而是会通知并关闭它，
+ * 房间绝不会依赖关闭是否成功。
  */
 export async function pushSnapshots(scope: RoomScope): Promise<void> {
   const room = await getRoom(scope.db, scope.roomId);
@@ -225,9 +219,8 @@ export async function pushSnapshots(scope: RoomScope): Promise<void> {
     if (socket.readyState !== 1) continue;
     const meta = scope.registry.metaOf(socket);
     if (!meta) continue;
-    // A stale-protocol attachment is not a receiver: skip it and leave the
-    // cut-off to the wake-up sweep, which closes it with the protocol code —
-    // a snapshot push must never masquerade as a replacement.
+    // 旧协议连接不是有效接收者：跳过它并交由唤醒扫描处理，
+    // 唤醒扫描会使用协议错误码将其关闭 —— 快照推送绝不能伪装成连接替换。
     if (!currentProtocolSocket(meta)) continue;
     if (!context.conns.has(meta.connId)) {
       closeSocket(socket, WS_CLOSE.replaced, 'not the current connection');
@@ -237,7 +230,7 @@ export async function pushSnapshots(scope: RoomScope): Promise<void> {
   }
 }
 
-/** Answers one socket with its own snapshot; a connection the seat no longer points at gets nothing. */
+/** 使用专属快照响应单个套接字；席位不再指向的连接不会收到任何内容。 */
 export async function sendSnapshotTo(
   db: RoomQuery,
   roomId: string,

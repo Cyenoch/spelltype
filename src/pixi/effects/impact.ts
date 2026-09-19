@@ -14,7 +14,7 @@ export class Impacts {
   private readonly pools: Record<Element, SparkPool>;
   private readonly seed: () => number;
   private readonly slots: ImpactSlot[] = [];
-  /** Caps impact brightness further when the page asked for gentler motion. */
+  /** 当页面要求更柔和的动效时，进一步压低命中亮度。 */
   private safeFlash: boolean;
 
   constructor(
@@ -35,8 +35,8 @@ export class Impacts {
   }
 
   /**
-   * One hit's ring, flash, element shapes and shards. The ground shockwave and
-   * the damage float are separate transients the layer composes around this.
+   * 单次命中的光环、闪光、元素形状与碎片。
+   * 地面冲击波与伤害飘字是由图层围绕它组合而成的独立瞬时特效。
    */
   burst(
     x: number,
@@ -44,7 +44,7 @@ export class Impacts {
     element: Element,
     strength: number,
     artTexture: Texture | null,
-    /** Sprite scale that makes the art the size the stage wants, at rest. */
+    /** 使命中美术在静止时达到舞台所需尺寸的精灵缩放。 */
     artBaseScale: number,
   ): void {
     const style = IMPACT_STYLES[element];
@@ -91,8 +91,8 @@ export class Impacts {
   }
 
   /**
-   * The eliminated fighter's collapse: one big ring and flash, with the extras
-   * left hidden. The layer adds the ground shockwave and the spark column.
+   * 被淘汰斗士的倒下：一圈大光环与一次闪光，附属效果保持隐藏。
+   * 地面冲击波与火花柱由图层补充。
    */
   eliminate(x: number, y: number, element: Element): void {
     const color = ELEMENT_COLORS[element];
@@ -123,9 +123,9 @@ export class Impacts {
   }
 
   /**
-   * Rank-1 flourish, held in place: a golden seal on the floor under the winner
-   * and a rune crown over their head. Everything is a crisp stroked shape,
-   * because soft additive light disappears against the bright arena sky.
+   * 第一名（Rank-1）的庆祝特效，原地保持：获胜者脚下的一枚金色印记，
+   * 头顶一道符文冠冕。全部使用清晰的描边形状，
+   * 因为柔和的叠加光在明亮的竞技场天空下会完全消失。
    */
   hold(
     x: number,
@@ -166,8 +166,8 @@ export class Impacts {
   }
 
   /**
-   * Live `prefers-reduced-motion` change: from the next spawn on, impact flashes
-   * are capped the same way they are for a match started in reduced motion.
+   * 运行时切换 `prefers-reduced-motion`：自下一次生成起，
+   * 命中闪光将按与「对局开始前即为减弱动效」相同的方式被压低。
    */
   setReducedMotion(reduced: boolean): void {
     this.safeFlash = reduced;
@@ -182,7 +182,7 @@ export class Impacts {
       const eased = 1 - (1 - progress) * (1 - progress);
 
       if (slot.hold) {
-        // A seal turning slowly in place instead of bursting outwards.
+        // 印记原地缓慢旋转，而不是向外爆发。
         const scale = slot.baseScale * (0.94 + eased * 0.16);
         slot.ring.scale.set(scale, scale * slot.ringAspect);
         slot.ring.rotation += slot.spin * deltaMS;

@@ -1,6 +1,6 @@
 import type { Element } from '../../shared/protocol';
 
-/** Element identity used by both the DOM layer (CSS/hex) and PIXI (numbers). */
+/** DOM 层（CSS/十六进制文本）与 PIXI（数值）共用的元素颜色标识。 */
 export const ELEMENT_COLORS: Record<Element, number> = {
   arcane: 0x9f92ff,
   fire: 0xff8a4c,
@@ -23,9 +23,8 @@ export const ELEMENT_CAST_LABELS: Record<Element, string> = {
 };
 
 /**
- * Deep shade of each element. Used for the shadow under a caster and for the
- * low-alpha bodies of impact shapes, so bright cores stay legible against a
- * dark arena without ever flooding the screen.
+ * 各元素的深色底色。用于施法者脚下的阴影以及受击图形的低透明度主体，
+ * 确保高亮的核心在暗色竞技场背景下清晰可辨，同时避免过亮炫目充满整个画面。
  */
 export const ELEMENT_DEEP: Record<Element, number> = {
   arcane: 0x3d3184,
@@ -35,9 +34,8 @@ export const ELEMENT_DEEP: Record<Element, number> = {
 };
 
 /**
- * Near-white core tint. Every impact keeps its peak brightness inside a small
- * shape instead of a full-screen flash, which is what keeps the arena safe for
- * photosensitivity while still reading as "a hit landed".
+ * 接近纯白的核心高光色。所有受击命中效果都将最高亮度控制在小尺寸图形内部，
+ * 而非全屏闪烁，从而在确保视觉表现清晰传递“成功命中”的同时避免光敏性刺激。
  */
 export const ELEMENT_CORE: Record<Element, number> = {
   arcane: 0xeee9ff,

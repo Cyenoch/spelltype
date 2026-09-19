@@ -133,8 +133,8 @@ afterEach(async () => {
   rmSync(directory, { recursive: true, force: true });
 });
 
-describe('synthetic opponents', () => {
-  it('starts a Bot match with one connected human and no opponent socket', async () => {
+describe('虚拟对手', () => {
+  it('在仅有一位真人连接且无对手 WebSocket 的情况下启动人机对局', async () => {
     const h = await room('bot');
     await opened.db.transaction(async (tx) => {
       expect(
@@ -158,7 +158,7 @@ describe('synthetic opponents', () => {
     });
   });
 
-  it('withholds a lethal Bot cast while active, but ends a later idle player through real damage', async () => {
+  it('在真人活跃时扣留致死的人机吟唱，但随后通过真实伤害淘汰挂机的玩家', async () => {
     const h = await playing('bot');
     await updatePlayer(opened.db, h.scope.roomId, 'human', {
       hp: 200,
@@ -187,7 +187,7 @@ describe('synthetic opponents', () => {
     expect(history.length).toBe(1);
   });
 
-  it('concedes on timeout to an active slow player without fabricating HP or KO', async () => {
+  it('在超时且玩家持续活跃但速度较慢时人机认输，不虚构血量或击杀', async () => {
     const h = await playing('bot');
     await updateRoom(opened.db, h.scope.roomId, { opponent_next_at: null });
     await updatePlayer(opened.db, h.scope.roomId, 'human', {
@@ -218,7 +218,7 @@ describe('synthetic opponents', () => {
     });
   });
 
-  it('does not award an idle leader the Bot timeout victory', async () => {
+  it('挂机领先者不会被人机判定为超时获胜', async () => {
     const h = await playing('bot');
     await updateRoom(opened.db, h.scope.roomId, { opponent_next_at: null });
     await updatePlayer(opened.db, h.scope.roomId, 'human', {
@@ -242,7 +242,7 @@ describe('synthetic opponents', () => {
     });
   });
 
-  it('records a lethal human run and replays its chronological batches exactly once across reopen', async () => {
+  it('记录击杀对手的真人对局并在重启后严格按时间序批次重放且仅重放一次', async () => {
     const source = await playing('human');
     for (let index = 0; index < 12; index++) {
       setSystemTime(start + (index + 1) * 2_000);

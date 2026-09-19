@@ -5,18 +5,18 @@ import type { NotificationService } from './notifications';
 import type { Session } from './session';
 import type { Tone } from '../ui/toast';
 
-/** Login failures the server bounces back onto /auth; the auth view renders them retryably. */
+/** 服务端重定向回 /auth 的登录失败类型；认证视图会以支持重试的形式展示它们。 */
 export type WechatLoginError = 'wechat_failed' | 'wechat_unavailable';
 export type RoomLinkState = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed';
 
-/** Application services; page state belongs to Solid components. */
+/** 应用级服务；页面级状态属于 Solid 组件。 */
 export interface AppContext {
   readonly session: Session;
   readonly queryClient: QueryClient;
   readonly clock: ServerClock;
-  /** Game-event reminders; one instance, owned by the session. */
+  /** 对局事件提醒服务；单例，归会话所有。 */
   readonly notifications: NotificationService;
-  /** The deployment's maintenance status; the shell renders guidance from it. */
+  /** 部署环境的维护状态；外层壳组件据此渲染运维提示信息。 */
   readonly maintenance: MaintenanceService;
   pendingInvite(): string | null;
   setPendingInvite(roomId: string | null): void;

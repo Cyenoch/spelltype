@@ -138,7 +138,6 @@ async function setup(): Promise<void> {
 function testConfig(authLimits: { attempts: number; windowMs: number }): ServerConfig {
   return {
     buildId: 'unit-test',
-    autoMigrate: false,
     databaseUrl: 'pglite://:memory:',
     hostname: '127.0.0.1',
     port: 0,

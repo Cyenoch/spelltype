@@ -2,16 +2,16 @@ import { Container, Sprite, type Texture } from 'pixi.js';
 import { ELEMENT_COLORS, ELEMENT_CORE } from '../../ui/elements';
 import type { Element } from '../../../shared/protocol';
 
-/** Runes in the orbit; the accepted prefix lights them up one by one. */
+/** 轨道上的符文数量；已被接受的前缀会逐个点亮它们。 */
 const RUNE_COUNT = 8;
-/** Progress past which the whole orbit reads as "about to land". Matches the DOM cast label's >=85% cue. */
+/** 超过该进度后，整条轨道读起来就是「即将命中」。与 DOM 施法标签的 >=85% 提示保持一致。 */
 const NEAR_READY = 0.85;
-/** Orbit angular speed in rad/ms once runes are up; escalated near readiness. */
+/** 符文亮起后轨道的角速度，单位弧度/毫秒；接近就绪时会加速。 */
 const SPIN = 0.0011;
 
 interface RuneSlot {
   sprite: Sprite;
-  /** Slot angle around the torso; the orbit rotates this around the ring. */
+  /** 环绕躯干的槽位角度；轨道会将其绕环旋转。 */
   slotAngle: number;
   radiusFactor: number;
   sizeFactor: number;
@@ -19,26 +19,24 @@ interface RuneSlot {
 }
 
 /**
- * The caster's accumulating charge. Instead of a dial floating above the head —
- * which clipped off the canvas top on short arenas — the accepted prefix raises
- * an orbit of the fighter's own element runes around their torso, over a faint
- * chest halo: subtle at the first keystroke, a full fast ring near readiness.
- * The ring never rises above shoulder height, so faces, DOM name labels and the
- * health bar below the feet all stay clear.
+ * 施法者不断累积的蓄力。这里不使用悬浮在头顶的刻度盘 ——
+ * 那在矮赛场中会被画布顶部裁掉 —— 而是让已被接受的前缀在躯干周围
+ * 升起一圈施法者本元素的符文轨道，叠加在一层淡淡的胸口光晕之上：
+ * 第一次击键时若隐若现，接近就绪时则成为一圈完整而快速的环。
+ * 该环绝不升到肩高之上，因此面部、DOM 名称标签以及脚下的生命条都保持清晰。
  *
- * Everything is preallocated sprites of one shared rune texture: progress
- * changes flip visibility, alpha and scale; the ticker only moves transforms.
- * No per-frame allocation and no vector rebuild anywhere on the hot path.
+ * 所有元素都是共享同一张符文纹理的预分配精灵：进度变化只翻转可见性、
+ * 透明度与缩放；帧循环只移动变换。热路径上没有任何逐帧分配，也没有矢量重建。
  */
 export class FighterCharge {
   readonly view = new Container();
 
-  /** Halo plus runes; hidden entirely while nothing is accepted. */
+  /** 光晕加符文；在没有任何被接受内容时整体隐藏。 */
   private readonly orbit = new Container();
   private readonly halo: Sprite;
   private readonly runes: RuneSlot[] = [];
 
-  /** Orbit geometry in fighter-local px (feet at 0, up is negative). */
+  /** 轨道几何参数，单位斗士局部像素（脚部为 0，向上为负）。 */
   private cy = 0;
   private rx = 30;
   private ry = 10;
@@ -67,8 +65,8 @@ export class FighterCharge {
       this.runes.push({
         sprite,
         slotAngle: (Math.PI * 2 * index) / RUNE_COUNT - Math.PI / 2,
-        // Small per-rune variation so the ring reads as orbiting glyphs, not a
-        // wireframe circle; deterministic, so every caster orbits the same way.
+        // 每个符文有微小差异，使这圈读起来像环绕飞行的符文，而不是一条线框圆；
+        // 数值是确定性的，因此每个施法者的环绕方式都相同。
         radiusFactor: 0.88 + (index % 3) * 0.09,
         sizeFactor: 0.82 + (index % 2) * 0.18 + (index / RUNE_COUNT) * 0.14,
         baseAlpha: 0.8,
@@ -79,12 +77,12 @@ export class FighterCharge {
     this.view.addChild(this.orbit);
   }
 
-  /** Fits the orbit to the drawn body; the next paint is forced. */
+  /** 让轨道适配所绘制的身体；下一次绘制会被强制触发。 */
   layout(box: { height: number; width: number }): void {
     this.view.scale.set(1, 1);
     this.view.position.set(0, 0);
-    // Torso ring: centred at half the body height, never higher than the
-    // shoulders — the one region of the character that is never a face.
+    // 躯干环：以身体高度的一半为中心，绝不高于肩部 ——
+    // 那是角色身上唯一绝不会是面部的区域。
     this.cy = -box.height * 0.5;
     this.rx = Math.max(box.width * 0.72, 30);
     this.ry = box.height * 0.22;
@@ -96,12 +94,12 @@ export class FighterCharge {
     this.drawnRatio = -1;
   }
 
-  /** Accepted typing ratio, 0..1. */
+  /** 已接受的打字进度，0..1。 */
   accept(ratio: number): void {
     this.ratio = Math.max(0, Math.min(1, ratio));
   }
 
-  /** Applies a freshly accepted ratio to the pooled sprites; no redraw. */
+  /** 把刚接受的进度应用到池化精灵上；不做重绘。 */
   paint(): void {
     if (Math.abs(this.ratio - this.drawnRatio) < 0.004) return;
     this.drawnRatio = this.ratio;
@@ -111,8 +109,8 @@ export class FighterCharge {
     this.orbit.visible = lit > 0;
     if (lit === 0) return;
 
-    // Accumulation: each later rune sits a little brighter and larger than the
-    // last, so the ring visibly grows towards readiness instead of popping in.
+    // 累积感：越靠后的符文比前一个更亮、更大，
+    // 因此这圈会明显朝就绪状态生长，而不是突然整体出现。
     for (let index = 0; index < RUNE_COUNT; index += 1) {
       const rune = this.runes[index];
       const on = index < lit;
@@ -125,7 +123,7 @@ export class FighterCharge {
     this.place();
   }
 
-  /** One frame of orbit. Reduced motion freezes the ring in place. */
+  /** 一帧的轨道演算。减弱动效下将环冻结在原位。 */
   update(deltaMS: number): void {
     if (!this.orbit.visible) return;
     if (!this.reduced) {
@@ -135,7 +133,7 @@ export class FighterCharge {
     this.place();
   }
 
-  /** Clears the charge: completion, defeat and a new match all start empty. */
+  /** 清空蓄力：完成、失败与开启新对局都从空状态起步。 */
   reset(): void {
     this.ratio = 0;
     this.drawnRatio = 0;
@@ -143,18 +141,18 @@ export class FighterCharge {
     this.halo.alpha = 0;
   }
 
-  /** Live `prefers-reduced-motion` change: the ring stops, accumulation stays. */
+  /** 运行时切换 `prefers-reduced-motion`：环停止转动，累积表现保留。 */
   setMotion(reduced: boolean): void {
     this.reduced = reduced;
   }
 
-  /** Transforms only: positions, scales and depth-fades the lit runes. */
+  /** 只做变换：定位、缩放并为点亮的符文做景深淡出。 */
   private place(): void {
     for (const rune of this.runes) {
       if (!rune.sprite.visible) continue;
       const angle = this.angle + rune.slotAngle;
-      // sin > 0 is the front of the ring: nearer to the viewer, so larger and
-      // brighter; the back of the ring dims instead of drawing over the chest.
+      // sin > 0 表示环的前方：更靠近观察者，因此更大更亮；
+      // 环的后方则变暗，而不是覆盖在胸口之上。
       const depth = (Math.sin(angle) + 1) / 2;
       rune.sprite.position.set(
         Math.cos(angle) * this.rx * rune.radiusFactor,

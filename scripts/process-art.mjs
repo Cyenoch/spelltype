@@ -1,30 +1,27 @@
 #!/usr/bin/env node
 /**
- * Spelltype artwork processor.
+ * Spelltype 美术资源处理脚本。
  *
- * Turns the generated masters for a match — four arena backdrops, a character
- * sheet, a spell-icon atlas and one effect sheet per element — into the exact
- * files src/pixi/assets.ts references, and rewrites public/assets/provenance.json from
- * the measurements of that run. Deterministic: the same input bytes always
- * produce the same output bytes, and every reported dimension and byte count is
- * read back from the file that was written.
+ * 将生成的对局原始素材（四张竞技场背景图、一张角色精灵图表、一张法术图标图集，
+ * 以及每个元素一张特效图表）转换并输出为 src/pixi/assets.ts 所引用的确切文件，
+ * 并根据本次运行测得的数据重写 public/assets/provenance.json。
+ * 处理流程具有确定性：相同的输入字节始终生成相同的输出字节，
+ * 且报告中的每个尺寸与字节数均从已写入的文件中重新读取。
  *
- * Usage:
+ * 用法：
  *   node scripts/process-art.mjs --source-dir .scratch/artdrop-final
  *
- * Options:
- *   --source-dir <dir>  directory holding the generated masters (required for processing)
- *   --out-dir <dir>     asset root to write into   (default: public/assets)
- *   --only <steps>      subset of arenas,icons,characters,vfx,background,portraits,provenance,check
- *   --superseded <text> a rejected generation that is deliberately not shipped;
- *                       defaults to the record already in provenance.json so the
- *                       history survives an ordinary re-run
- *   --dry-run           report what would be written without touching disk
+ * 选项：
+ *   --source-dir <dir>  存放生成原图的目录（处理时必需）
+ *   --out-dir <dir>     输出目标资源根目录（默认：public/assets）
+ *   --only <steps>      指定执行的子步骤：arenas,icons,characters,vfx,background,portraits,provenance,check
+ *   --superseded <text> 明确废弃且不发布的生成记录；
+ *                       默认使用 provenance.json 中现存的记录，以在日常重新运行时保留历史
+ *   --dry-run           仅报告将要写入的内容，不写入磁盘
  *
- * Every master must either carry a real alpha channel (its alpha is kept
- * verbatim) or be glow art on a dark backdrop (alpha derived from luminance).
- * Anything else is refused rather than guessed at. Masters are validated by
- * measured geometry, not by file size.
+ * 每份原始素材必须携带真实透明通道（直接保留其 Alpha 通道），
+ * 或为暗色背景下的发光特效（根据亮度派生 Alpha 通道）。
+ * 严禁臆断猜测，不符合要求的素材将被拒绝。通过测量所得的几何尺寸进行素材校验，而非依据文件大小。
  */
 import sharp from 'sharp';
 import { createHash } from 'node:crypto';
@@ -91,7 +88,7 @@ const SUPERSEDED = flags.has('superseded')
   ? [flags.get('superseded')]
   : (previousProvenance?.summary?.supersededGenerations ?? []);
 
-// ------------------------------------------------------------------ reporting ---
+// ------------------------------------------------------------------ 报告与统计 ---
 
 const report = [];
 const cutouts = {};
@@ -117,7 +114,7 @@ async function emit(relative, buffer, meta) {
   return entry;
 }
 
-/** Byte size plus sha256 of a generated master, so provenance can pin it. */
+/** 获取生成素材的字节大小与 sha256，用于在出处（provenance）清单中精确定位。 */
 async function fingerprint(file) {
   const bytes = await readFile(file);
   return {
@@ -150,7 +147,7 @@ function assertGeometry(meta, file, { cols = 1, rows = 1, minCell = 200, square 
   }
 }
 
-// ------------------------------------------------------------------- pixels ---
+// ------------------------------------------------------------------- 像素处理 ---
 
 async function readRaw(file) {
   const { data, info } = await sharp(file)
@@ -176,7 +173,7 @@ function alphaProfile(img, threshold = 16) {
   return { clear: clear / n, solid: solid / n };
 }
 
-/** Mean luma of the four sheet corners: the brightness of a flat backdrop. */
+/** 计算图表四个边角的平均亮度：用于衡量纯色背景的亮度。 */
 function cornerLuma({ data, width, height }) {
   const corners = [0, width - 1, (height - 1) * width, height * width - 1];
   let sum = 0;
@@ -188,11 +185,10 @@ function cornerLuma({ data, width, height }) {
 }
 
 /**
- * Decides how a generated sheet's backdrop becomes alpha, and never invents one:
- *  - a sheet that already carries real alpha keeps it verbatim;
- *  - glow art on a dark backdrop gets alpha from luminance;
- *  - anything else is refused, because guessing a flat key would silently
- *    destroy whatever shares the backdrop's colour.
+ * 确定如何将生成图表的背景转换为透明通道（Alpha），绝不凭空臆断：
+ *  - 已包含真实透明通道的图表直接保留原通道；
+ *  - 暗色背景上的发光特效素材根据亮度计算透明度；
+ *  - 其他情况一律拒绝处理，因为盲目推测抠像基准色会导致同色前景被错误剔除。
  */
 function prepareSheet(sheet, label) {
   const profile = alphaProfile(sheet);
@@ -215,7 +211,7 @@ function prepareSheet(sheet, label) {
   );
 }
 
-/** Straight-alpha from brightness, with the colour un-premultiplied again. */
+/** 根据亮度直接计算透明通道（Straight-Alpha），并将颜色通道反向去预乘。 */
 function luminanceToAlpha(img, floor = 14, ceil = 150) {
   const { data, width, height } = img;
   const out = Buffer.alloc(width * height * 4);
@@ -243,9 +239,9 @@ function luminanceToAlpha(img, floor = 14, ceil = 150) {
 }
 
 /**
- * Pushes opaque colours outward into transparent pixels (nearest neighbour).
- * Palette PNG encoding weights colour regardless of alpha and non-premultiplied
- * GPU sampling haloes, so transparent pixels must not hold a leftover matte.
+ * 将不透明颜色向外扩散至透明像素（最近邻采样）。
+ * 调色板 PNG 编码会忽略 Alpha 权衡颜色，且非预乘 GPU 采样易产生光晕边，
+ * 因此透明像素中绝不能残留抠像底色。
  */
 function bleedEdgeColors(img, maxSteps = 28) {
   const { data, width, height } = img;
@@ -305,9 +301,9 @@ function alphaBounds(img, threshold = 6) {
     : { left: minX, top: minY, width: maxX - minX + 1, height: maxY - minY + 1 };
 }
 
-// ------------------------------------------------------------------- sheets ---
-
-/** Equal grid split with boundaries snapped to the emptiest gutter column/row. */
+// ------------------------------------------------------------------- 图表切分 ---
+//
+/** 均等网格切分，切分边界吸附至最空旷的间隙行列。 */
 function splitCells(img, cols, rows) {
   const { data, width, height } = img;
   const columnHits = new Int32Array(width);
@@ -368,7 +364,7 @@ function splitCells(img, cols, rows) {
   return cells;
 }
 
-/** Crop to the visible subject with breathing room, without crossing the sheet edge. */
+/** 裁切至可见主体并留出缓冲边距，裁切范围不超出图表边缘。 */
 async function trimWithPad(img, padRatio) {
   const bounds = alphaBounds(img);
   if (!bounds) throw new Error(`no opaque pixels found in ${img.source ?? 'image'}`);
@@ -389,7 +385,7 @@ async function trimWithPad(img, padRatio) {
   };
 }
 
-/** Resolves, validates and decodes one generated grid sheet. */
+/** 解析、校验并解码单张网格图表素材。 */
 async function loadSheet(fileName, cols, rows) {
   const file = path.join(SOURCE_DIR, fileName);
   if (!(await fileExists(file))) {
@@ -403,7 +399,7 @@ async function loadSheet(fileName, cols, rows) {
   return { file, meta, sheet, fingerprint: await fingerprint(file) };
 }
 
-// -------------------------------------------------------------------- steps ---
+// -------------------------------------------------------------------- 处理步骤 ---
 
 async function processArenas() {
   for (let slot = 0; slot < ELEMENTS.length; slot++) {
@@ -427,8 +423,8 @@ async function processArenas() {
         `${relativePath(file)} is ${meta.width}x${meta.height}: not a landscape 16:9-ish arena backdrop`,
       );
     }
-    // Never enlarge: withoutEnlargement leaves a 1672x941 master untouched and
-    // still fits an oversized one into 1920x1080.
+    // 绝不放大尺寸：withoutEnlargement 保持 1672x941 原素材尺寸不变，
+    // 同时能将超大素材等比缩放至 1920x1080 范围以内。
     const buffer = await sharp(file)
       .resize({ width: 1920, height: 1080, fit: 'inside', withoutEnlargement: true })
       .webp({ quality: 78, effort: 6, smartSubsample: true })
@@ -545,9 +541,8 @@ async function processVfx() {
 }
 
 /**
- * The pre-existing generated page backdrop, shipped as WebP like every other
- * bitmap. Its JPEG master lives with the other generated sources and is only
- * re-encoded, never resampled or edited.
+ * 既有的生成页面背景图，与其他位图一样输出为 WebP 格式。
+ * 其 JPEG 原素材与其他生成资源一同存放，此处仅重新编码，不进行重采样或编辑。
  */
 async function processBackground() {
   const file = path.join(SOURCE_DIR, 'academy-hall.jpg');
@@ -577,8 +572,8 @@ async function processBackground() {
 }
 
 /**
- * 512x512 lobby portraits cropped from each derived full-body character, over an
- * element-tinted gradient rendered by sharp from an SVG source string.
+ * 512x512 大厅头像：从派生的角色全身图中裁切，
+ * 并叠加在 sharp 根据 SVG 源码字符串渲染出的元素着色渐变背景之上。
  */
 async function processPortraits() {
   const tints = {
@@ -652,7 +647,7 @@ async function processPortraits() {
   }
 }
 
-// -------------------------------------------------------------- provenance ---
+// -------------------------------------------------------------- 出处（provenance）清单 ---
 
 const HAND_AUTHORED = [
   {
@@ -790,8 +785,8 @@ async function writeProvenance() {
   const portraits = measured.filter((entry) => entry.kind === 'portrait');
   const assets = measured.filter((entry) => entry.kind !== 'portrait');
 
-  // One generated master per arena file and per grid sheet; portraits are derived
-  // from already-shipped characters and never counted as fresh generations.
+  // 每个竞技场文件及每个网格图表对应一份生成的原素材；头像从
+  // 已发布的角色图中派生，绝不计入新生成的素材统计。
   const masters = new Map();
   for (const entry of measured) {
     if (entry.sourceSha256 && entry.source && !masters.has(entry.source)) {
@@ -851,7 +846,7 @@ async function writeProvenance() {
   log(`  wrote ${relativePath(PROVENANCE_PATH)} with ${entries.length} entries`);
 }
 
-/** Every URL literal in the assets module must resolve inside the asset root. */
+/** 资源模块中的每个 URL 字面量都必须能在资源根目录中成功解析。 */
 async function checkRegistry() {
   const urls = [
     ...new Set(
@@ -865,7 +860,7 @@ async function checkRegistry() {
   const missing = [];
   let totalBytes = 0;
   for (const url of urls) {
-    const file = path.join(OUT_DIR, url.replace(/^\/assets\//, ''));
+    // 校验文件是否存在
     const info = await stat(file).catch(() => null);
     if (!info) {
       missing.push(url);
@@ -884,7 +879,7 @@ async function checkRegistry() {
   if (missing.length > 0) process.exitCode = 1;
 }
 
-// --------------------------------------------------------------------- main ---
+// --------------------------------------------------------------------- 主入口 ---
 
 const run = async (name, fn) => {
   if (!steps.includes(name)) return;

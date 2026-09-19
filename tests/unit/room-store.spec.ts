@@ -1,10 +1,9 @@
 /**
- * Room state-layer unit tests — the native Drizzle storage against real PGlite.
+ * 房间状态层单元测试 —— 基于真实 PGlite 的原生 Drizzle 存储层测试。
  *
- * Kept to the state transitions that lose, duplicate or leak player data when they are wrong:
- * creating a room, seat allocation/expiry, the bounded event ring, the per-match reset, the
- * idempotent results insert and the per-room departure records. Each test opens its own
- * in-memory database through the one `openDatabase` entry point production uses.
+ * 重点关注实现错误时会导致丢失、重复或泄露玩家数据的状态转换逻辑：
+ * 房间创建、席位分配与过期、有界事件环、单局对决重置、幂等的结果写入以及按房间记录的离场条目。
+ * 每个测试均通过生产环境使用的统一 `openDatabase` 入口创建各自独立的内存数据库。
  */
 import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -43,7 +42,7 @@ afterEach(async () => {
   await Promise.all(databases.splice(0).map((database) => database.close()));
 });
 
-/** Opens one fresh in-memory database with migrations applied. */
+/** 打开一个已执行数据库迁移的全新内存数据库。 */
 async function openTestDb(): Promise<Database> {
   const opened = await openDatabase('pglite://:memory:');
   databases.push(opened);
@@ -69,7 +68,7 @@ async function createTestRoom(
   });
 }
 
-/** One open lobby room created through the seam the matchmaker and HTTP share. */
+/** 通过匹配器与 HTTP 层共享的接缝创建的大厅房间。 */
 async function withRoom(): Promise<Database> {
   const db = await openTestDb();
   await createTestRoom(db);

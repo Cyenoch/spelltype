@@ -5,11 +5,11 @@ import type { Element } from '../../../shared/protocol';
 import { FLOAT_SLOTS, WAVE_SLOTS } from './styles';
 import type { FxTextures } from './shapes';
 
-/** The float container's largest scale over its life (`0.7 + eased * 0.45`). */
+/** 飘字容器在其生命周期中的最大缩放（`0.7 + eased * 0.45`）。 */
 const FLOAT_MAX_SCALE = 1.15;
-/** Generous line box for the monospace glyphs, as a factor of the font size. */
+/** 等宽字形的宽裕行框，以字号为倍数表示。 */
 const FLOAT_LINE_BOX = 1.3;
-/** Stroke width around the label; the painted outline extends past the glyphs. */
+/** 标签周围的描边宽度；绘制出的轮廓会超出字形范围。 */
 const FLOAT_STROKE_W = 5;
 
 interface WaveSlot {
@@ -27,16 +27,16 @@ interface FloatSlot {
   elapsed: number;
   duration: number;
   drift: number;
-  /** Canvas-local y the float's centre may not rise above. */
+  /** 飘字中心不得上升超过的画布局部 y 坐标。 */
   ceil: number;
-  /** Centre-to-top distance of the label at max scale; `ceil` bounds this edge. */
+  /** 标签在最大缩放下的中心到顶部距离；`ceil` 约束的正是这条上边缘。 */
   halfExtent: number;
 }
 
 export class Transients {
-  /** Ground rings; goes into the layer's `ground` container. */
+  /** 地面光环；放入图层的 `ground` 容器。 */
   readonly waves = new Container();
-  /** Damage numbers; goes into the layer's `air` container, above the pools. */
+  /** 伤害数字；放入图层的 `air` 容器，位于各粒子池之上。 */
   readonly floats = new Container();
 
   private readonly waveSlots: WaveSlot[] = [];
@@ -84,7 +84,7 @@ export class Transients {
     }
   }
 
-  /** Expanding ground ring, used by hits and eliminations. */
+  /** 向外扩张的地面光环，供命中与淘汰使用。 */
   wave(x: number, y: number, tint: number, strength: number): void {
     const slot = this.takeWave();
     slot.active = true;
@@ -100,10 +100,9 @@ export class Transients {
   }
 
   /**
-   * A floating damage number. `ceil` is the canvas-local y the label's top
-   * edge may not cross — derived by the caller from the reserved top band, and
-   * honoured including the label's growth in size — so even a max-strength
-   * float's whole trajectory stays on the canvas below the DOM labels.
+   * 一个上浮的伤害数字。`ceil` 是标签上边缘不得越过的画布局部 y 坐标 ——
+   * 由调用方依据保留的顶部条带推导，并计入标签放大后的尺寸 ——
+   * 因此即便最大强度的飘字，其整条轨迹也始终位于 DOM 标签下方的画布之内。
    */
   damageFloat(
     x: number,
@@ -113,9 +112,9 @@ export class Transients {
     damage: number,
     strength: number,
   ): void {
-    // The float pool rotates: with every slot busy the oldest number is replaced
-    // rather than a seventh one being created. Plain loops, not `.find` — this
-    // runs per hit and a closure per call is an allocation.
+    // 飘字池采用轮转：所有槽位都在使用时替换最旧的数字，
+    // 而不是创建第七个。使用普通循环而非 `.find` ——
+    // 它每次命中都会执行，而每次调用创建一个闭包就是一次分配。
     let slot = this.floatSlots[0];
     for (let index = 0; index < this.floatSlots.length; index += 1) {
       const candidate = this.floatSlots[index];
@@ -130,13 +129,12 @@ export class Transients {
     slot.drift = 0.026;
     slot.ceil = ceil;
     const fontSize = Math.round(26 + strength * 14);
-    // The clamp bounds the label's painted top edge — glyphs, stroke and the
-    // container's full scale-up — not its centre, so the whole number, not just
-    // its middle, stays below the reserved band for the entire ascent.
+    // 该约束限定的是标签绘制后的上边缘 —— 字形、描边以及容器的整体放大 ——
+    // 而非其中心，因此整个数字（不只是其中部）在整个上升过程中都保持在保留条带之下。
     slot.halfExtent = Math.ceil((fontSize * FLOAT_LINE_BOX * FLOAT_MAX_SCALE) / 2) + FLOAT_STROKE_W;
     slot.view.visible = true;
-    // Spawn inside the bounded lane too: the caller picks the chest lane, this
-    // keeps a tiny body from pushing the start above the ceiling.
+    // 起点也落在受限通道之内：调用方选定胸口通道，
+    // 这里确保身材矮小的个体不会把起点顶到上界之上。
     slot.view.position.set(x, Math.max(ceil + slot.halfExtent, y));
     slot.view.alpha = 1;
     slot.label.text = `-${formatAmount(damage)}`;

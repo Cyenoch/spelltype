@@ -6,7 +6,7 @@ import { charCount, damageOf, inputNotBefore, spellAt } from '../scoring';
 import { updatePlayer } from './storage/players';
 import { queueCast, type PendingVolley } from './storage/volley';
 
-/** Both authenticated completions and scheduled opponents commit through this path. */
+/** 经身份验证的玩家完成输入与预定的对手施法，均通过此路径进行提交。 */
 export async function commitCastTx(
   tx: Transaction,
   room: RoomRow,

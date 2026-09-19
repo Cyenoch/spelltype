@@ -5,17 +5,15 @@ import { migrate as migrateBunSql } from 'drizzle-orm/bun-sql/migrator';
 import { schema } from './schema';
 
 /**
- * PostgreSQL migrations.
+ * PostgreSQL 数据库迁移。
  *
- * Unlike PGlite — whose single-owner directory lock already serializes every writer — a PostgreSQL
- * server accepts many concurrent game/API processes. All of them run the same `openDatabase` flow,
- * so migration must be a cross-process critical section: the caller hands over one reserved
- * Bun.SQL connection (never a pooled client, whose statements would land on arbitrary sessions and
- * inherit the migration timeouts), this module sets bounded session timeouts, takes a deterministic
- * advisory lock on that same session, and the drizzle migrator runs through a drizzle instance
- * bound to the very same reserved connection. Waiting for the lock is a bounded poll of
- * `pg_try_advisory_lock`, so a wedged holder delays startup by a known ceiling instead of blocking
- * forever on `pg_advisory_lock`.
+ * 与 PGlite 不同（后者的单所有者目录锁已经自动将所有写入者串行化），PostgreSQL
+ * 服务器允许接入多个并发的游戏/API 进程。由于它们全部运行相同的 `openDatabase` 流程，
+ * 数据库迁移必须构造成跨进程的临界区：调用方传入一个专属保留的 Bun.SQL 连接（绝不能是连接池客户端，
+ * 后者的执行语句可能落到任意会话上并继承迁移超时），本模块设置有界的会话级超时，并在该连接上获取确定的
+ * 咨询锁（advisory lock），随后 Drizzle 迁移器通过绑定到这同一个保留连接的 Drizzle 实例执行。
+ * 获取锁的过程采用对 `pg_try_advisory_lock` 的有界轮询，因此即便持有者卡死，也只会按已知的时间上限延迟启动，
+ * 而不会因 `pg_advisory_lock` 无限期阻塞。
  */
 
 export class DatabaseMigrationError extends Error {
@@ -26,15 +24,14 @@ export class DatabaseMigrationError extends Error {
 }
 
 /**
- * The one query surface the advisory lock needs. A Bun SQL connection's `unsafe(text, params)`
- * satisfies it structurally; tests inject a stub.
+ * 咨询锁所需的唯一查询接口。Bun SQL 连接的 `unsafe(text, params)`
+ * 在结构上即可满足要求；测试中可注入桩实现。
  */
 export type AdvisoryLockQuery = (text: string, params: unknown[]) => PromiseLike<unknown[]>;
 
 /**
- * FNV-1a 64 of `'spelltype:drizzle-migrations'`, masked into the signed range of PostgreSQL
- * `bigint`. The value is stable across every deployment of this app; no other application using
- * the same database could collide with it by accident.
+ * `'spelltype:drizzle-migrations'` 的 FNV-1a 64 位哈希，并映射到 PostgreSQL `bigint` 的有符号范围内。
+ * 该值在本应用的所有部署中保持稳定；同一数据库中的其他应用绝不会与其偶然冲突。
  */
 function fnv1a64(text: string): bigint {
   let hash = 0xcbf29ce484222325n;
@@ -47,11 +44,12 @@ function fnv1a64(text: string): bigint {
 
 export const MIGRATION_ADVISORY_LOCK_KEY = fnv1a64('spelltype:drizzle-migrations');
 
-/** Hard ceiling on session-level waits inside the migration session. */
+/** 迁移会话内会话级等待的硬性上限。 */
 export const MIGRATION_LOCK_TIMEOUT_SQL = "set lock_timeout = '10s'";
 export const MIGRATION_STATEMENT_TIMEOUT_SQL = "set statement_timeout = '60s'";
 
-/** Defaults bound the lock wait to 10s and the DDL statements to 60s. */
+/** 默认将锁等待限制在 10 秒，DDL 语句限制在 60 秒。 */
+
 export interface MigrationLockOptions {
   waitMs?: number;
   pollMs?: number;
@@ -61,9 +59,8 @@ export interface MigrationLockOptions {
 
 export interface AdvisoryMigrationLock {
   /**
-   * Unlocks on the same session and propagates query failures: openDatabase must never report a
-   * healthy database while the lock cleanup is unproven. (Ending the migration pool afterwards
-   * would release the lock if the connection dies — but that outcome is surfaced, not assumed.)
+   * 在同一会话上释放锁并向外抛出查询失败：在锁清理操作未经证实前，`openDatabase` 绝不能声称数据库处于健康状态。
+   * （随后关闭迁移连接池若连接断开也会释放锁——但该结果必须被明确暴露，而非假定成立。）
    */
   release(): Promise<void>;
 }
@@ -71,8 +68,7 @@ export interface AdvisoryMigrationLock {
 const defaultSleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 /**
- * Acquires the advisory migration lock on the caller's session. Rejections carry the advisory key
- * so an operator can find the holding session with `pg_locks`.
+ * 在调用方的会话上获取迁移咨询锁。获取被拒绝时会携带咨询键名，以便运维人员通过 `pg_locks` 排查占用会话。
  */
 export async function acquireAdvisoryMigrationLock(
   query: AdvisoryLockQuery,
@@ -105,8 +101,7 @@ export async function acquireAdvisoryMigrationLock(
 }
 
 /**
- * Applies the drizzle migrations on the given dedicated session. The caller owns the connection
- * lifecycle and must hold the advisory lock on that same session before calling.
+ * 在给定的独立会话上执行 Drizzle 迁移。调用方管理连接的生命周期，且在调用前必须已经在该会话上持有咨询锁。
  */
 export async function migratePostgresOn(
   session: SQL,

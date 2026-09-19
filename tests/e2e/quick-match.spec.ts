@@ -1,10 +1,8 @@
 /**
- * Quick matchmaking: the two players a ticket pairs, the visible cancellation, and the release of a
- * reservation that the opponent never joined.
+ * 快速匹配：票据配对的两名玩家、可见的取消操作，以及对手从未加入时预约席位的释放。
  *
- * The queue is shared by every account, so every scenario here cancels what it queued (and the
- * suite's auto fixture is the net for a failing test). The queue's own lease rules are asserted
- * through the API the client calls.
+ * 排队队列由所有账号共享，因此此处的每个测试场景都会取消其已排队的请求（测试套件的自动夹具是失败测试的兜底保障）。
+ * 队列自有的租约规则通过客户端所调用的 API 进行断言。
  */
 import { expect, type Browser } from '@playwright/test';
 import { test } from '../support/test';
@@ -19,12 +17,12 @@ test.beforeEach(async () => {
   await fixture().reset();
 });
 
-/** Queues or polls the single matchmaking ticket; the endpoint is idempotent per account. */
+/** 排队或轮询单张匹配票据；该端点按账号保持幂等。 */
 async function matchTicket(session: Session) {
   return gameJson<MatchTicket>(session.context, '/match', { method: 'POST' });
 }
 
-/** The exact room routes the page calls; intercepts must not match other paths. */
+/** 页面调用的准确房间路由；拦截规则绝不能误伤其他路径。 */
 const ROOM_READ = /\/api\/rooms\/[0-9a-f]{24}$/;
 const ROOM_LEAVE = /\/api\/rooms\/[0-9a-f]{24}\/leave$/;
 
@@ -39,8 +37,8 @@ test('两名玩家经界面配对进入同一房间并自动开局', async ({ br
   await expect(first.page.getByTestId('view-queue')).toBeVisible();
   await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'waiting');
 
-  // A slow room read must keep the matched queue visible until room admission completes:
-  // the user must keep seeing the queue, not a loading replacement.
+  // 缓慢的房间读取必须保持匹配完成的队列可见，直到房间准入完成：
+  // 用户必须持续看到队列界面，而不是加载中的替代占位。
   await expect(first.page.getByTestId('queue-stage')).toBeVisible();
   await expect(first.page.getByTestId('queue-panel')).toBeVisible();
   const roomRequested = Promise.withResolvers<void>();
@@ -57,16 +55,15 @@ test('两名玩家经界面配对进入同一房间并自动开局', async ({ br
     await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'matched');
     await settle(1200);
     await expect(first.page.getByTestId('view-queue')).toBeVisible();
-    // Lazy StyleX rules can settle during the request; total page height is not the contract.
+    // StyleX 延迟规则可能在请求期间结算；页面总高度并非契约内容。
     await expect(first.page.getByTestId('queue-stage')).toBeVisible();
     await expect(first.page.getByTestId('queue-panel')).toBeVisible();
   } finally {
     releaseRoom.resolve();
   }
 
-  // Both players are sent to the same room; a quick room may already be past the lobby by the
-  // time both connect, so wait for the room view and read its authoritative room id. The
-  // generation stage is its own surface now: lobby, combat or generation all count as arrived.
+  // 双方玩家均被送往同一房间；在双方都连接时快速房间可能已经越过了大厅，
+  // 因此等待房间视图并读取其权威房间 ID。生成阶段现在是独立界面：大厅、战斗或生成均算作已到达。
   for (const page of [first.page, second.page]) {
     await expect(page.getByTestId('view-room')).toBeVisible({ timeout: 30_000 });
     await expect
@@ -86,9 +83,8 @@ test('两名玩家经界面配对进入同一房间并自动开局', async ({ br
   expect(firstRoomId).toMatch(/^[0-9a-f]{24}$/);
   expect(secondRoomId).toBe(firstRoomId);
 
-  // Both connected → the reserved quick room starts on its own. A warm preset book can skip
-  // past the generating surface almost instantly, so arrival is proven by the playing phase
-  // (and the hidden generation surface) rather than by catching that surface mid-flight.
+  // 双方已连接 → 预留的快速房间自行开始。预热的预设法术书几乎瞬间越过生成界面，
+  // 因此通过 playing 阶段（以及隐藏的生成界面）证明已到达，而非在中途捕捉该界面。
   for (const page of [first.page, second.page]) {
     await expect(page.getByTestId('battle-panel')).toHaveAttribute('data-phase', 'playing', {
       timeout: 40_000,
@@ -97,7 +93,7 @@ test('两名玩家经界面配对进入同一房间并自动开局', async ({ br
     await expect(page.getByTestId('typing-input')).toBeVisible();
   }
 
-  // A started match can no longer honestly report a cancellation.
+  // 已开始的比赛无法再如实汇报取消操作。
   const cancelled = await gameJson<{ cancelled: boolean }>(first.context, '/match', {
     method: 'DELETE',
   });
@@ -112,8 +108,7 @@ test('取消会如实反馈：等待中可重新排队，准备阶段的取消�
   const first = await signedInContext(browser, 'cancel1');
   const second = await signedInContext(browser, 'cancel2');
 
-  // Queueing alone, then cancelling: the state is visible, no hidden room is created, and the
-  // player can queue again.
+  // 单独排队随后取消：状态清晰可见，不创建隐藏房间，且玩家可以重新排队。
   await openHome(first.page);
   await first.page.getByTestId('home-quick-start').click();
   await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'waiting', {
@@ -134,7 +129,7 @@ test('取消会如实反馈：等待中可重新排队，准备阶段的取消�
     timeout: 20_000,
   });
 
-  // Leaving during a delayed enqueue must not leave an opponent-matchable orphan ticket.
+  // 在入队延迟期间离开绝不能遗留可被对手匹配的孤儿票据。
   const pending = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   await first.page.route('**/api/match', async (route) => {
@@ -157,8 +152,7 @@ test('取消会如实反馈：等待中可重新排队，准备阶段的取消�
   expect((await matchTicket(second)).body.state).toBe('waiting');
   await gameJson(second.context, '/match', { method: 'DELETE' });
 
-  // The opponent cancels while this player is already in the prepared lobby: the connected player
-  // must be released instead of being left in a hidden room, and can queue again.
+  // 当本玩家已进入就绪的大厅时对手取消：已连接的玩家必须被释放而非留在隐藏房间中，并可以重新排队。
   await matchTicket(second);
   await matchTicket(first);
   const matchedFirst = await matchTicket(first);
@@ -181,8 +175,7 @@ test('取消会如实反馈：等待中可重新排队，准备阶段的取消�
     .toMatch(/closed|reconnecting/);
   await expect.poll(() => visibleErrorText(first.page), { timeout: 20_000 }).not.toBe('');
   await expect(first.page.getByTestId('battle-panel')).toBeHidden();
-  // The other seat was deleted by cancellation: the notice must still let this
-  // player recover when the targeted leave answers that the seat is gone.
+  // 另一个席位因取消而被删除：当针对性的离开接口回复席位已不存在时，通知提示仍必须允许本玩家恢复。
   await first.page.getByTestId('room-error-retry').click();
   await expect(first.page.getByTestId('queue-state')).toHaveAttribute('data-state', 'waiting');
   await first.page.getByTestId('queue-cancel').click();
@@ -200,7 +193,7 @@ test('房间读取失败后返回首页：释放旧席位，重新匹配进入�
   const roomId = paired.body.roomId!;
   expect((await matchTicket(first)).body.roomId).toBe(roomId);
 
-  // A snapshot failure must not turn the reserved seat into a room-entry loop.
+  // 快照失败绝不能将预留席位变成无限重入房间的死循环。
   await first.page.route(`**/api/rooms/${roomId}`, (route) =>
     route.fulfill({ status: 500, json: { error: '房间暂时不可用' } }),
   );
@@ -208,8 +201,7 @@ test('房间读取失败后返回首页：释放旧席位，重新匹配进入�
   await expect(first.page.getByTestId('room-error')).toBeVisible();
   await expect(first.page.getByTestId('connection-status')).toHaveAttribute('data-state', 'closed');
 
-  // Failed cleanup is not a successful exit; retry keeps the same reservation
-  // until the server acknowledges it, even when the original snapshot is absent.
+  // 清理失败不等于成功退出；在服务端确认之前，重试保持同一预约，即使初始快照缺失也是如此。
   const leaveUrl = `**/api/rooms/${roomId}/leave`;
   await first.page.route(leaveUrl, (route) => route.abort('connectionfailed'));
   await first.page.getByTestId('room-error-home').click();
@@ -219,8 +211,7 @@ test('房间读取失败后返回首页：释放旧席位，重新匹配进入�
   expect((await matchTicket(first)).body.roomId).toBe(roomId);
   await first.page.unroute(leaveUrl);
 
-  // A refused departure (the runtime cannot prove the seat's state) is not a
-  // departure either: the page stays, keeps the reservation and offers a retry.
+  // 被拒绝的离场（运行时无法证明席位状态）同样不属于离开：页面保持原状，保留预约并提供重试。
   await first.page.route(leaveUrl, (route) =>
     route.fulfill({
       status: 503,
@@ -263,8 +254,7 @@ test('房间读取失败后返回首页：释放旧席位，重新匹配进入�
   await expect(first.page.getByTestId('lobby-panel')).toBeVisible();
   await expect(first.page.getByTestId('room-error')).toBeHidden();
 
-  // A replaced window's way home is local only: it must not cancel the room now
-  // controlled by the new window of the same account.
+  // 被替换窗口的返回主页仅作用于本地：它绝不能取消同账号新窗口当前控制的房间。
   const replacement = await first.context.newPage();
   await gotoApp(replacement, `/?room=${next.body.roomId!}`);
   await expect(replacement.getByTestId('lobby-panel')).toBeVisible();
@@ -286,8 +276,7 @@ test('排队租约只前移，并发轮询不会自我匹配', async ({ browser 
   expect(waiting.body.state).toBe('waiting');
   expect(typeof waiting.body.expiresAt).toBe('number');
 
-  // Polling refreshes a waiting entry's lease: the state stays 'waiting' and the expiry
-  // only ever moves forward (it is a lease, not a frozen value).
+  // 轮询会刷新等待条目的租约：状态保持为 'waiting' 且过期时间仅会向前推移（它是租约，而非冻结值）。
   for (let attempt = 0; attempt < 3; attempt += 1) {
     expect((await matchTicket(first)).body.expiresAt).toBeGreaterThanOrEqual(
       waiting.body.expiresAt,
@@ -295,11 +284,11 @@ test('排队租约只前移，并发轮询不会自我匹配', async ({ browser 
     await settle(300);
   }
 
-  // Repeating the poll while alone never pairs the account with itself.
+  // 独自排队时重复轮询绝不会将账号与自身配对。
   const alone = await Promise.all([matchTicket(first), matchTicket(first), matchTicket(first)]);
   expect(alone.every((response) => response.body.state === 'waiting')).toBe(true);
 
-  // Seeding one account and then enqueueing the partner pairs them.
+  // 先为一个账号注入排队，然后入队其搭档即可完成配对。
   await matchTicket(second);
   const matchedFirst = await matchTicket(first);
   const matchedSecond = await matchTicket(second);
@@ -314,7 +303,7 @@ test('排队租约只前移，并发轮询不会自我匹配', async ({ browser 
   expect(new Set(snapshot.players.map((player) => player.id)).size).toBe(2);
   expect(snapshot.players.filter((player) => player.id === snapshot.hostId)).toHaveLength(1);
 
-  // Cancelling a live reservation is reported honestly, and the released player can queue again.
+  // 取消有效预约会被如实汇报，且被释放的玩家可以重新排队。
   expect(
     (await gameJson<{ cancelled: boolean }>(first.context, '/match', { method: 'DELETE' })).body
       .cancelled,
@@ -323,8 +312,7 @@ test('排队租约只前移，并发轮询不会自我匹配', async ({ browser 
   expect(
     requeued.body.state === 'waiting' || requeued.body.roomId !== matchedFirst.body.roomId,
   ).toBe(true);
-  // Re-polling may have re-queued the account: cancel again so no reservation leaks into the
-  // shared queue (the afterEach cleanup is the safety net, this is the intent).
+  // 重新轮询可能已经让账号重新排队：再次取消以避免预约泄露到共享队列中（afterEach 清理是安全兜底，这是主观意图）。
   expect(
     (await gameJson<{ cancelled: boolean }>(first.context, '/match', { method: 'DELETE' })).body
       .cancelled,
@@ -338,7 +326,7 @@ test('排队租约只前移，并发轮询不会自我匹配', async ({ browser 
   await second.context.close();
 });
 
-/** Seeds a quick pairing over the API, then starts a real match through the UI for both players. */
+/** 通过 API 为两名玩家快速配对，随后通过 UI 为双方开启真实对局。 */
 async function startedQuickMatch(
   browser: Browser,
   prefix: string,
@@ -367,8 +355,7 @@ test('对局中手动离开：确认后才返回首页，失利入档且可重�
   test.setTimeout(300_000);
   const { leaver, keeper, roomId } = await startedQuickMatch(browser, 'lv');
 
-  // The leave request is held at the network: nothing may claim success, navigate away or
-  // requeue before the server has actually committed the departure.
+  // 离开请求被拦截在网络层：在服务端切实提交离场之前，任何逻辑都不能谎报成功、离开页面或重新排队。
   let leaveRequests = 0;
   const leaveArrived = Promise.withResolvers<void>();
   const releaseLeave = Promise.withResolvers<void>();
@@ -385,7 +372,7 @@ test('对局中手动离开：确认后才返回首页，失利入档且可重�
   await expect(leaver.page.getByTestId('view-room')).toBeVisible();
   await expect(leaver.page.getByTestId('view-home')).toBeHidden();
 
-  // Duplicate clicks share the one in-flight request instead of re-firing it.
+  // 重复点击会共享正在进行的单个请求，而不是重复发起。
   await leaver.page.getByTestId('battle-leave').click();
   await settle(300);
   expect(leaveRequests).toBe(1);
@@ -394,8 +381,7 @@ test('对局中手动离开：确认后才返回首页，失利入档且可重�
   await expect(leaver.page.getByTestId('view-home')).toBeVisible({ timeout: 20_000 });
   await expect(leaver.page.getByTestId('view-room')).toBeHidden();
 
-  // The forfeited duel is durably recorded for the leaver: out of the match, ranked behind
-  // the survivor, with a persisted result row.
+  // 弃赛对决为离场者持久化记录：退出比赛、名次排在幸存者之后，并生成一条持久化的结算记录行。
   const leaverIdentity = await selfIdentity(leaver.context);
   await expect
     .poll(async () => (await apiJson<Profile>(leaver.context, '/api/profile')).body.stats.games, {
@@ -407,7 +393,7 @@ test('对局中手动离开：确认后才返回首页，失利入档且可重�
   expect(leaverRecord[0].hp_remaining).toBe(0);
   expect(leaverRecord[0].rank).toBe(2);
 
-  // The surviving room keeps its settled result with the leaver marked out.
+  // 幸存房间保留其结算结果，离场者被标记为已淘汰。
   await expect
     .poll(async () => (await roomSnapshot(keeper.context, roomId)).phase, { timeout: 30_000 })
     .toBe('finished');
@@ -418,7 +404,7 @@ test('对局中手动离开：确认后才返回首页，失利入档且可重�
   expect(leaverSeat.eliminatedAt).not.toBeNull();
   expect(leaverSeat.rank).toBe(2);
 
-  // Re-queuing pairs the returned player into a NEW room, never the abandoned one.
+  // 重新排队将回归的玩家匹配到一个全新的房间，绝不会是那个已放弃的旧房间。
   const late = await signedInContext(browser, 'lvz');
   await leaver.page.getByTestId('home-quick-start').click();
   await expect(leaver.page.getByTestId('view-queue')).toBeVisible();
@@ -445,21 +431,20 @@ test('离开请求失败：如实报错、留在房间不误判离席，重试�
   const { leaver, keeper, roomId } = await startedQuickMatch(browser, 'lf');
   const leaverIdentity = await selfIdentity(leaver.context);
 
-  // The request never reaches the server: the failure is announced, nothing is claimed and
-  // nothing is committed.
+  // 请求从未到达服务端：汇报失败，不宣称任何成功，也不提交任何变更。
   await leaver.page.route(ROOM_LEAVE, (route) => route.abort('connectionfailed'));
   await leaver.page.getByTestId('battle-leave').click();
   await expect(leaver.page.locator('[data-testid="toast"] > [data-tone="error"]')).toBeVisible();
   await expect(leaver.page.getByTestId('view-room')).toBeVisible();
   expect(await battlePhase(leaver.page)).toBe('playing');
 
-  // The seat is untouched: no silent forfeit, the match simply continues.
+  // 席位保持原样：没有静默弃赛判负，比赛直接继续。
   const untouched = await roomSnapshot(keeper.context, roomId);
   expect(untouched.phase).toBe('playing');
   expect(snapshotPlayer(untouched, leaverIdentity).eliminatedAt).toBeNull();
   expect(snapshotPlayer(untouched, leaverIdentity).hp).toBe(INITIAL_HEALTH);
 
-  // The same button retries over a healthy network and completes the departure.
+  // 相同的按钮在网络恢复后重试并顺利完成离场。
   await leaver.page.unroute(ROOM_LEAVE);
   await leaver.page.getByTestId('battle-leave').click();
   await expect(leaver.page.getByTestId('view-home')).toBeVisible({ timeout: 20_000 });

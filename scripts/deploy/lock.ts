@@ -1,7 +1,6 @@
-// Exclusive host deployment execution. A single lock file guards every
-// mutating deploy operation; it is never stolen by timeout. A dead holder
-// requires the explicit `unlock` command so an operator confirms the original
-// process (and everything it spawned) is really gone.
+// 宿主机独占部署执行控制。通过单个锁文件保护所有修改状态的部署操作；
+// 该锁绝不会因超时而被抢占。若持锁进程异常终止，
+// 必须通过显式的 `unlock` 命令解锁，以确保运维人员确认原进程（及其派生的所有子任务）已真正退出。
 
 import { closeSync, existsSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
 import { hostname } from 'node:os';
@@ -60,7 +59,7 @@ export function acquireLock(lockFile: string, command: string): { release(): voi
       try {
         unlinkSync(lockFile);
       } catch {
-        // best effort; a leftover lock on crash is handled by unlock
+        // 尽最大努力清理；进程崩溃导致的锁残留由 unlock 命令处理
       }
     },
   };

@@ -20,7 +20,7 @@ const maintenanceChangeSchema = z
   })
   .strict();
 
-/** Account roles are read from the database with each authenticated request. */
+/** 每次通过身份验证的请求都会从数据库重新读取账户角色。 */
 export const adminRoutes = new Hono<HttpEnv>({ strict: false })
   .use('*', authenticated, administrator)
   .get('/maintenance', async (c) => c.json(await inspectMaintenance(c.get('services').database)))

@@ -1,11 +1,11 @@
 import * as stylex from '@stylexjs/stylex';
 
 /**
- * Local styles for the account summary. The panels, tiles, table and buttons come from `ui`;
- * everything here is specific to the history panel's own controls.
+ * 账户概览页面的局部样式。面板、图块、表格和按钮均来自 `ui`；
+ * 此处所有样式均为历史战绩面板自身的控件专属。
  */
 export const styles = stylex.create({
-  /** Filter and paging controls above the table. */
+  /** 表格上方的过滤与分页控制栏。 */
   toolbar: {
     display: 'flex',
     flexWrap: 'wrap',
@@ -35,13 +35,13 @@ export const styles = stylex.create({
     minWidth: 0,
   },
 
-  /** A page-size picker is a control, not a text field: it keeps its natural width. */
+  /** 每页条数选择器属于控件而非文本框：保持其自适应的自然宽度。 */
   pageSize: {
     width: 'auto',
     minWidth: 82,
   },
 
-  /** A column header is a sort control, so it keeps the header's own type. */
+  /** 列标题本身作为排序触发控件，因此继承标题自身的排版样式。 */
   sortButton: {
     display: 'inline-flex',
     alignItems: 'center',

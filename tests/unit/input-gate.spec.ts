@@ -50,7 +50,7 @@ import { charCount, damageOf, spellAt } from '../../server/scoring';
 import type { InputFrame } from '../../server/rooms/combat';
 import { RuntimeOwnershipLostError, acquireRuntime } from '../../server/maintenance/ownership';
 
-// Freeze relative offsets without moving PGlite's process-wide timers back by years.
+// 冻结相对时间偏移，避免将 PGlite 进程级定时器往前拨数年。
 const T0 = Date.now();
 const ROOM_ID = 'b'.repeat(24);
 const MATCH_ID = 'match-gate';
@@ -380,7 +380,7 @@ function windowEnd(atMs: number): number {
   return T0 + Math.floor(atMs / COMBAT_BATCH_MS) * COMBAT_BATCH_MS + COMBAT_BATCH_MS;
 }
 
-/** Opens one fenced transaction for a direct start call, exactly like the production callers. */
+/** 为直接调用 startMatchTx 开启一个带围栏的事务，完全模拟生产环境调用方。 */
 function runStart(db: Database, room: RoomRow, mode: InputPolicyMode): Promise<boolean> {
   return db.transaction((tx) => startMatchTx(interceptTx(tx), ROOM_ID, room, mode));
 }
@@ -1576,7 +1576,7 @@ describe('SQL 异常回滚', () => {
   });
 });
 
-/** The room row as the call sites in this suite need it, re-read fresh. */
+/** 重新新鲜读取本测试套件各调用点所需的 room 行。 */
 function roomSync(db: Database): Promise<RoomRow> {
   return getRoom(db, ROOM_ID).then((room) => {
     if (!room) throw new Error('test room vanished');

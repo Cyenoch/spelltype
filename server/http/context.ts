@@ -65,7 +65,7 @@ export function requireRuntime(c: Context<HttpEnv>): RoomRuntimePort {
   return runtime;
 }
 
-/** Readiness proves this process still owns the writer lease, not just that it can answer HTTP. */
+/** 就绪检查用于证明该进程仍持有写入者租约（writer lease），而不仅是能响应 HTTP 请求。 */
 export async function assertRuntimeHealthy(c: Context<HttpEnv>): Promise<void> {
   const runtime = requireRuntime(c);
   try {

@@ -1,12 +1,12 @@
 import * as stylex from '@stylexjs/stylex';
 
-/** Local styles for the WeChat sign-in view. */
+/** 微信登录视图的局部样式。 */
 export const styles = stylex.create({
-  /** The sign-out row keeps its distance from the login link above it. */
+  /** 退出登录按钮行与上方的登录链接保持适度垂直间距。 */
   actionsSpaced: {
     marginTop: 14,
   },
-  /** The login entry is an anchor wearing the button look; no link underline. */
+  /** 登录入口是具备按钮样式的 <a> 锚点标签；去除默认链接下划线。 */
   link: {
     textDecoration: 'none',
   },
@@ -16,7 +16,7 @@ export const styles = stylex.create({
   h2Size: {
     fontSize: 'clamp(1.35rem, 2.6vw, 1.85rem)',
   },
-  /** Body copy keeps the document's paragraph rhythm. */
+  /** 正文内容保持文档的段落节奏与下边距。 */
   paragraph: {
     margin: '0 0 .85em',
   },

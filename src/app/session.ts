@@ -2,12 +2,12 @@ import { useQuery, type QueryClient } from '@tanstack/solid-query';
 import type { SessionInfo, User } from '../../shared/protocol';
 import { sessionOptions } from './queries';
 
-/** The account's role, as the session document reports it (`null` for guests). */
+/** 账户角色，由会话文档提供（访客为 `null`）。 */
 export type SessionRole = NonNullable<SessionInfo['role']>;
 
 export interface Session {
   readonly user: User | null;
-  /** 'user' | 'admin' for signed-in accounts, null for guests. UI only: the server enforces. */
+  /** 已登录账户为 'user' | 'admin'，访客为 null。仅供前端 UI 使用：服务端负责强制鉴权。 */
   readonly role: SessionRole | null;
   readonly pending: boolean;
   readonly error: Error | null;
@@ -15,7 +15,7 @@ export interface Session {
   clear(): void;
 }
 
-/** Cookie-backed identity; Query owns freshness and Solid owns subscriptions. */
+/** 基于 Cookie 的用户身份标识；Query 负责保鲜，Solid 负责响应式订阅。 */
 export function createSession(client: QueryClient): Session {
   const query = useQuery(() => sessionOptions);
   function discardPrivateData() {

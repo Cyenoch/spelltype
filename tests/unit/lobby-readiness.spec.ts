@@ -1,12 +1,9 @@
 /**
- * 大厅准备状态与开局闸门 — readiness sync during generation, and the durable admission rules
- * every new match passes through.
+ * 大厅准备状态与开局闸门 —— 生成阶段的准备同步，以及每场新对局都必须通过的持久化准入规则。
  *
- * Readiness changes stay visible to both seats while the match is being generated, and are
- * refused once the match has a clock. Draining is durable maintenance state in the shared
- * control row: it refuses new matches without touching live ones, their rosters or a finished
- * match's rematch reset. Only the transport is substituted; frames, state changes and snapshots
- * run the real domain code over real PGlite.
+ * 生成对局期间，双方席位均可看到准备状态的变化；一旦对局开始计时，则拒绝变更。
+ * 排空中是共享控制行中的持久化维护状态：它会拒绝新对局，而不影响正在进行的对局、玩家席位或已结束对局的重赛重置。
+ * 这里仅对传输层进行了替换；消息帧、状态变更和快照均在真实的 PGlite 上运行领域核心代码。
  */
 import { afterEach, expect, it } from 'bun:test';
 import type { OpenedDatabase } from '../../server/db';
@@ -65,14 +62,14 @@ function stubSocket(auth: SocketAuth): { socket: RoomSocket; received: ServerMes
   return { socket, received };
 }
 
-/** Fresh in-memory database with migrations applied. */
+/** 已执行数据库迁移的新建内存数据库。 */
 async function openSeededDb(): Promise<OpenedDatabase> {
   const opened = await openDatabase('pglite://:memory:');
   databases.push(opened);
   return opened;
 }
 
-/** Flips the shared control row to draining through the real revision-CAS entry. */
+/** 通过基于修订号的 CAS 真实调用将共享控制行切换为排空中状态。 */
 async function enterDraining(db: OpenedDatabase['db']): Promise<void> {
   const [control] = await db.select().from(runtimeControl);
   if (!control) throw new Error('runtime_control has no singleton row');
@@ -308,13 +305,13 @@ it('维护中的对局不受影响：比赛照常进行并按原截止时间自�
   }
   await enterDraining(db);
 
-  // Maintenance never touches a live match's clock or seats; the past deadline still settles it.
+  // 维护状态决不影响进行中比赛的时钟或席位；已过期的截止时间仍会正常触发自然结算。
   await advanceOnce(scope);
   const settled = (await getRoom(db, roomId))!;
   expect(settled.phase).toBe('finished');
   expect(settled.end_reason).toBe('timeout');
   expect(settled.ended_at).toBe(deadline);
-  // And the settled match cannot quietly become a new one under maintenance either.
+  // 并且已结算的比赛在维护期间也绝不能悄悄重开为新对局。
   expect(await db.transaction((tx) => startMatchTx(tx, roomId, settled, 'enforce'))).toBe(false);
 });
 

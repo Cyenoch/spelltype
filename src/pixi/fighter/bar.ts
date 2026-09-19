@@ -5,7 +5,7 @@ import type { Element } from '../../../shared/protocol';
 const BAR_HEIGHT = 11;
 const BAR_WIDTH_MAX = 240;
 const BAR_WIDTH_MIN = 84;
-/** Visual only: full-health hits read slightly larger; numeric HP stays authoritative. */
+/** 仅用于视觉表现：满血时的命中读数略大；数值生命值仍以权威数据为准。 */
 const HEALTH_CURVE = 1.1;
 const DROP_HOLD_MS = 180;
 const DROP_DURATION_MS = 620;
@@ -25,10 +25,10 @@ interface HealthShard {
 }
 
 /**
- * The true fill snaps to authoritative health. A hot loss trail holds briefly,
- * then burns away as pooled fragments break upward out of the lost segment.
- * Consecutive hits retarget the trail and reuse bounded shard slots; repeated
- * snapshots never replay a hit. The frame stays horizontal during body poses.
+ * 真实填充值会立刻对齐到权威生命值。受伤后的余痕短暂保持，
+ * 随后随着池化的碎片从失去的区段向上崩飞而燃尽消散。
+ * 连续命中会重新指定余痕的目标并复用有界的碎片槽位；
+ * 重复的快照绝不会重放同一次命中。身体做姿态变化时，边框始终保持水平。
  */
 export class FighterBar {
   readonly view = new Container();
@@ -128,8 +128,8 @@ export class FighterBar {
     this.back.scale.set(baseScale, baseHeight);
     this.gloss.scale.set(baseScale, baseHeight * 0.34);
 
-    // Drawn under the fill sprites: a dark seat so the bar reads over any part
-    // of the painted arena, without covering the fill itself.
+    // 绘制在填充精灵之下：一层深色底座，使进度条在竞技场绘制的任何部位上都清晰可读，
+    // 同时不遮盖填充本身。
     this.seat
       .clear()
       .roundRect(barX - 6, barOffsetY - BAR_HEIGHT / 2 - 6, barWidth + 12, BAR_HEIGHT + 12, 5)
@@ -143,7 +143,7 @@ export class FighterBar {
       .stroke({ width: 1.5, color: 0x8a7ec8, alpha: 0.95 })
       .roundRect(barX - 6, barOffsetY - BAR_HEIGHT / 2 - 6, barWidth + 12, BAR_HEIGHT + 12, 5)
       .stroke({ width: 1, color: 0x2a2247, alpha: 1 });
-    // Quarter ticks, then a gem at each end so the frame matches the arena's craft.
+    // 先画四等分刻度，再在两端各加一颗宝石，使边框与竞技场的工艺风格一致。
     for (let tick = 1; tick < 4; tick += 1) {
       const tickX = barX + (barWidth * tick) / 4;
       this.frame
@@ -177,9 +177,8 @@ export class FighterBar {
   }
 
   /**
-   * Only a new authoritative loss starts a flash. Repeated snapshots must not
-   * erase it or restart its hold. Initial state, healing/rematch and reduced
-   * motion snap immediately, without manufacturing damage.
+   * 只有一次新的权威生命值减少才会触发闪光。重复快照不得将其抹除或重新开始保持计时。
+   * 初始状态、治疗/再战以及减弱动效下均立即对齐，绝不凭空制造伤害。
    */
   applyHealth(ratio: number, instant: boolean): boolean {
     const previous = this.healthRatio;
@@ -196,7 +195,7 @@ export class FighterBar {
       return false;
     }
 
-    // A second hit retargets the existing drop without adding another full hold.
+    // 第二次命中会重新指定既有下坠的目标，而不再叠加一次完整的保持时间。
     this.dropElapsed =
       this.fillRatio > this.targetRatio ? Math.min(this.dropElapsed, DROP_HOLD_MS) : 0;
     this.dropFrom = this.fillRatio;

@@ -22,19 +22,18 @@ import { RoomEngine } from './engine';
 export interface RoomRuntimeOptions {
   database: Database;
   generate: GenerateSpells;
-  /** The input-time mode every match this runtime opens locks into its room row. */
+  /** 本运行时开启的每场比赛锁定在其房间数据行中的打字时间策略模式。 */
   inputPolicyMode: InputPolicyMode;
 }
 
-/** How often the runtime re-checks its materialized rooms for external database changes. */
+/** 运行时重新检查其实例化房间是否有外部数据库变更的周期。 */
 const WATCH_SWEEP_MS = 5_000;
 
 /**
- * The native room runtime: the one process that owns every room. It holds the
- * global runtime lease (the maintenance layer's ownership module), keeps a
- * per-room engine with a serialized command queue for every room it has
- * touched, persists the earliest durable deadline per room in `next_alarm_at`,
- * and recovers due work at startup.
+ * 原生房间运行时：拥有所有房间的唯一进程。
+ * 它持有全局运行时租约（维护层的所有权模块），为所触及的每个房间维护
+ * 一个带有串行化命令队列的专属引擎，将每个房间最早的持久化截止时间记录在 `next_alarm_at` 中，
+ * 并在启动时恢复到期工作。
  */
 export class RoomRuntime implements RoomRuntimePort {
   readonly runtimeEpoch: number;
@@ -53,11 +52,10 @@ export class RoomRuntime implements RoomRuntimePort {
   }
 
   /**
-   * Acquires the global runtime lease and recovers every room that still owes
-   * work. A busy lease — another live owner — fails the startup: two owners
-   * would race the rooms. An active room that carries no locked input policy
-   * fails the startup too: the runtime refuses to adopt a match it could
-   * neither judge nor settle.
+   * 获取全局运行时租约并恢复所有仍有待处理工作的房间。
+   * 租约被占用 —— 存在另一个活跃所有者 —— 将导致启动失败：两个所有者会导致房间并发竞态。
+   * 未携带锁定输入策略的活跃房间也会导致启动失败：运行时拒绝接管一场
+   * 既无法裁决也无法结算的比赛。
    */
   static async start(options: RoomRuntimeOptions): Promise<RoomRuntime> {
     const ownership = await acquireRuntime(options.database, {
@@ -86,10 +84,9 @@ export class RoomRuntime implements RoomRuntimePort {
   // ------------------------------------------------------------------ port API
 
   /**
-   * Validates that the room exists before adopting it. Coordination and HTTP
-   * may hand this runtime a stale or unknown room id (a cancel outcome, an
-   * old locator); a missing room is a refusal, never an adoption. There is
-   * exactly one runtime, so an existing room is always this runtime's own.
+   * 在接管房间之前验证其是否存在。协调层和 HTTP 可能会向本运行时传递
+   * 陈旧或未知的房间 ID（取消的结果、旧的定位器）；缺失的房间属于拒绝情况，
+   * 绝不执行接管。运行时恰好只有一个，因此已存在的房间始终归本运行时所有。
    */
   private async engineForOwnRoom(roomId: string): Promise<RoomEngine> {
     const rows = await this.database
@@ -107,10 +104,8 @@ export class RoomRuntime implements RoomRuntimePort {
   }
 
   /**
-   * Read validation before the HTTP upgrade: the room exists, its reservation
-   * has not lapsed, the account has not abandoned its match and the session is
-   * still live. The authoritative session check runs again inside the join
-   * transaction, where registration races the logout exactly once.
+   * HTTP 升级前的只读验证：房间存在、其预留未失效、该账户未放弃对局且会话依然有效。
+   * 权威的会话检查会在加入事务内再次执行，在该事务中注册与登出恰好发生一次竞态。
    */
   async authorizeSocket(roomId: string, session: AuthenticatedSession): Promise<void> {
     const rows = await this.database.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
@@ -154,7 +149,7 @@ export class RoomRuntime implements RoomRuntimePort {
     if (acknowledged.some((ok) => !ok)) throw new Error('room:revoke_incomplete');
   }
 
-  /** Adopts and reconciles one room: adopts DB-only rooms and surfaces external changes. */
+  /** 接管并协调单个房间：接管仅存在于 DB 中的房间并同步外部变更。 */
   async refreshRoom(roomId: string): Promise<void> {
     const engine = await this.engineForOwnRoom(roomId);
     await engine.refresh();
@@ -172,20 +167,20 @@ export class RoomRuntime implements RoomRuntimePort {
 
   // ----------------------------------------------------------------- internals
 
-  /** The write fence every room mutation transaction asserts before its first statement. */
+  /** 每个房间变更事务在执行首条语句前断言的所有权写入隔离界限。 */
   assertOwnership(tx: Transaction): Promise<void> {
     return this.ownership.assert(tx);
   }
 
-  /** Reservation state for coordination reads; an uninitialized room reads `none`. */
+  /** 供协调读取的预留状态；未初始化的房间读取为 `none`。 */
   async reservationState(roomId: string): Promise<ReservationState> {
     const rows = await this.database.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
     return reservationStateOf(rows[0] ?? null, Date.now());
   }
 
   /**
-   * Gets or materializes the engine for one room. Construction is synchronous,
-   * so get-or-create is atomic; timers arm only inside queued commands.
+   * 获取或实例化单个房间的引擎。构建过程为同步操作，
+   * 因此获取或创建具有原子性；定时器仅在排队的命令内挂载。
    */
   private engineFor(roomId: string): RoomEngine {
     let engine = this.engines.get(roomId);
@@ -197,10 +192,9 @@ export class RoomRuntime implements RoomRuntimePort {
   }
 
   /**
-   * Startup recovery: every room that owes a wake-up — a due timer, a live
-   * match, an open reservation, an open lobby — gets its engine and an
-   * immediate catch-up pass. A generation interrupted by a crash is failed
-   * honestly by the catch-up, exactly like the old alarm catch-up.
+   * 启动恢复：每个需要唤醒的房间 —— 到期的定时器、活跃的对局、开放的预留、开放的大厅 ——
+   * 均会获取其引擎并立即执行追赶处理。因崩溃而中断的题目生成会被追赶流程如实标记失败，
+   * 完全符合告警追赶的机制。
    */
   private async recover(): Promise<void> {
     const now = Date.now();
@@ -219,12 +213,10 @@ export class RoomRuntime implements RoomRuntimePort {
   }
 
   /**
-   * Refuses to adopt a generating, countdown or playing room whose match
-   * policy was never locked: judging, snapshots and settlement all read those
-   * columns, and measuring a match mid-flight would invent a start time for
-   * spells already typed. The check is one startup query over every active
-   * room — the single runtime owns them all, so an unmeasured active match is
-   * always this runtime's business and always fails the startup.
+   * 拒绝接管处于生成中、倒计时或进行中但从未锁定比赛策略的房间：
+   * 裁决、快照和结算均读取这些字段，在比赛中途衡量会为已经输入的法术捏造开始时间。
+   * 该检查是对所有活跃房间执行的一次启动查询 —— 单个运行时拥有它们全部，
+   * 因此未计量的活跃比赛必然属于本运行时的管辖范围，且必然导致启动失败。
    */
   private async rejectUnmeasuredActiveRooms(): Promise<void> {
     const unmeasured = await this.database
@@ -246,13 +238,13 @@ export class RoomRuntime implements RoomRuntimePort {
     throw new Error('input_policy_drain_required');
   }
 
-  /** Periodic watch: re-read committed state so external database changes surface promptly. */
+  /** 周期性监控：重新读取已提交状态，以便外部数据库变更能及时体现。 */
   private sweep(): void {
     if (this.stopped) return;
     for (const engine of this.engines.values()) void engine.refresh();
   }
 
-  /** The lease was taken over or expired: stop everything and release the sockets. */
+  /** 租约被接管或已过期：停止所有工作并释放所有套接字。 */
   private async handleOwnershipLost(): Promise<void> {
     if (this.stopped) return;
     this.stopped = true;
@@ -266,10 +258,8 @@ export class RoomRuntime implements RoomRuntimePort {
 }
 
 /**
- * Creates the room runtime: acquires the global runtime lease, recovers due
- * rooms and returns the port Main's composition mounts. The generation
- * function is the injected pipeline Main composes — the fixture uses a real
- * one against a fixture model.
+ * 创建房间运行时：获取全局运行时租约，恢复到期房间，并返回 Main 组装挂载的端口对象。
+ * 生成函数是由 Main 组装注入的流水线 —— 测试用例则使用针对测试模型的真实流水线。
  */
 export async function createRoomRuntime(options: RoomRuntimeOptions): Promise<RoomRuntimePort> {
   return RoomRuntime.start(options);

@@ -14,9 +14,8 @@ const REJECTION_STATUS: Record<RoomRejectionCode, number> = {
 };
 
 /**
- * Thrown for every expected refusal. `message` is the machine-readable code so
- * the HTTP layer can map it without string surgery; `userMessage` is what the
- * player is allowed to see.
+ * 针对所有符合预期的拒绝情况抛出的错误。`message` 为机器可读的错误码，
+ * 以便 HTTP 层可以直接映射而无需解析字符串；`userMessage` 为允许向玩家展示的提示信息。
  */
 export class RoomRejection extends Error {
   readonly code: RoomRejectionCode;

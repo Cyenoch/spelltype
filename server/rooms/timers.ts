@@ -6,14 +6,13 @@ import { readVolley } from './storage/volley';
 import type { PlayerRow, RoomRow } from '../db/schema';
 
 /**
- * The earliest durable deadline a room owes a wake-up for, plus the earliest
- * process-local one. Durable deadlines are persisted in `next_alarm_at` and
- * recovered at startup; session expiries live only in the socket registry, so
- * they die with the process exactly like the sessions' sockets do. An open
- * combat volley is durable: its batch boundary must fire even after a restart,
- * or accepted casts would never land. The generation attempt this engine is
- * awaiting is never a wake-up of its own — its continuation rearms the timer
- * when it settles.
+ * 计算房间所需的最早持久化唤醒截止时间，以及最早的进程局部截止时间。
+ * 持久化截止时间保存在 `next_alarm_at` 中并在启动时恢复；
+ * 会话过期时间仅存在于套接字注册表中，因此它们与会话套接字一样随进程退出而失效。
+ * 进行中的战斗齐射窗口是持久化的：其批处理边界即使在重启后也必须触发，
+ * 否则已接受的施法将永远无法落地生效。
+ * 该引擎当前正在等待的生成尝试绝不作为独立的唤醒时钟 ——
+ * 其延续流程在结算时会重新挂载定时器。
  */
 export function computeNextAlarm(
   room: RoomRow,
@@ -51,7 +50,7 @@ export function computeNextAlarm(
   return { durable, memory };
 }
 
-/** The earliest session expiry among the room's open sockets, if any. */
+/** 房间打开的套接字中最早的会话过期时间（若存在）。 */
 export function earliestSessionExpiry(scope: RoomScope, now: number): number | null {
   let earliest: number | null = null;
   for (const socket of scope.registry.list()) {
@@ -64,10 +63,9 @@ export function earliestSessionExpiry(scope: RoomScope, now: number): number | n
 }
 
 /**
- * Recomputes the room's timers from persisted state and hands the memory timer
- * to the engine. `next_alarm_at` is a durable hint — deadlines themselves live
- * in the room row — so the write is best-effort bookkeeping, and a stale value
- * only costs an extra harmless wake-up after a restart.
+ * 根据持久化状态重新计算房间的定时器，并将内存定时器移交给引擎。
+ * `next_alarm_at` 是一个持久化提示 —— 截止时间本身保存在房间数据行中 ——
+ * 因此该写入是尽力而为的记账操作，陈旧的值在重启后仅会导致一次额外且无害的唤醒。
  */
 export async function armRoom(
   scope: RoomScope,

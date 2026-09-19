@@ -1,14 +1,13 @@
 import { Particle, ParticleContainer, Rectangle, type Texture, type BLEND_MODES } from 'pixi.js';
 
 /**
- * Fixed-size particle pool over a single `ParticleContainer`.
+ * 基于单个 `ParticleContainer` 的固定容量粒子池。
  *
- * Everything a burst can ever need is allocated once, up front: the `Particle`
- * instances, the per-particle integration state (plain typed arrays) and a
- * free-index stack. Spawning and updating therefore allocate nothing, and the
- * whole pool is one draw call. The pool is bounded by construction: once every
- * slot is busy a new spawn recycles the slot the cursor points at, so a burst
- * storm degrades into shorter trails instead of growing without limit.
+ * 一次爆发（burst）可能需要的全部内容都在初始化时一次性分配：
+ * `Particle` 实例、每个粒子的积分状态（普通类型化数组）以及一个空闲索引栈。
+ * 因此生成与更新过程零分配，整个池仅一次绘制调用。
+ * 池的容量由构造方式本身限定：一旦所有槽位都在使用，新的生成会复用具游标所指的槽位，
+ * 于是爆发风暴会退化为更短的拖尾，而不是无限制增长。
  */
 export class SparkPool {
   readonly view: ParticleContainer;
@@ -68,11 +67,10 @@ export class SparkPool {
       boundsArea: new Rectangle(-4096, -4096, 8192, 8192),
       dynamicProperties: { position: true, rotation: true, vertex: true, color: true },
     });
-    // `dynamicProperties` re-uploads position, rotation, vertex and colour every
-    // frame, but the UVs are static and PixiJS only writes static attributes when
-    // the container is dirty. Passing `particles` to the constructor never marks
-    // it dirty, so without this the UV buffer stays empty and every particle
-    // samples texture uv (0, 0) — i.e. nothing is ever drawn.
+    // `dynamicProperties` 每帧重新上传位置、旋转、顶点与颜色，
+    // 但 UV 是静态的，PixiJS 只在容器被标记为 dirty 时才写入静态属性。
+    // 向构造函数传入 `particles` 从不会将其标记为 dirty，因此若缺少下面这一步，
+    // UV 缓冲区会一直为空，所有粒子都会采样纹理 uv (0, 0) —— 也就是什么都画不出来。
     this.view.update();
   }
 
@@ -81,12 +79,12 @@ export class SparkPool {
   }
 
   /**
-   * Emit one particle. Positional on purpose: this is the hot path, called many
-   * times per frame, so no options object is built per particle.
+   * 发射一个粒子。参数刻意采用位置传参：这里是热路径，每帧会被调用多次，
+   * 因此不为每个粒子构造选项对象。
    *
-   * @param size0 scale at spawn, `size1` scale at death
-   * @param spin radians per millisecond, `gravity` px per ms², `drag` velocity
-   *   decay per millisecond (0 = no drag)
+   * @param size0 生成时的缩放，`size1` 消亡时的缩放
+   * @param spin 弧度/毫秒，`gravity` 像素/毫秒²，`drag` 每毫秒的速度衰减
+   *   （0 表示无阻力）
    */
   spawn(
     x: number,
@@ -160,7 +158,7 @@ export class SparkPool {
       const scale = this.size0[index] + (this.size1[index] - this.size0[index]) * progress;
       particle.scaleX = scale;
       particle.scaleY = scale;
-      // Ease out so a particle fades late and reads as a hot spark, not a blink.
+      // 缓出，使粒子较晚才淡出，读起来像炽热火花而非一闪而灭。
       particle.alpha = this.baseAlpha[index] * (1 - progress * progress);
     }
   }

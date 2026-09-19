@@ -18,32 +18,31 @@ import type { Element } from '../../../shared/protocol';
 const CHARACTER_COUNT = 4;
 
 /**
- * The arena's art and its lifetime.
+ * 竞技场的美术资源及其生命周期。
  *
- * The shared files are acquired once, up front; the art only a specific cast
- * needs (spell sigils, impact variants) is fetched on demand through the same
- * reference-counted loader, so a stage torn down while a file is still in flight
- * cannot unload a texture that the next stage is about to receive.
+ * 共享文件在初始化时一次性获取；只有某次施法才会用到的美术
+ * （咒文符印、命中变体）通过同一个引用计数加载器按需获取，
+ * 因此某个舞台在文件仍在传输途中被销毁时，绝不会卸载下一个舞台即将接收的纹理。
  */
 export interface StageAssets {
-  /** Combatant art that loaded, trimmed to its visible pixels. */
+  /** 已成功加载的战斗角色立绘，已裁切至其可见像素。 */
   characters: Texture[];
   sigil: Texture | null;
-  /** Element glyph art in `ELEMENT_ORDER` order; a failed file stays `null`. */
+  /** 按 `ELEMENT_ORDER` 顺序排列的元素符形美术；加载失败的文件保持 `null`。 */
   glyphs: (Texture | null)[];
-  /** One silhouette per loaded combatant, index for index with `characters`. */
+  /** 每个已加载战斗角色对应一张剪影，索引与 `characters` 一一对应。 */
   silhouettes: Texture[];
-  /** True when every combatant file loaded; otherwise the arena is degraded. */
+  /** 当每个战斗角色文件都加载成功时为 true；否则竞技场处于降级状态。 */
   ready: boolean;
-  /** Acquires the shared art; refuses to hand back an arena without combatants. */
+  /** 获取共享美术资源；绝不交回一个没有战斗角色的竞技场。 */
   load(): Promise<void>;
-  /** On-demand art: `null` while the request is in flight or after it failed. */
+  /** 按需美术：请求进行中或请求失败后为 `null`。 */
   request(url: string): Texture | null;
-  /** Warms the sigil and impact variants a cast needs, before it is cast. */
+  /** 在施法之前，预热该次施法所需的符印与命中变体。 */
   warmSpell(element: Element, index: number): void;
-  /** Called once per lazy arrival, so the stage can redraw what waited for it. */
+  /** 每次有懒加载资源到达时调用一次，使舞台能重绘等待它的内容。 */
   onArtArrived: (() => void) | null;
-  /** Releases and destroys everything this module created, whether or not it loaded. */
+  /** 释放并销毁本模块创建的所有内容，无论是否加载成功。 */
   dispose(): void;
 }
 
@@ -54,10 +53,10 @@ export function createStageAssets(): StageAssets {
   const glyphUrls = ELEMENT_ORDER.map((element) => elementGlyph(element));
   const sharedUrls = [...characterUrls, ASSETS.sigil, ...glyphUrls];
 
-  /** Textures this module created itself (trimmed crops, silhouettes) and must destroy. */
+  /** 本模块自行创建的纹理（裁切后的图块、剪影），必须由本模块销毁。 */
   const ownedTextures: Texture[] = [];
   const silhouettes: Texture[] = [];
-  /** Artwork and spell sigils are fetched on demand: a match touches a handful. */
+  /** 美术与咒文符印按需获取：一场对局只会用到其中少数几张。 */
   const lazyTextures = new Map<string, Texture | null>();
   const lazyPending = new Set<string>();
   const lazyRequested = new Set<string>();
@@ -78,8 +77,8 @@ export function createStageAssets(): StageAssets {
   };
 
   /**
-   * On-demand artwork. Nothing here blocks the arena: a missing file simply means
-   * that layer keeps its procedural fallback for this hit.
+   * 按需美术。这里任何环节都不阻塞竞技场：
+   * 文件缺失只意味着该图层在本次命中中继续使用其过程化兜底方案。
    */
   const request = (url: string): Texture | null => {
     const cached = lazyTextures.get(url);
@@ -92,17 +91,15 @@ export function createStageAssets(): StageAssets {
       if (disposed) return;
       lazyTextures.set(url, texture);
       if (!texture) return;
-      // The artwork arrived: the stage puts it where it was waiting and repaints.
+      // 美术已到达：舞台把它放到此前等待它的位置并重绘。
       assets.onArtArrived?.();
     });
     return null;
   };
 
   /**
-   * Warms the art a cast will need before it is needed: the spell sigil and every
-   * impact variant of the current element. Without this the first hit of a spell
-   * lands before its artwork has finished downloading and shows the procedural
-   * fallback instead.
+   * 在需要之前预热某次施法将要使用的美术：咒文符印与当前元素的全部命中变体。
+   * 没有这一步，某道咒文的第一次命中会在其美术下载完成之前就落地，从而只显示过程化兜底效果。
    */
   const warmSpell = (element: Element, index: number): void => {
     request(spellIconFor(element, index));
@@ -133,10 +130,9 @@ export function createStageAssets(): StageAssets {
       });
       assets.characters = crops.filter((texture): texture is Texture => texture !== null);
       if (assets.characters.length === 0) {
-        // Without the combatant art there is no arena to show; the caller falls
-        // back to the DOM interface instead of being handed a placeholder
-        // battlefield. Teardown stays with the caller, so it can put the renderer
-        // down before this art is released.
+        // 没有战斗角色美术就没有可展示的竞技场；调用方会回退到 DOM 界面，
+        // 而不是拿到一个占位战场。销毁仍由调用方负责，
+        // 使其能在这批美术被释放之前先关闭渲染器。
         throw new Error('战斗角色素材加载失败');
       }
       for (const texture of assets.characters) silhouettes.push(createSilhouetteTexture(texture));

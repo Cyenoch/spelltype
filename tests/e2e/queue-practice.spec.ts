@@ -3,7 +3,7 @@ import { test } from '../support/test';
 import { fixture } from '../support/runtime';
 import { signedInContext } from '../support/session';
 
-// Invisible input must expose every accepted typo, including extra and whitespace characters.
+// 不可见的输入框必须暴露出所有已被接受的拼写错误，包括多余字符和空白字符。
 test('练习显示连续错字与句尾多余字符，完成后回车继续', async ({ browser }) => {
   await fixture().reset();
   const session = await signedInContext(browser, 'practice');

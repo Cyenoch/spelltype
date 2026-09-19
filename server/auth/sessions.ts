@@ -30,23 +30,22 @@ export async function createSession(
   return { token, expiresAt };
 }
 
-/** A session token is 32 random bytes in base64url; nothing else can name a session. */
+/** 会话令牌为 32 字节 base64url 格式的随机串；只有这种格式才能作为会话标识。 */
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 /**
- * The session digest a cookie value stands for, without touching the database. A missing or
- * malformed value is simply not a session, so it never becomes a lookup or a 500.
+ * 无需访问数据库即可推算出 Cookie 值对应的会话哈希摘要。若传入值缺失或格式非法，
+ * 显然不属于有效会话，因此绝不会触发数据库查询或导致 500 错误。
  *
- * Logout needs this even when no live session is left: revoking a bearer token must not require an
- * active session, because a soft-revoked row and its room references are exactly what a retried or
- * concurrent logout has to drive.
+ * 即使当前已无活跃会话，登出操作仍需要计算该哈希：注销 Bearer 令牌并不要求存在活跃会话，
+ * 因为重试或并发登出所需要处理的，恰恰正是处于软注销状态的记录及其房间引用。
  */
 export function sessionHashFromToken(token: string | undefined): string | null {
   if (!token || !TOKEN_PATTERN.test(token)) return null;
   return hashToken(token);
 }
 
-/** Only the digest of a token is stored, so a database dump cannot be replayed as a session. */
+/** 数据库仅存储令牌的哈希摘要，因此即使数据库泄露也无法重放伪造会话。 */
 export async function loadSession(
   db: QueryDatabase,
   tokenHash: string | null,
@@ -65,9 +64,8 @@ export async function loadSession(
     .where(eq(sessions.token_hash, tokenHash));
   if (!row) return null;
   if (row.expiresAt <= now) {
-    // A tombstoned or lapsed session keeps its row while a room still holds its sockets: deleting
-    // it here would cascade the seat references away and destroy the retry target of a revocation
-    // the runtime has not confirmed yet. Only a session that owes nothing to a room is cleaned.
+    // 若房间仍持有其 Socket 连接，墓碑化或过期的会话仍会保留记录：若在此处直接删除，
+    // 会级联清除席位引用，从而破坏运行时尚未确认的注销重试目标。只有对房间不再负有责任的会话才会被清理。
     await db
       .delete(sessions)
       .where(
@@ -83,17 +81,16 @@ export async function loadSession(
 }
 
 /**
- * A session tombstone commits before sockets are closed. Handshake registration takes a shared
- * lock on this row: it either finishes first or observes the tombstone and refuses. Runtime calls
- * happen after this statement commits, never while holding its exclusive session lock.
+ * 会话墓碑状态在关闭 Socket 连接前提交。握手注册阶段会对该行加共享锁：
+ * 要么注册先完成，要么观察到墓碑状态并予以拒绝。运行时调用在此语句提交后发生，绝不会在持有其会话排他锁时执行。
  */
 export async function tombstoneSession(db: QueryDatabase, tokenHash: string): Promise<void> {
   await db.update(sessions).set({ expires_at: 0 }).where(eq(sessions.token_hash, tokenHash));
 }
 
 /**
- * Deletes the session once the runtime has acknowledged socket closure; the foreign keys
- * cascade the seat rows away with it. Idempotent: a missing row is a completed revocation.
+ * 一旦运行时确认 Socket 已关闭，即删除该会话；外键约束将随之级联清除席位记录。
+ * 具备幂等性：记录不存在即表示注销已完成。
  */
 export async function deleteSession(db: QueryDatabase, tokenHash: string): Promise<void> {
   await db.delete(sessions).where(eq(sessions.token_hash, tokenHash));

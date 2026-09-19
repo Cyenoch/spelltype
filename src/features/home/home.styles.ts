@@ -1,12 +1,12 @@
 import * as stylex from '@stylexjs/stylex';
 
 /**
- * Local styles for the homepage entrance and the standalone guide.
- * Shared controls (buttons, panels, notices, fields, chips, steps, keycaps)
- * come from `ui`; everything here is specific to these two views.
+ * 首页入口及独立玩法指南页面的局部样式。
+ * 共享控件（按钮、面板、提示框、输入框、标签、步骤、按键帽）
+ * 均来自 `ui` 模块；此处所有样式均为这两个页面专属。
  */
 export const styles = stylex.create({
-  /* ------------------------------------------------------------- homepage -- */
+  /* ------------------------------------------------------------- 首页样式 -- */
 
   page: {
     display: 'flex',
@@ -26,7 +26,7 @@ export const styles = stylex.create({
     backgroundSize: '256px 256px',
     backgroundRepeat: 'repeat',
     boxShadow: 'var(--shadow)',
-    /* The frame is foreground artwork, never a reason to inset the scene image. */
+    /* 边框为前景装饰，绝不能作为内缩场景图的理由。 */
     '::before': {
       content: '""',
       position: 'absolute',
@@ -50,7 +50,7 @@ export const styles = stylex.create({
         'linear-gradient(90deg,rgba(9,11,20,.52),rgba(9,11,20,.08)70%),linear-gradient(180deg,rgba(9,11,20,.08),rgba(9,11,20,.5)65%,transparent)',
     },
   },
-  /** Feather the scene into the repeatable leather; no hard inner rectangle. */
+  /** 将场景图边缘羽化融合进平铺皮革背景；避免形成生硬的内部矩形边界。 */
   heroArt: {
     position: 'absolute',
     inset: 0,
@@ -173,7 +173,7 @@ export const styles = stylex.create({
     letterSpacing: '.08em',
     color: 'var(--ink-faint)',
   },
-  /** Notices inside the hero keep the card's rhythm instead of the shared bottom margin. */
+  /** Hero 区域内的提示框遵循卡片自身的内边距节奏，而非通用的底部外边距。 */
   heroNotice: {
     marginTop: 0,
     marginBottom: 12,
@@ -275,7 +275,7 @@ export const styles = stylex.create({
     objectFit: 'cover',
     opacity: 0.85,
   },
-  /** The two CTAs share one baseline, whatever each card's copy does above them. */
+  /** 无论上方卡片文案长短如何，两个主行动按钮（CTA）始终共享同一条底部基线对齐。 */
   entryButton: {
     width: '100%',
     marginTop: 'auto',
@@ -285,7 +285,7 @@ export const styles = stylex.create({
     letterSpacing: '.02em',
   },
 
-  /* --------------------------------------------------------- activity panel -- */
+  /* --------------------------------------------------------- 实时活动面板 -- */
 
   activity: {
     margin: 0,
@@ -303,7 +303,7 @@ export const styles = stylex.create({
     color: '#ffd8de',
   },
 
-  /* ------------------------------------------------------------ player card -- */
+  /* ------------------------------------------------------------ 玩家卡片 -- */
 
   aside: {
     alignSelf: 'stretch',
@@ -356,7 +356,7 @@ export const styles = stylex.create({
     filter: 'grayscale(0.7)',
     opacity: 0.85,
   },
-  /** Small crest accent balancing the avatar on the other side of the identity row. */
+  /** 印记小徽标点缀，与身份信息行另一侧的头像形成视觉平衡。 */
   pcSigil: {
     flex: 'none',
     marginLeft: 'auto',
@@ -439,7 +439,7 @@ export const styles = stylex.create({
     color: 'var(--ink-faint)',
     whiteSpace: 'nowrap',
   },
-  /** Recent match: a quiet section under a hairline, not another nested box. */
+  /** 最近对局：细分割线下的安静信息区域，而非多余的嵌套框。 */
   pcRecent: {
     display: 'flex',
     flexDirection: 'column',
@@ -465,7 +465,7 @@ export const styles = stylex.create({
     minHeight: 48,
   },
 
-  /* ------------------------------------------------- tutorial + guide link -- */
+  /* ------------------------------------------------- 新手教程与指南链接 -- */
 
   tutorial: {
     margin: 0,
@@ -562,7 +562,7 @@ export const styles = stylex.create({
     color: 'var(--gold)',
   },
 
-  /* ------------------------------------------------------------ guide page -- */
+  /* ------------------------------------------------------------ 指南页面 -- */
 
   guide: {
     display: 'flex',

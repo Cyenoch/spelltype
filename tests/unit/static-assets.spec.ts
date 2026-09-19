@@ -21,7 +21,7 @@ async function assets() {
   return createAssetApp(root);
 }
 
-test('SPA navigation and invitations get uncached HTML; hashed code is immutable', async () => {
+test('单页应用（SPA）导航和邀请链接返回不缓存的 HTML，哈希代码资源不可变缓存', async () => {
   const app = await assets();
   const page = await app.request('/?room=aaaaaaaaaaaaaaaaaaaaaaaa');
   expect(page.status).toBe(200);
@@ -37,7 +37,7 @@ test('SPA navigation and invitations get uncached HTML; hashed code is immutable
   expect(worker.headers.get('service-worker-allowed')).toBe('/');
 });
 
-test('missing chunks, API paths and path traversal never receive SPA HTML or secrets', async () => {
+test('缺失的代码块、API 路径和路径穿越请求绝不返回 SPA HTML 或机密信息', async () => {
   const app = await assets();
   for (const path of [
     '/assets/missing.js',

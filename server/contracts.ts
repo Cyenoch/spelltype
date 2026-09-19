@@ -21,7 +21,7 @@ export type RoomSocket = ServerWebSocket<RoomSocketData>;
 
 export type GenerateSpells = (input: GenerationInput) => Promise<GenerationOutcome>;
 
-/** The room runtime owns sockets, serialized commands and durable deadlines. */
+/** 房间运行时管理所有连接套接字、串行化指令以及持久化倒计时截止时间。 */
 export interface RoomRuntimePort {
   readonly runtimeEpoch: number;
   assertOwnership(tx: Transaction): Promise<void>;

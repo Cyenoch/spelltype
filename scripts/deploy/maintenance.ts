@@ -1,11 +1,10 @@
-// Host-side maintenance runner. Drives the one-shot maintenance entry inside
-// the running app container (`docker compose exec -T app bun
-// dist/server/maintenance.js ...`) or, while no app container exists, as a
-// one-shot container from the same pinned image (`docker compose run -T --rm
-// --no-deps --entrypoint bun app dist/server/maintenance.js ...`). The
-// host's Docker privilege is the only authorization: no admin listener, no
-// bearer token, no Docker socket in the app. Outputs are validated with the
-// shared maintenance schemas.
+// 宿主机端维护运行器。负责在运行中的应用容器内执行单次维护入口
+// (`docker compose exec -T app bun dist/server/maintenance.js ...`)；
+// 或在应用容器尚不存在时，通过相同的固定镜像以单次容器方式运行
+// (`docker compose run -T --rm --no-deps --entrypoint bun app dist/server/maintenance.js ...`)。
+// 宿主机的 Docker 权限是唯一的鉴权方式：应用中没有管理监听端口，
+// 没有 Bearer 令牌，也没有挂载 Docker socket。
+// 输出内容均通过共享的维护模式 Schema 进行校验。
 
 import { z } from 'zod';
 import {
@@ -22,7 +21,7 @@ const MAINTENANCE_EXIT_CONFLICT = 3;
 
 export { MaintenanceConflictError };
 
-/** Validates the compiled identity output of `dist/server/maintenance.js --check`. */
+/** 校验 `dist/server/maintenance.js --check` 输出的编译后版本标识。 */
 export const maintenanceCheckSchema = z.object({
   entry: z.literal('maintenance'),
   buildId: z.string().min(1),
@@ -61,19 +60,19 @@ async function runMaintenance(
   return run;
 }
 
-/** Read-only DrainStatus from the running app container. */
+/** 从运行中的应用容器读取只读的 DrainStatus。 */
 export async function inspectRunning(ctx: DeployContext): Promise<DrainStatus> {
   const run = await runMaintenance(ctx, { via: 'exec' }, ['--status']);
   return drainStatusSchema.parse(JSON.parse(run.stdout));
 }
 
-/** Read-only DrainStatus from a one-shot container while no app is running. */
+/** 在没有应用运行时，从单次容器读取只读的 DrainStatus。 */
 export async function inspectOneShot(ctx: DeployContext, imageId: string): Promise<DrainStatus> {
   const run = await runMaintenance(ctx, { via: 'run', imageId }, ['--status']);
   return drainStatusSchema.parse(JSON.parse(run.stdout));
 }
 
-/** Enters durable draining with the revision CAS, inside the app container. */
+/** 在应用容器内，通过带有版本号（revision）CAS 的操作进入持久化 draining 状态。 */
 export async function drainAdmission(
   ctx: DeployContext,
   expectedRevision: number,
@@ -87,8 +86,8 @@ export async function drainAdmission(
 }
 
 /**
- * Reopens admission with the full CAS: expected revision AND the runtime
- * epoch the runner just proved against public /health (live runtime lease).
+ * 通过完整的 CAS 机制重新开放准入：需要预期的版本号（revision）以及
+ * 运行器刚刚通过公开 /health 接口验证的运行时纪元（runtime epoch，活跃运行时租约凭据）。
  */
 export async function resumeAdmission(
   ctx: DeployContext,
@@ -107,17 +106,17 @@ export async function resumeAdmission(
 
 export interface DrainWaitOptions {
   timeoutS: number;
-  /** The revision returned by entering maintenance; never adopt a newer drain implicitly. */
+  /** 进入维护状态时返回的版本号；绝不隐式接受更新的 drain 状态。 */
   expectedRevision?: number;
-  /** Poll interval; tests shrink it. */
+  /** 轮询间隔；测试中会缩短此值。 */
   intervalMs?: number;
 }
 
 /**
- * Pure observer over an ongoing drain (either transport): returns the status
- * only when the drain is ready AND the draining revision never moved during
- * the wait. Performs no mutations and kills nothing; an open maintenance row,
- * a moved revision or a timeout all throw with the counts intact.
+ * 针对正在进行的 drain 排空流程的纯观察器（支持两种通信方式）：
+ * 仅当排空就绪且在等待期间 draining 版本号从未改变时才返回状态。
+ * 不执行任何修改操作，也绝不强杀任何任务；若维护行处于 open 状态、
+ * 版本号发生变动或超时，均会在保留计数指标的情况下抛出异常。
  */
 export async function waitForDrainReady(
   load: () => Promise<DrainStatus>,
