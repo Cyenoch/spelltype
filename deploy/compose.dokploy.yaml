@@ -10,11 +10,14 @@
 # command, so routing can never silently diverge between operator and CLI.
 #
 # Dokploy usage rules for this stateful app:
-#   - Provision the project once (initial `up`), then disable Dokploy UI
-#     auto-deploy/webhook/trigger settings for it. scripts/deploy.ts is the
-#     single owner of the app lifecycle; a UI redeploy would recreate the
-#     app container without the drain -> stop -> migrate -> verify ->
-#     resume sequence and is therefore never used for updates.
+#   - One container-lifecycle owner per environment. By default the `build`
+#     workflow triggers the deploy hook on main pushes (docs/deployment.md
+#     section 2) while the host CLI keeps first install, rollback and
+#     recovery; never run both against the same service.
+#   - A hook recreate does not drain. Replacing the app container without the
+#     drain -> stop -> migrate -> verify -> resume sequence drops the matches
+#     in progress on it, so implement that sequence on the platform side if
+#     the drain contract must hold.
 #   - Dokploy's domain UI is not used; routing comes from the labels below.
 #   - The app container never mounts the Docker socket.
 #

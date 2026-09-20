@@ -1,5 +1,7 @@
 # Verify and build in parallel; publish the exact built image only after both
-# succeed. Production deployment remains an operator action.
+# succeed, then ask the external platform to deploy it on real main pushes.
+# The hook only triggers that platform: this workflow never replaces
+# containers, runs migrations or verifies production itself.
 name: build
 
 on:
@@ -117,3 +119,41 @@ jobs:
             printf '%s\n' "$image_ref"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # Ask the external platform (Dokploy) to deploy the image just published. The
+  # hook URL is a bearer capability, so it lives only in the repository secret
+  # and is never echoed. Tags, PRs and manual runs on other branches do not
+  # deploy; main runs are serialised by the workflow concurrency group.
+  deploy:
+    needs: [publish]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Trigger production deployment
+        env:
+          DEPLOYMENT_HOOK_URL: ${{ secrets.DEPLOYMENT_HOOK_URL }}
+        run: |
+          if [ -z "$DEPLOYMENT_HOOK_URL" ]; then
+            echo "::error::DEPLOYMENT_HOOK_URL repository secret is not set; production was not triggered."
+            exit 1
+          fi
+          invoke() {
+            curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+              --request "$1" --max-time 60 "$DEPLOYMENT_HOOK_URL"
+          }
+          # POST first; a 405 is the platform telling us this hook is GET-only.
+          if ! status="$(invoke POST)"; then
+            echo "::error::Deployment hook is unreachable; production was not triggered."
+            exit 1
+          fi
+          if [ "$status" = "405" ]; then
+            if ! status="$(invoke GET)"; then
+              echo "::error::Deployment hook is unreachable; production was not triggered."
+              exit 1
+            fi
+          fi
+          case "$status" in
+            2??) echo "Deployment hook accepted the request (HTTP $status)." ;;
+            *) echo "::error::Deployment hook returned HTTP $status; production was not triggered."; exit 1 ;;
+          esac

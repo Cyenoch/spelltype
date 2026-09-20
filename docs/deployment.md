@@ -105,13 +105,17 @@ docker build --build-arg BUILD_ID=operator-build -t spelltype:operator-build .
 
 ### 使用 GitHub Actions 镜像
 
-[`build` 工作流](../.github/workflows/build.yml) 并行执行代码校验与镜像构建，两者成功后才向 `ghcr.io/<owner>/<repository>`（全小写）发布同一份镜像，当前平台为 `linux/amd64`。不自动迁移数据库或更新生产容器。
+[`build` 工作流](../.github/workflows/build.yml) 并行执行代码校验与镜像构建，两者成功后才向 `ghcr.io/<owner>/<repository>`（全小写）发布同一份镜像，当前平台为 `linux/amd64`。校验或构建失败时不发布、不部署。
 
 | 触发方式 | 发布标签 |
 | --- | --- |
 | 推送 `main`，或在 `main` 手动运行 | `main`、`latest`、`sha-<完整提交 SHA>` |
 | 推送 `v*` 标签，例如 `v1.2.3` | 原始版本标签、`sha-<完整提交 SHA>`；不更新 `latest` |
 | PR，或在其他分支手动运行 | 仅校验及构建，不登录 GHCR、不发布 |
+
+**`main` 推送在发布成功后还会触发一次生产部署**：部署任务直接调用仓库机密 `DEPLOYMENT_HOOK_URL`（Dokploy 部署钩子，配置见第 5 节）。工作流本身不停止容器、不运行迁移、不验证健康、也不恢复入口：迁移由应用启动时自动执行，容器替换由 Dokploy 完成。钩子 URL 等价于凭据能力，只存在仓库机密中，绝不写入工作流或日志；未配置该机密时 `main` 推送的部署任务明确失败，不会静默跳过。`v*` 标签、PR 与其他分支不触发部署。
+
+> **这条路径不排空。** Dokploy 重建容器不会执行第 3 节的 drain → stop → migrate → verify → resume 流程，被替换容器上正在进行的对局会中断——数据库租约与结算状态能保证数据不被写坏，但玩家当场的对局会丢失。要保留排空契约，必须由部署平台或 CI 显式实现排空、无重叠替换、健康校验与恢复；仅调用部署钩子做不到。人工的 `bun run deploy deploy` 路径仍然保留，但必须与钩子部署串行，不能并发替换同一服务。
 
 CI 使用自动提供的 `GITHUB_TOKEN`，不需要新增 PAT 或应用密钥；仅发布任务拥有 `packages: write` 权限。组织策略必须允许发布包；若同名包已存在，需在包设置中授予本仓库 Actions 写入权限。工作流不修改包可见性；私有包的宿主机需先使用有读取权限的凭据登录 GHCR。
 
@@ -243,8 +247,9 @@ Dokploy override 使用外部 `dokploy-network`，通过 Traefik 把域名路由
 
 **一个服务只能有一个容器生命周期控制者：**
 
-- 推荐在宿主机运行部署 CLI：首次准备项目后，关闭 Dokploy 的自动部署 / webhook 替换触发器，由 CLI 执行完整流程。
-- 如果选择平台 / CI 自己控制替换，则必须实现上一节的排空、无重叠停止/启动、迁移、健康验证和恢复流程；不能再让宿主机 CLI 或另一个自动部署任务同时替换。
+- 本仓库默认让 CI 拥有 `main` 推送的替换触发：工作流发布镜像后调用 Dokploy 部署钩子（第 2 节）。此时不要再用宿主机 CLI 对同一环境执行更新；首次安装、显式回滚和故障恢复仍由宿主机 CLI 完成。
+- 如果改为由宿主机部署 CLI 负责日常发布，则必须关闭 Dokploy 的自动部署 / webhook 触发器，并从工作流移除部署任务（同时更新[构建与发布规格](../spec/spec-process-cicd-build.md)）。
+- 无论选择哪一侧，都必须实现第 3 节的排空、无重叠停止/启动、迁移、健康验证和恢复流程；不能再让宿主机 CLI 或另一个自动部署任务同时替换。
 
 Compose 默认信任代理提供的转发地址。必须确保入口覆盖受信任的客户端 IP 头且无法绕过入口；无可信代理时显式设置 `TRUST_FORWARDED_FOR=false`。其他模式见配置模板。
 
