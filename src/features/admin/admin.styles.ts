@@ -1,0 +1,93 @@
+import * as stylex from '@stylexjs/stylex';
+
+export const adminStyles = stylex.create({
+  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(145px,1fr))', gap: 12 },
+  stack: { display: 'flex', flexDirection: 'column', gap: 20, minWidth: 0 },
+  tableWrap: { overflowX: 'auto', maxWidth: '100%' },
+  table: { width: '100%', borderCollapse: 'collapse', fontSize: '.88rem' },
+  th: {
+    textAlign: 'left',
+    padding: '12px 14px',
+    whiteSpace: 'nowrap',
+    borderBottom: '1px solid var(--line-strong)',
+    color: 'var(--ink-faint)',
+    fontWeight: 500,
+    fontSize: '.78rem',
+    letterSpacing: '.06em',
+  },
+  td: {
+    textAlign: 'left',
+    padding: '14px',
+    whiteSpace: 'nowrap',
+    borderBottom: '1px solid var(--line)',
+    verticalAlign: 'top',
+  },
+  mono: {
+    fontFamily: 'var(--font-mono)',
+    fontVariantNumeric: 'tabular-nums',
+    overflowWrap: 'anywhere',
+  },
+  muted: { color: 'var(--ink-faint)', fontSize: '.85rem' },
+  details: {
+    display: 'grid',
+    gridTemplateColumns: { default: '150px minmax(0,1fr)', '@media (max-width: 560px)': '1fr' },
+    gap: '10px 20px',
+    margin: 0,
+  },
+  detailLabel: { color: 'var(--ink-faint)', fontSize: '.85rem' },
+  detailValue: { margin: 0, overflowWrap: 'anywhere' },
+  toolbar: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  link: {
+    color: { default: 'var(--gold)', ':hover': 'var(--ink)' },
+    textDecoration: 'underline',
+    textUnderlineOffset: 4,
+    overflowWrap: 'anywhere',
+  },
+});
+
+export const commonStyles = stylex.create({
+  heading: {
+    padding: '8px 0 4px',
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 16,
+    flexWrap: 'wrap',
+  },
+  title: { fontSize: 'clamp(1.7rem,3.2vw,2.4rem)', marginBottom: 8 },
+  description: { color: 'var(--ink-dim)', margin: 0, maxWidth: '65ch', fontSize: '.9rem' },
+  panel: { marginBottom: 0, minWidth: 0 },
+  panelTitle: { fontSize: '1.15rem', marginBottom: 20 },
+  longStat: { fontSize: '1rem', lineHeight: 1.65 },
+  empty: {
+    padding: '36px 18px',
+    textAlign: 'center',
+    color: 'var(--ink-faint)',
+    border: '1px dashed var(--line-strong)',
+  },
+  error: { color: 'var(--danger)' },
+  pagination: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    paddingTop: 18,
+  },
+  actions: { display: 'flex', alignItems: 'center', gap: 8 },
+  search: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'end',
+    gap: 10,
+    flex: '1 1 300px',
+    maxWidth: 650,
+  },
+  searchLabel: { flex: '1 1 180px', minWidth: 0 },
+});

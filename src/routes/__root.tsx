@@ -240,7 +240,12 @@ function Shell(props: {
         id="app"
         data-testid="app-root"
         data-graphics={props.graphicsFailed ? 'failed' : 'ready'}
-        class={stylex.props(styles.app).className}
+        class={
+          stylex.props(
+            styles.app,
+            currentLocation().pathname.startsWith('/admin') && styles.adminApp,
+          ).className
+        }
       >
         <header class={stylex.props(styles.topbar).className}>
           <Link
@@ -274,12 +279,12 @@ function Shell(props: {
           </Link>
           <Show when={props.ctx.session.role === 'admin'}>
             <Link
-              to="/admin/maintenance"
+              to="/admin"
               search={{}}
               data-testid="nav-admin"
               class={stylex.props(styles.guide).className}
             >
-              维护
+              后台
             </Link>
           </Show>
           <div class={stylex.props(styles.user).className}>
@@ -374,6 +379,7 @@ const styles = stylex.create({
     margin: '0 auto',
     padding: '22px clamp(14px,3vw,34px) 96px',
   },
+  adminApp: { maxWidth: 1480 },
   topbar: {
     display: 'flex',
     alignItems: 'center',

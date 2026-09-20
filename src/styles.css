@@ -143,3 +143,16 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* 无 JavaScript 时仍可阅读的公开简介，不承载实时对局界面。 */
+.public-preview {
+  max-width: 760px;
+  margin: 4vh auto;
+  padding: 24px;
+  background: var(--panel-solid);
+  border: 1px solid var(--line);
+}
+.public-preview section,
+.public-preview nav {
+  margin-block: 24px;
+}

@@ -1,9 +1,17 @@
+import { For } from 'solid-js';
 import { Link } from '@tanstack/solid-router';
 import * as stylex from '@stylexjs/stylex';
 import { ASSETS } from '../../pixi/assets';
 import { ui } from '../../ui/primitives';
 import { MatchFacts } from '../home/home-view';
 import { styles } from '../home/home.styles';
+import {
+  GUIDE_TITLE,
+  GUIDE_INTRO,
+  GUIDE_START_STEPS,
+  PRACTICE_TIPS,
+  PRACTICE_TITLE,
+} from '../../../shared/seo';
 
 /** 面向玩家的规则详解页面，独立于首页紧凑的新手简引。 */
 export function GuideView() {
@@ -12,10 +20,8 @@ export function GuideView() {
       <header class={stylex.props(styles.guideHead).className}>
         <div class={stylex.props(styles.guideHeadMain).className}>
           <span class={stylex.props(styles.heroEyebrow).className}>完整教程</span>
-          <h1 class={stylex.props(ui.title, styles.guideTitle).className}>从第一秒到结算</h1>
-          <p class={stylex.props(styles.guideLead).className}>
-            一场咒文对决的全部规则：怎么开局、伤害怎么算、打字时会发生什么、打完怎么排名。
-          </p>
+          <h1 class={stylex.props(ui.title, styles.guideTitle).className}>{GUIDE_TITLE}</h1>
+          <p class={stylex.props(styles.guideLead).className}>{GUIDE_INTRO}</p>
           <MatchFacts />
         </div>
         <Link
@@ -34,27 +40,22 @@ export function GuideView() {
       <div class={stylex.props(styles.guideGrid).className}>
         <section class={stylex.props(ui.panel, styles.guideSection).className}>
           <h2 class={stylex.props(ui.title, styles.guideSectionTitle).className}>
+            {PRACTICE_TITLE}
+          </h2>
+          <ul class={stylex.props(ui.steps).className}>
+            <For each={PRACTICE_TIPS}>
+              {(tip) => <li class={stylex.props(styles.guideStep).className}>{tip}</li>}
+            </For>
+          </ul>
+        </section>
+        <section class={stylex.props(ui.panel, styles.guideSection).className}>
+          <h2 class={stylex.props(ui.title, styles.guideSectionTitle).className}>
             开局：匹配还是私人房
           </h2>
           <ul class={stylex.props(ui.steps).className}>
-            <li class={stylex.props(styles.guideStep).className}>
-              快速匹配：寻找一名对手，随机选择一个预设主题；双方进入房间即自动开始，无需点准备。
-            </li>
-            <li class={stylex.props(styles.guideStep).className}>
-              排队期间可练习咒文，完成一句后按 Enter
-              继续。练习成绩仅在当前页面保留，不计入战绩，也不影响匹配。
-            </li>
-            <li class={stylex.props(styles.guideStep).className}>
-              私人房：创建后在大厅复制邀请码发给朋友；朋友在首页点击「加入房间」输入邀请码，2–4
-              人即可开打。
-            </li>
-            <li class={stylex.props(styles.guideStep).className}>
-              两种入口都需要先登录；登录后每局的排名与数据都会保存到你的战绩。
-            </li>
-            <li class={stylex.props(styles.guideStep).className}>
-              所有新对局统一使用困难咒文，目标约 39–50
-              个英文字符。私人房可自定主题；主题只换咒文内容，规则不变。
-            </li>
+            <For each={GUIDE_START_STEPS}>
+              {(step) => <li class={stylex.props(styles.guideStep).className}>{step}</li>}
+            </For>
           </ul>
         </section>
 

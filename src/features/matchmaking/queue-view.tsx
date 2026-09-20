@@ -18,7 +18,7 @@ export function QueueView(props: { ctx: AppContext }) {
   const searching = createMemo(() => queue.state() === 'waiting');
   const settled = createMemo(() => queue.state() === 'cancelled' || queue.state() === 'blocked');
 
-/** 实时在线人数，读取自首页计数轮询接口（10 秒刷新，5 秒判定陈旧）。 */
+  /** 实时在线人数，读取自首页计数轮询接口（10 秒刷新，5 秒判定陈旧）。 */
   const activity = useQuery(() => activityOptions);
 
   // 加入、离开或重新排队均会改变本页面展示的在线人数，

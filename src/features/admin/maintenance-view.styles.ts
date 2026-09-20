@@ -1,8 +1,8 @@
 import * as stylex from '@stylexjs/stylex';
 
-/** 管理控制台是一个居中卡片面板；状态卡片内嵌其中。 */
+/** 维护面板嵌入统一后台布局，保留现有状态与操作样式。 */
 export const styles = stylex.create({
-  page: { maxWidth: 720, margin: '0 auto', width: '100%' },
+  page: { display: 'flex', flexDirection: 'column', gap: 20, width: '100%', minWidth: 0 },
   status: {
     marginTop: 16,
     backgroundColor: 'var(--panel)',

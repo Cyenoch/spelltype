@@ -8,6 +8,7 @@ import { statusOptions } from '../../app/maintenance';
 import { messageOf, toast } from '../../ui/toast';
 import { ui } from '../../ui/primitives';
 import { styles } from './maintenance-view.styles';
+import { AdminHeading } from './common';
 
 const MODE_LABELS: Record<MaintenanceMode, string> = {
   open: '开放中',
@@ -92,9 +93,10 @@ export function MaintenanceAdminView() {
 
   return (
     <section data-testid="view-admin-maintenance" class={stylex.props(styles.page).className}>
+      <AdminHeading title="系统维护" description="控制新对局准入，检查安全发布前的排空状态。" />
       <div class={stylex.props(ui.panel).className}>
         <div class={stylex.props(ui.panelHead).className}>
-          <h1>维护控制台</h1>
+          <h2>维护控制台</h2>
           <span class={stylex.props(ui.eyebrow).className}>仅管理员</span>
         </div>
         <p class={stylex.props(ui.muted).className}>

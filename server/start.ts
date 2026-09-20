@@ -72,7 +72,7 @@ export async function startServer({
     });
     const app = new Hono<HttpEnv>()
       .route('/', createApp(services))
-      .route('/', createAssetApp(config.assetsRoot));
+      .route('/', createAssetApp(config.assetsRoot, config.publicOrigin));
     app.notFound((c) => c.json({ error: '未找到请求的资源。' }, 404));
     const rooms = services.rooms;
     publicServer = Bun.serve<RoomSocketData>({

@@ -13,10 +13,18 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as GuideRouteImport } from './routes/guide'
+import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated.admin'
 import { Route as AuthenticatedCreateRouteImport } from './routes/_authenticated.create'
 import { Route as AuthenticatedMatchRouteImport } from './routes/_authenticated.match'
 import { Route as AuthenticatedMeRouteImport } from './routes/_authenticated.me'
+import { Route as AuthenticatedAdminIndexRouteImport } from './routes/_authenticated.admin.index'
 import { Route as AuthenticatedAdminMaintenanceRouteImport } from './routes/_authenticated.admin.maintenance'
+import { Route as AuthenticatedAdminBooksIndexRouteImport } from './routes/_authenticated.admin.books.index'
+import { Route as AuthenticatedAdminBooksThemeRouteImport } from './routes/_authenticated.admin.books.$theme'
+import { Route as AuthenticatedAdminMatchesIndexRouteImport } from './routes/_authenticated.admin.matches.index'
+import { Route as AuthenticatedAdminMatchesMatchIdRouteImport } from './routes/_authenticated.admin.matches.$matchId'
+import { Route as AuthenticatedAdminUsersIndexRouteImport } from './routes/_authenticated.admin.users.index'
+import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated.admin.users.$userId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -37,6 +45,11 @@ const GuideRoute = GuideRouteImport.update({
   path: '/guide',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
 const AuthenticatedCreateRoute = AuthenticatedCreateRouteImport.update({
   id: '/create',
   path: '/create',
@@ -52,21 +65,70 @@ const AuthenticatedMeRoute = AuthenticatedMeRouteImport.update({
   path: '/me',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedAdminIndexRoute = AuthenticatedAdminIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AuthenticatedAdminRoute,
+} as any)
 const AuthenticatedAdminMaintenanceRoute =
   AuthenticatedAdminMaintenanceRouteImport.update({
-    id: '/admin/maintenance',
-    path: '/admin/maintenance',
-    getParentRoute: () => AuthenticatedRoute,
+    id: '/maintenance',
+    path: '/maintenance',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminBooksIndexRoute =
+  AuthenticatedAdminBooksIndexRouteImport.update({
+    id: '/books/',
+    path: '/books/',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminBooksThemeRoute =
+  AuthenticatedAdminBooksThemeRouteImport.update({
+    id: '/books/$theme',
+    path: '/books/$theme',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminMatchesIndexRoute =
+  AuthenticatedAdminMatchesIndexRouteImport.update({
+    id: '/matches/',
+    path: '/matches/',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminMatchesMatchIdRoute =
+  AuthenticatedAdminMatchesMatchIdRouteImport.update({
+    id: '/matches/$matchId',
+    path: '/matches/$matchId',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminUsersIndexRoute =
+  AuthenticatedAdminUsersIndexRouteImport.update({
+    id: '/users/',
+    path: '/users/',
+    getParentRoute: () => AuthenticatedAdminRoute,
+  } as any)
+const AuthenticatedAdminUsersUserIdRoute =
+  AuthenticatedAdminUsersUserIdRouteImport.update({
+    id: '/users/$userId',
+    path: '/users/$userId',
+    getParentRoute: () => AuthenticatedAdminRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/guide': typeof GuideRoute
+  '/admin': typeof AuthenticatedAdminRouteWithChildren
   '/create': typeof AuthenticatedCreateRoute
   '/match': typeof AuthenticatedMatchRoute
   '/me': typeof AuthenticatedMeRoute
   '/admin/maintenance': typeof AuthenticatedAdminMaintenanceRoute
+  '/admin/': typeof AuthenticatedAdminIndexRoute
+  '/admin/books/$theme': typeof AuthenticatedAdminBooksThemeRoute
+  '/admin/matches/$matchId': typeof AuthenticatedAdminMatchesMatchIdRoute
+  '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
+  '/admin/books/': typeof AuthenticatedAdminBooksIndexRoute
+  '/admin/matches/': typeof AuthenticatedAdminMatchesIndexRoute
+  '/admin/users/': typeof AuthenticatedAdminUsersIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -76,6 +138,13 @@ export interface FileRoutesByTo {
   '/match': typeof AuthenticatedMatchRoute
   '/me': typeof AuthenticatedMeRoute
   '/admin/maintenance': typeof AuthenticatedAdminMaintenanceRoute
+  '/admin': typeof AuthenticatedAdminIndexRoute
+  '/admin/books/$theme': typeof AuthenticatedAdminBooksThemeRoute
+  '/admin/matches/$matchId': typeof AuthenticatedAdminMatchesMatchIdRoute
+  '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
+  '/admin/books': typeof AuthenticatedAdminBooksIndexRoute
+  '/admin/matches': typeof AuthenticatedAdminMatchesIndexRoute
+  '/admin/users': typeof AuthenticatedAdminUsersIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -83,10 +152,18 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/auth': typeof AuthRoute
   '/guide': typeof GuideRoute
+  '/_authenticated/admin': typeof AuthenticatedAdminRouteWithChildren
   '/_authenticated/create': typeof AuthenticatedCreateRoute
   '/_authenticated/match': typeof AuthenticatedMatchRoute
   '/_authenticated/me': typeof AuthenticatedMeRoute
   '/_authenticated/admin/maintenance': typeof AuthenticatedAdminMaintenanceRoute
+  '/_authenticated/admin/': typeof AuthenticatedAdminIndexRoute
+  '/_authenticated/admin/books/$theme': typeof AuthenticatedAdminBooksThemeRoute
+  '/_authenticated/admin/matches/$matchId': typeof AuthenticatedAdminMatchesMatchIdRoute
+  '/_authenticated/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
+  '/_authenticated/admin/books/': typeof AuthenticatedAdminBooksIndexRoute
+  '/_authenticated/admin/matches/': typeof AuthenticatedAdminMatchesIndexRoute
+  '/_authenticated/admin/users/': typeof AuthenticatedAdminUsersIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -94,10 +171,18 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/guide'
+    | '/admin'
     | '/create'
     | '/match'
     | '/me'
     | '/admin/maintenance'
+    | '/admin/'
+    | '/admin/books/$theme'
+    | '/admin/matches/$matchId'
+    | '/admin/users/$userId'
+    | '/admin/books/'
+    | '/admin/matches/'
+    | '/admin/users/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -107,16 +192,31 @@ export interface FileRouteTypes {
     | '/match'
     | '/me'
     | '/admin/maintenance'
+    | '/admin'
+    | '/admin/books/$theme'
+    | '/admin/matches/$matchId'
+    | '/admin/users/$userId'
+    | '/admin/books'
+    | '/admin/matches'
+    | '/admin/users'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
     | '/guide'
+    | '/_authenticated/admin'
     | '/_authenticated/create'
     | '/_authenticated/match'
     | '/_authenticated/me'
     | '/_authenticated/admin/maintenance'
+    | '/_authenticated/admin/'
+    | '/_authenticated/admin/books/$theme'
+    | '/_authenticated/admin/matches/$matchId'
+    | '/_authenticated/admin/users/$userId'
+    | '/_authenticated/admin/books/'
+    | '/_authenticated/admin/matches/'
+    | '/_authenticated/admin/users/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -156,6 +256,13 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof GuideRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated/admin': {
+      id: '/_authenticated/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AuthenticatedAdminRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
     '/_authenticated/create': {
       id: '/_authenticated/create'
       path: '/create'
@@ -177,28 +284,102 @@ declare module '@tanstack/solid-router' {
       preLoaderRoute: typeof AuthenticatedMeRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/admin/': {
+      id: '/_authenticated/admin/'
+      path: '/'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AuthenticatedAdminIndexRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
     '/_authenticated/admin/maintenance': {
       id: '/_authenticated/admin/maintenance'
-      path: '/admin/maintenance'
+      path: '/maintenance'
       fullPath: '/admin/maintenance'
       preLoaderRoute: typeof AuthenticatedAdminMaintenanceRouteImport
-      parentRoute: typeof AuthenticatedRoute
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/books/': {
+      id: '/_authenticated/admin/books/'
+      path: '/books'
+      fullPath: '/admin/books/'
+      preLoaderRoute: typeof AuthenticatedAdminBooksIndexRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/books/$theme': {
+      id: '/_authenticated/admin/books/$theme'
+      path: '/books/$theme'
+      fullPath: '/admin/books/$theme'
+      preLoaderRoute: typeof AuthenticatedAdminBooksThemeRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/matches/': {
+      id: '/_authenticated/admin/matches/'
+      path: '/matches'
+      fullPath: '/admin/matches/'
+      preLoaderRoute: typeof AuthenticatedAdminMatchesIndexRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/matches/$matchId': {
+      id: '/_authenticated/admin/matches/$matchId'
+      path: '/matches/$matchId'
+      fullPath: '/admin/matches/$matchId'
+      preLoaderRoute: typeof AuthenticatedAdminMatchesMatchIdRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/users/': {
+      id: '/_authenticated/admin/users/'
+      path: '/users'
+      fullPath: '/admin/users/'
+      preLoaderRoute: typeof AuthenticatedAdminUsersIndexRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
+    }
+    '/_authenticated/admin/users/$userId': {
+      id: '/_authenticated/admin/users/$userId'
+      path: '/users/$userId'
+      fullPath: '/admin/users/$userId'
+      preLoaderRoute: typeof AuthenticatedAdminUsersUserIdRouteImport
+      parentRoute: typeof AuthenticatedAdminRoute
     }
   }
 }
 
+interface AuthenticatedAdminRouteChildren {
+  AuthenticatedAdminMaintenanceRoute: typeof AuthenticatedAdminMaintenanceRoute
+  AuthenticatedAdminIndexRoute: typeof AuthenticatedAdminIndexRoute
+  AuthenticatedAdminBooksThemeRoute: typeof AuthenticatedAdminBooksThemeRoute
+  AuthenticatedAdminMatchesMatchIdRoute: typeof AuthenticatedAdminMatchesMatchIdRoute
+  AuthenticatedAdminUsersUserIdRoute: typeof AuthenticatedAdminUsersUserIdRoute
+  AuthenticatedAdminBooksIndexRoute: typeof AuthenticatedAdminBooksIndexRoute
+  AuthenticatedAdminMatchesIndexRoute: typeof AuthenticatedAdminMatchesIndexRoute
+  AuthenticatedAdminUsersIndexRoute: typeof AuthenticatedAdminUsersIndexRoute
+}
+
+const AuthenticatedAdminRouteChildren: AuthenticatedAdminRouteChildren = {
+  AuthenticatedAdminMaintenanceRoute: AuthenticatedAdminMaintenanceRoute,
+  AuthenticatedAdminIndexRoute: AuthenticatedAdminIndexRoute,
+  AuthenticatedAdminBooksThemeRoute: AuthenticatedAdminBooksThemeRoute,
+  AuthenticatedAdminMatchesMatchIdRoute: AuthenticatedAdminMatchesMatchIdRoute,
+  AuthenticatedAdminUsersUserIdRoute: AuthenticatedAdminUsersUserIdRoute,
+  AuthenticatedAdminBooksIndexRoute: AuthenticatedAdminBooksIndexRoute,
+  AuthenticatedAdminMatchesIndexRoute: AuthenticatedAdminMatchesIndexRoute,
+  AuthenticatedAdminUsersIndexRoute: AuthenticatedAdminUsersIndexRoute,
+}
+
+const AuthenticatedAdminRouteWithChildren =
+  AuthenticatedAdminRoute._addFileChildren(AuthenticatedAdminRouteChildren)
+
 interface AuthenticatedRouteChildren {
+  AuthenticatedAdminRoute: typeof AuthenticatedAdminRouteWithChildren
   AuthenticatedCreateRoute: typeof AuthenticatedCreateRoute
   AuthenticatedMatchRoute: typeof AuthenticatedMatchRoute
   AuthenticatedMeRoute: typeof AuthenticatedMeRoute
-  AuthenticatedAdminMaintenanceRoute: typeof AuthenticatedAdminMaintenanceRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedAdminRoute: AuthenticatedAdminRouteWithChildren,
   AuthenticatedCreateRoute: AuthenticatedCreateRoute,
   AuthenticatedMatchRoute: AuthenticatedMatchRoute,
   AuthenticatedMeRoute: AuthenticatedMeRoute,
-  AuthenticatedAdminMaintenanceRoute: AuthenticatedAdminMaintenanceRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(

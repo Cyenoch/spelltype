@@ -11,6 +11,13 @@ import { PlayerCard } from './home-player-card';
 import { JoinRoom } from './home-join-room';
 import { noticeStyles } from '../../ui/notice.styles';
 import type { AppContext } from '../../app/context';
+import {
+  HOME_INTRO,
+  HOME_STEPS,
+  HOME_TITLE,
+  PRACTICE_TIPS,
+  PRACTICE_TITLE,
+} from '../../../shared/seo';
 
 /** 每位玩家在首场对局前应当了解的四项关键数值。 */
 export function MatchFacts() {
@@ -156,8 +163,8 @@ export function HomeView(props: { ctx: AppContext }) {
               </div>
             </div>
 
-            <h1 class={stylex.props(ui.title, styles.heroTitle).className}>咒文对决</h1>
-            <p class={stylex.props(styles.heroLead).className}>以文字为咒，以速度决胜。</p>
+            <h1 class={stylex.props(ui.title, styles.heroTitle).className}>{HOME_TITLE}</h1>
+            <p class={stylex.props(styles.heroLead).className}>{HOME_INTRO}</p>
 
             {/* 保持挂载状态，确保在隐藏时仍可被测试观察可用性。 */}
             <div
@@ -301,15 +308,9 @@ export function HomeView(props: { ctx: AppContext }) {
           <span class={stylex.props(ui.eyebrow).className}>1 分钟</span>
         </div>
         <ol class={stylex.props(styles.tutorialSteps).className}>
-          <li class={stylex.props(styles.tutorialStep).className}>
-            登录后快速匹配，或创建私人房把邀请码发给朋友。
-          </li>
-          <li class={stylex.props(styles.tutorialStep).className}>
-            快速匹配自动开战；私人房准备就绪后，由房主开始。
-          </li>
-          <li class={stylex.props(styles.tutorialStep).className}>
-            打完一条咒文，总伤害平均分给场上所有还活着的对手——一次施法，同时命中所有人。
-          </li>
+          <For each={HOME_STEPS}>
+            {(step) => <li class={stylex.props(styles.tutorialStep).className}>{step}</li>}
+          </For>
         </ol>
         <Link
           class={stylex.props(styles.guideLink).className}
@@ -322,6 +323,14 @@ export function HomeView(props: { ctx: AppContext }) {
             →
           </span>
         </Link>
+      </section>
+      <section class={stylex.props(ui.panel, styles.tutorial).className}>
+        <h2 class={stylex.props(ui.title, styles.h2Size).className}>{PRACTICE_TITLE}</h2>
+        <ul class={stylex.props(ui.steps).className}>
+          <For each={PRACTICE_TIPS}>
+            {(tip) => <li class={stylex.props(styles.tutorialStep).className}>{tip}</li>}
+          </For>
+        </ul>
       </section>
     </section>
   );

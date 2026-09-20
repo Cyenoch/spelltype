@@ -19,7 +19,7 @@
 
 | 使用者 | 凭据 | 能力 |
 | --- | --- | --- |
-| 人工管理员 | 微信会话 + 数据库 `admin` 角色 | 管理员维护页面及 `/api/admin/maintenance` |
+| 人工管理员 | 微信会话 + 数据库 `admin` 角色 | `/admin` 只读数据管理、维护页面及 `/api/admin/*` |
 | CI / 远程脚本 | 维护专用 Bearer 令牌 | `/api/ops/maintenance` 查询、关闭或恢复新对局入口 |
 | 宿主机部署程序 | 宿主机 Docker 权限 | 构建、迁移、替换容器和回滚 |
 
@@ -44,6 +44,15 @@ cp -n deploy/compose.env.example deploy/compose.env
 - `COMPOSE_FILE`：普通宿主机使用 `compose.yaml`；Dokploy 使用下文的完整文件集。
 
 PostgreSQL 数据位于项目专属的 `postgres_data` 命名卷；`SPELLTYPE_STATE_DIR` **不是数据库备份**。更换项目名会指向另一组卷和网络。正常发布、回滚不删除卷；不要把 `docker compose down -v` 当作重试步骤。
+
+### 搜索收录与规范域名
+
+- `SPELLTYPE_PUBLIC_ORIGIN` 在容器内对应 `PUBLIC_ORIGIN`，必须填写正式对外 origin（生产建议 HTTPS）。canonical、Open Graph 分享地址和 `/sitemap.xml` 都从该配置生成，不采信请求的 Host 或转发主机头；更换域名后重启应用即可，无需把域名重新编译进前端。
+- 首页 `/` 与教程 `/guide` 是公开收录入口。Bun 应用直接返回练习简介、上手步骤、标题、描述和 JSON-LD，JavaScript 启动后由交互页面接管；这是公开内容摘要，不是完整对战页面的 SSR。
+- `/robots.txt` 声明站点地图；`/sitemap.xml` 仅列出两个公开入口。登录、战绩、匹配、创建房间、管理页及带 `room` / `error` 参数的页面返回 `noindex`。不要在反向代理中额外禁止爬取这些 HTML 页面，否则爬虫无法读到 `noindex`。
+- 未知页面返回 HTTP 404；`/index.html` 和已知页面的尾斜杠版本重定向至统一入口，保留邀请参数。请勿在 CDN 或反向代理层把所有未知路径改写成首页 200。
+- SEO 响应由 Bun 应用提供，不能只把 `dist/client` 部署到通用 SPA 静态托管。Vite 开发服务不提供这些生产 SEO 端点。
+- 上线后检查正式域名的首页、教程、`robots.txt` 和 `sitemap.xml`，再向搜索引擎站长平台提交站点地图。本站代码不自动提交，也不保证收录或排名。
 
 ### 配置密钥
 

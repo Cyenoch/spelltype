@@ -5,6 +5,8 @@ import { App } from './app/app';
 
 const root = document.getElementById('root');
 if (!root) throw new Error('缺少应用挂载节点');
+// 首屏摘要是可独立阅读的静态 HTML；交互应用接管时移除，避免重复内容。
+root.replaceChildren();
 const dispose = render(
   () => (
     <ErrorBoundary

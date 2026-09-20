@@ -10,6 +10,7 @@ import { messageOf, toast, ToastHost } from '../ui/toast';
 import { installAssetBase } from '../pixi/assets';
 import type { AppContext, AppRouterContext, RoomLinkState } from './context';
 import { routeTree } from '../routeTree.gen';
+import { updatePageSeo } from './seo';
 
 export function App() {
   const queryClient = new QueryClient({
@@ -81,7 +82,7 @@ function Application(props: { queryClient: QueryClient }) {
 }
 
 function createAppRouter(context: AppRouterContext) {
-  return createRouter({
+  const router = createRouter({
     routeTree,
     context,
     defaultPreload: false,
@@ -90,6 +91,13 @@ function createAppRouter(context: AppRouterContext) {
     parseSearch: (search) => Object.fromEntries(new URLSearchParams(search)),
     stringifySearch: stringifySearchWith(String),
   });
+  updatePageSeo(window.location.pathname, window.location.search);
+  onCleanup(
+    router.subscribe('onResolved', ({ toLocation }) => {
+      updatePageSeo(toLocation.pathname, toLocation.searchStr);
+    }),
+  );
+  return router;
 }
 
 declare module '@tanstack/solid-router' {
