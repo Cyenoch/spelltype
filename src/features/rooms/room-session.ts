@@ -389,7 +389,20 @@ export function createRoomSession(props: {
     // 这一切都不是需要上报的连接故障。
     if (closed || leaving()) return;
     if (info.authExpired) {
-      props.ctx.handleAuthFailure('登录状态已失效，请重新登录。');
+      // 4002 同时承担封禁踢出：以会话接口为权威重新核验，而不是凭关闭码直接清空登录状态。
+      // 只有匿名响应才能证明登录已失效；网络中断或取消请求时保留身份并显示核验错误。
+      void props.ctx.session
+        .refresh()
+        .then((fresh) => {
+          if (!fresh.user) props.ctx.handleAuthFailure('登录状态已失效，请重新登录。');
+        })
+        .catch((error) => {
+          if (closed) return;
+          setProblem({
+            message: messageOf(error, '无法核验登录状态，请刷新页面重试。'),
+            tone: 'error',
+          });
+        });
       return;
     }
     if (info.replaced) {

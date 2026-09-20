@@ -1,5 +1,5 @@
 import type { ServerWebSocket } from 'bun';
-import type { AccountRole, RoomSnapshot, User } from '../shared/protocol';
+import type { AccountBan, AccountRole, RoomSnapshot, User } from '../shared/protocol';
 import type { ServerConfig } from './config';
 import type { Database, Transaction } from './db';
 import type { GenerationInput, GenerationOutcome } from './generation/spells';
@@ -9,6 +9,8 @@ export interface AuthenticatedSession {
   role: AccountRole;
   tokenHash: string;
   expiresAt: number;
+  /** 会话所属账户在会话读取时刻的生效封禁；未被封禁为 `null`。 */
+  ban: AccountBan | null;
 }
 
 export interface RoomSocketData {
@@ -32,6 +34,11 @@ export interface RoomRuntimePort {
   disconnect(socket: RoomSocket): void;
   leaveRoom(roomId: string, userId: string): Promise<void>;
   revokeSession(tokenHash: string): Promise<void>;
+  /**
+   * 终止代表单个账户的所有在线连接：封禁针对账户而非单个会话。
+   * 与 `revokeSession` 相同的确认语义 —— 任一房间无法确认物理关闭即整体失败。
+   */
+  revokeUser(userId: string): Promise<void>;
   refreshRoom(roomId: string): Promise<void>;
   close(): Promise<void>;
 }

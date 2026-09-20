@@ -53,6 +53,9 @@
     padding: 0;
     min-height: 100%;
   }
+  html:has([data-testid='view-admin']) {
+    scrollbar-gutter: stable;
+  }
   body {
     background: var(--paper);
     color: var(--ink);

@@ -1,7 +1,14 @@
 import { For, Show, type JSX } from 'solid-js';
 import { Link } from '@tanstack/solid-router';
 import * as stylex from '@stylexjs/stylex';
-import type { AccountRole, OpponentKind, Phase, RoomMode, Spell } from '../../../shared/protocol';
+import type {
+  AccountBan,
+  AccountRole,
+  OpponentKind,
+  Phase,
+  RoomMode,
+  Spell,
+} from '../../../shared/protocol';
 import { ELEMENT_LABELS, OPPONENT_KIND_LABELS, PHASE_LABELS } from '../../ui/format';
 import { ELEMENT_CSS } from '../../ui/elements';
 import { adminStyles } from './admin.styles';
@@ -52,6 +59,22 @@ const ROLE_LABELS: Record<AccountRole, string> = { user: '用户', admin: '管�
 export function RoleBadge(props: { role: AccountRole }) {
   return (
     <Badge tone={props.role === 'admin' ? 'live' : 'default'}>{ROLE_LABELS[props.role]}</Badge>
+  );
+}
+
+/**
+ * 账号封禁徽章：正常账号以弱化文字显示「正常」，封禁账号以警示色标注；
+ * 具体的解封时间由详情页单独展示，徽章只回答「是否被封、何种封禁」。
+ */
+export function BanBadge(props: { ban: AccountBan | null }) {
+  return (
+    <Show
+      when={props.ban}
+      keyed
+      fallback={<span class={stylex.props(adminStyles.muted).className}>正常</span>}
+    >
+      {(ban) => <Badge tone="danger">{ban.expiresAt === null ? '永久封禁' : '限时封禁'}</Badge>}
+    </Show>
   );
 }
 

@@ -433,13 +433,13 @@ describe('微信登录边界', () => {
     const signedOut = await app.request('/api/session', {
       headers: { cookie: `${SESSION_COOKIE}=${sessionToken}` },
     });
-    expect(await signedOut.json()).toEqual({ user: null, role: null });
+    expect(await signedOut.json()).toEqual({ user: null, role: null, ban: null });
   });
 
   it('/api/session 反映会话：匿名返回 null，登录后返回账号', async () => {
     const app = await testApp(INSECURE_ORIGIN);
     const anonymous = await app.request('/api/session');
-    expect(await anonymous.json()).toEqual({ user: null, role: null });
+    expect(await anonymous.json()).toEqual({ user: null, role: null, ban: null });
 
     const { response } = await roundTrip(app, INSECURE_ORIGIN);
     const sessionToken = setCookieHeaderOf(response, SESSION_COOKIE)
@@ -451,6 +451,7 @@ describe('微信登录边界', () => {
     expect(await session.json()).toEqual({
       user: { id: expect.any(String), username: '咒文使' },
       role: 'user',
+      ban: null,
     });
   });
   it('昵称按 Unicode 码点限制长度，缺失时使用默认显示名', async () => {

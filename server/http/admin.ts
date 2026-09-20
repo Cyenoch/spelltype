@@ -3,11 +3,12 @@ import { Hono } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
+import { MAX_BAN_DURATION_MS } from '../../shared/admin';
 import { MAX_THEME_CHARS } from '../../shared/protocol';
 import { getAdminBookDetail, listAdminBooks } from '../admin/books';
 import { getAdminMatchDetail, listAdminMatches } from '../admin/matches';
 import { getAdminOverview } from '../admin/overview';
-import { getAdminUserDetail, listAdminUsers } from '../admin/users';
+import { banUser, getAdminUserDetail, listAdminUsers } from '../admin/users';
 import { enterMaintenance, inspectMaintenance, leaveMaintenance } from '../maintenance/control';
 import { authenticated, requireRuntime, sameOrigin, zodReject, type HttpEnv } from './context';
 
@@ -50,6 +51,13 @@ const userParamsSchema = z.object({ userId: z.string().trim().min(1).max(64) });
 const matchParamsSchema = z.object({ matchId: z.string().trim().min(1).max(64) });
 const bookParamsSchema = z.object({ theme: z.string().trim().min(1).max(MAX_THEME_CHARS) });
 
+/** 封禁时长：正整数毫秒且有界；`null` 表示永久封禁。 */
+const banRequestSchema = z
+  .object({
+    durationMs: z.number().int().positive().max(MAX_BAN_DURATION_MS).nullable(),
+  })
+  .strict();
+
 /** 每次通过身份验证的请求都会从数据库重新读取账户角色。 */
 export const adminRoutes = new Hono<HttpEnv>({ strict: false })
   .use('*', authenticated, administrator)
@@ -83,6 +91,34 @@ export const adminRoutes = new Hono<HttpEnv>({ strict: false })
       const detail = await getAdminUserDetail(c.get('services').database, userId, page);
       if (detail === null) throw new HTTPException(404, { message: '用户不存在。' });
       return c.json(detail);
+    },
+  )
+  .post(
+    '/users/:userId/ban',
+    sameOrigin,
+    zValidator('param', userParamsSchema, zodReject),
+    zValidator('json', banRequestSchema, zodReject),
+    async (c) => {
+      const { userId } = c.req.valid('param');
+      const { durationMs } = c.req.valid('json');
+      const { database } = c.get('services');
+      const outcome = await banUser(database, userId, durationMs);
+      if (outcome.kind === 'missing') throw new HTTPException(404, { message: '用户不存在。' });
+      // 管理员（含操作者自身）绝不被封禁：防止运维把自己锁在控制台之外。
+      if (outcome.kind === 'admin')
+        throw new HTTPException(409, { message: '无法封禁管理员账号。' });
+      // 封禁已提交；在线连接的终止必须由运行时如实确认 —— 与登出相同的确认语义。
+      // 运行时缺席或任一房间无法确认物理关闭：保留封禁并让操作者重试断开。
+      const rooms = c.get('services').rooms;
+      if (rooms === null)
+        throw new HTTPException(503, { message: '封禁已生效，但断开在线连接失败，请重试。' });
+      try {
+        await rooms.revokeUser(outcome.userId);
+        await database.transaction((tx) => rooms.assertOwnership(tx));
+      } catch {
+        throw new HTTPException(503, { message: '封禁已生效，但断开在线连接失败，请重试。' });
+      }
+      return c.json({ ban: outcome.ban });
     },
   )
   .get('/matches', zValidator('query', matchListQuerySchema, zodReject), async (c) => {

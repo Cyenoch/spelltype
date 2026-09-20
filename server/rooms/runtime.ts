@@ -16,6 +16,7 @@ import { reservationStateOf } from './reservation';
 import { RoomRejection } from './rejection';
 import { snapshotFor } from './snapshots';
 import { abandonedMatch } from './storage/departures';
+import { accountIsBanned } from './storage/accounts';
 import { sessionIsLive } from './storage/room-sessions';
 import { RoomEngine } from './engine';
 
@@ -104,8 +105,8 @@ export class RoomRuntime implements RoomRuntimePort {
   }
 
   /**
-   * HTTP 升级前的只读验证：房间存在、其预留未失效、该账户未放弃对局且会话依然有效。
-   * 权威的会话检查会在加入事务内再次执行，在该事务中注册与登出恰好发生一次竞态。
+   * HTTP 升级前的只读验证：房间存在、其预留未失效、该账户未放弃对局、会话依然有效且账户未被封禁。
+   * 权威的会话与封禁检查会在加入事务内再次执行，在该事务中注册与登出/封禁恰好发生一次竞态。
    */
   async authorizeSocket(roomId: string, session: AuthenticatedSession): Promise<void> {
     const rows = await this.database.select().from(rooms).where(eq(rooms.id, roomId)).limit(1);
@@ -115,6 +116,8 @@ export class RoomRuntime implements RoomRuntimePort {
       throw new RoomRejection('room:reservation_gone', '匹配已结束，请重新匹配。');
     if (await abandonedMatch(this.database, roomId, session.user.id, room.match_id))
       throw new RoomRejection('room:reservation_gone', '你已离开本场对局。');
+    if (await accountIsBanned(this.database, session.user.id))
+      throw new RoomRejection('room:unauthenticated', '该账号已被封禁。');
     if (!(await sessionIsLive(this.database, session.tokenHash)))
       throw new RoomRejection('room:unauthenticated', '登录状态无效，请重新登录。');
   }
@@ -146,6 +149,15 @@ export class RoomRuntime implements RoomRuntimePort {
     const acknowledged = await Promise.all(
       targets.map((engine) => engine.revokeSession(tokenHash)),
     );
+    if (acknowledged.some((ok) => !ok)) throw new Error('room:revoke_incomplete');
+  }
+
+  /** 终止单个账户的所有在线连接 —— 封禁针对账户，任何会话或标签页都不例外。 */
+  async revokeUser(userId: string): Promise<void> {
+    const targets = [...this.engines.values()].filter((engine) =>
+      engine.registry.list().some((socket) => engine.registry.metaOf(socket)?.userId === userId),
+    );
+    const acknowledged = await Promise.all(targets.map((engine) => engine.revokeUser(userId)));
     if (acknowledged.some((ok) => !ok)) throw new Error('room:revoke_incomplete');
   }
 

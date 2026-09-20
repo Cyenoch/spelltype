@@ -6,7 +6,13 @@ import { useQueryClient } from '@tanstack/solid-query';
 
 const sections = [
   { to: '/admin', label: '后台总览', number: '01', description: '数据概况', exact: true },
-  { to: '/admin/users', label: '用户管理', number: '02', description: '账户与战绩', exact: false },
+  {
+    to: '/admin/users',
+    label: '用户管理',
+    number: '02',
+    description: '账户、战绩与封禁',
+    exact: false,
+  },
   {
     to: '/admin/matches',
     label: '对局管理',
@@ -82,7 +88,9 @@ export function AdminLayout() {
           </For>
         </nav>
         <div class={stylex.props(styles.footer).className}>
-          数据只向管理员开放
+          数据仅对管理员开放
+          <br />
+          用户管理支持账号封禁
           <br />
           <Link to="/" search={{}} class={stylex.props(styles.returnLink).className}>
             返回网站

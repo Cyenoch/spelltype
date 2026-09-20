@@ -23,6 +23,7 @@ import {
   unbindSeat,
 } from './sockets';
 import { abandonedMatch } from './storage/departures';
+import { accountIsBanned } from './storage/accounts';
 import { getPlayer, insertPlayer, updatePlayer } from './storage/players';
 import { getRoom, updateRoom } from './storage/room';
 import { registerSessionRoom } from './storage/room-sessions';
@@ -48,6 +49,7 @@ export class RoomEngine {
   readonly registry = new SocketRegistry();
   readonly input = new InputBudget();
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private progressTimer: NodeJS.Timeout | undefined;
   private tail: Promise<unknown> = Promise.resolve();
   private stopped = false;
   readonly scope: RoomScope;
@@ -80,7 +82,12 @@ export class RoomEngine {
             throw new RoomRejection('room:not_found', '房间不存在或已结束。');
           return fn(tx);
         }),
-      push: (scope) => pushSnapshots(scope),
+      push: async (scope) => {
+        clearTimeout(this.progressTimer);
+        this.progressTimer = undefined;
+        await pushSnapshots(scope);
+      },
+      pushProgress: () => this.scheduleProgress(),
       arm: (scope) =>
         armRoom(scope, (when) => {
           this.setTimer(when);
@@ -252,6 +259,11 @@ export class RoomEngine {
       // 单个条件语句仅接受活跃有效的会话行。
       if (!(await registerSessionRoom(tx, session.tokenHash, this.roomId))) {
         return { closeCode: WS_CLOSE.sessionExpired, message: '登录状态已失效，请重新登录。' };
+      }
+      // 握手后重新检查封禁；此后的封禁会通过运行时队列关闭该已注册连接。
+      // 封禁针对账户而非会话 —— 旧会话、新会话、预留席位一律拒绝。
+      if (await accountIsBanned(tx, auth.userId)) {
+        return { closeCode: WS_CLOSE.sessionExpired, message: '该账号已被封禁。' };
       }
       const room = await getRoom(tx, this.roomId);
       if (!room) {
@@ -442,7 +454,65 @@ export class RoomEngine {
     });
   }
 
+  /**
+   * 停止代表单个账户的所有套接字 —— 封禁的账户级终局，
+   * 与 `revokeSession` 相同的三部曲：同步剥离输入配额、事务内解绑席位、随后物理关闭。
+   * 席位的 `conn_id` 一旦被清除，关闭前排队的任何数据帧都无法再对该账户生效。
+   */
+  revokeUser(userId: string): Promise<boolean> {
+    return this.enqueue(async () => {
+      if (this.stopped) return true;
+      const doomed: { socket: RoomSocket; meta: SocketAuth }[] = [];
+      for (const socket of this.registry.list()) {
+        const meta = this.registry.metaOf(socket);
+        if (meta && meta.userId === userId) doomed.push({ socket, meta });
+      }
+      if (doomed.length === 0) return true;
+      for (const { meta } of doomed) this.input.release(meta.connId);
+      await this.scope.transact(async (tx) => {
+        const now = Date.now();
+        for (const { meta } of doomed) await unbindSeat(tx, this.roomId, meta, now);
+        await reconcileHost(tx, this.roomId, this.registry);
+      });
+      let closeFailure: unknown = null;
+      for (const { socket } of doomed) {
+        if (socket.readyState !== 1) continue;
+        try {
+          socket.close(WS_CLOSE.sessionExpired, 'account banned');
+        } catch (error) {
+          closeFailure ??= error;
+        }
+      }
+      await pushSnapshots(this.scope);
+      if (closeFailure !== null || doomed.some(({ socket }) => socket.readyState === 1)) {
+        console.error(
+          '[room] user revocation incomplete',
+          this.roomId,
+          closeFailure instanceof Error ? closeFailure.name : typeof closeFailure,
+        );
+        return false;
+      }
+      await this.arm();
+      return true;
+    });
+  }
+
   // -------------------------------------------------------------------- 定时器
+
+  /** 固定窗口合并进度；继续打字不会推迟窗口末尾，停笔也会发出最后一次进度。 */
+  private scheduleProgress(): void {
+    if (this.stopped) return;
+    if (this.progressTimer !== undefined) return;
+    const timer = setTimeout(() => {
+      void this.enqueue(async () => {
+        if (this.progressTimer !== timer || this.stopped) return;
+        await this.scope.push();
+      }).catch((error) => {
+        console.error('[room] progress broadcast failed', this.roomId, error);
+      });
+    }, 100);
+    this.progressTimer = timer;
+  }
 
   private setTimer(when: number | null): void {
     if (this.timer !== null) {
@@ -543,6 +613,8 @@ export class RoomEngine {
   async stop(): Promise<void> {
     this.stopped = true;
     this.setTimer(null);
+    clearTimeout(this.progressTimer);
+    this.progressTimer = undefined;
     for (const socket of this.registry.list())
       closeSocket(socket, WS_CLOSE_RESTART, 'server restarting');
     await this.tail;

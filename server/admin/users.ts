@@ -1,7 +1,9 @@
 import { and, count, countDistinct, desc, eq, gt, ilike, isNull, max, or, sql } from 'drizzle-orm';
 import type { AdminPage, AdminUser, AdminUserDetail, AdminUserStats } from '../../shared/admin';
-import type { QueryDatabase } from '../db';
+import type { AccountBan } from '../../shared/protocol';
+import type { Database, QueryDatabase } from '../db';
 import { accounts, ghosts, players, results, rooms, sessions } from '../db/schema';
+import { activeBan } from '../auth/sessions';
 import { ADMIN_PAGE_SIZE, searchPattern, toNumber, toNumberOrNull } from './page';
 import { adminResultColumns } from './results';
 
@@ -15,6 +17,7 @@ export async function listAdminUsers(
     ? or(ilike(accounts.username, pattern), ilike(accounts.id, pattern))
     : undefined;
   const where = fuzzy !== undefined ? fuzzy : undefined;
+  const now = Date.now();
 
   const [rows, [totalRow]] = await Promise.all([
     database
@@ -23,6 +26,8 @@ export async function listAdminUsers(
         username: accounts.username,
         role: accounts.role,
         createdAt: accounts.created_at,
+        bannedAt: accounts.banned_at,
+        banExpiresAt: accounts.ban_expires_at,
       })
       .from(accounts)
       .where(where)
@@ -37,6 +42,7 @@ export async function listAdminUsers(
       username: row.username,
       role: row.role,
       createdAt: row.createdAt,
+      ban: activeBan(row.bannedAt, row.banExpiresAt, now),
     })),
     page: search.page,
     pageSize: ADMIN_PAGE_SIZE,
@@ -82,6 +88,8 @@ export async function getAdminUserDetail(
       username: accounts.username,
       role: accounts.role,
       createdAt: accounts.created_at,
+      bannedAt: accounts.banned_at,
+      banExpiresAt: accounts.ban_expires_at,
     })
     .from(accounts)
     .where(eq(accounts.id, userId))
@@ -153,6 +161,7 @@ export async function getAdminUserDetail(
       username: account.username,
       role: account.role,
       createdAt: account.createdAt,
+      ban: activeBan(account.bannedAt, account.banExpiresAt, now),
     },
     stats: statsOf(statRows[0]),
     activeSessions: toNumber(sessionTotals[0]?.total),
@@ -173,4 +182,42 @@ export async function getAdminUserDetail(
       total: toNumber(historyTotals[0]?.total),
     },
   };
+}
+
+/** `banUser` 的裁决结果：目标缺失、目标是管理员，或封禁已生效。 */
+export type BanOutcome =
+  | { kind: 'missing' }
+  | { kind: 'admin' }
+  | { kind: 'banned'; userId: string; ban: AccountBan };
+
+/**
+ * 对单个账户施加封禁。管理员账户绝不接受封禁（含操作者自身），
+ * 防止运维把自己锁在控制台之外；对已有封禁再次下发会整体覆盖 —— 最后一次操作生效。
+ * 账户行在事务内 `FOR UPDATE` 加锁读改写：封禁只落在账户上，
+ * 与会话无关，因此在册的全部会话立即同受约束（会话绝不被墓碑化，
+ * `/api/session` 仍能如实带回身份与封禁状态供界面提示）。
+ * 在线连接的终止由调用方在提交后交给运行时完成。
+ */
+export async function banUser(
+  database: Database,
+  userId: string,
+  durationMs: number | null,
+  now = Date.now(),
+): Promise<BanOutcome> {
+  return database.transaction(async (tx) => {
+    const [account] = await tx
+      .select({ id: accounts.id, role: accounts.role })
+      .from(accounts)
+      .where(eq(accounts.id, userId))
+      .for('update')
+      .limit(1);
+    if (account === undefined) return { kind: 'missing' };
+    if (account.role === 'admin') return { kind: 'admin' };
+    const ban: AccountBan = { expiresAt: durationMs === null ? null : now + durationMs };
+    await tx
+      .update(accounts)
+      .set({ banned_at: now, ban_expires_at: ban.expiresAt })
+      .where(eq(accounts.id, userId));
+    return { kind: 'banned', userId, ban };
+  });
 }

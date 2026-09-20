@@ -62,9 +62,23 @@ export const accounts = pgTable(
     wechat_identity: text('wechat_identity').notNull().unique(),
     /** 管理角色（默认为 `user`；`admin` 可使用维护工具）。游戏通信数据中从不携带此项。 */
     role: text('role').$type<AccountRole>().notNull().default('user'),
+    /**
+     * 账户被封禁的时刻（权威服务器时间毫秒数）；`null` 表示从未被封禁。
+     * 封禁针对账户而非会话：在册的全部会话与在线连接一并失效。
+     */
+    banned_at: ms('banned_at'),
+    /** 封禁到期的权威服务器时间毫秒数；`null` 表示永久封禁。仅在 `banned_at` 非 null 时有意义。 */
+    ban_expires_at: ms('ban_expires_at'),
     created_at: ms('created_at').notNull(),
   },
-  (t) => [check('accounts_role', sql`${t.role} in ('user','admin')`)],
+  (t) => [
+    check('accounts_role', sql`${t.role} in ('user','admin')`),
+    // 到期时间必须依附于一次封禁：没有封禁时刻就绝不能有到期时间（永久封禁即为两者成对出现、到期为 null）。
+    check(
+      'accounts_ban_expiry',
+      sql`not (${t.banned_at} is null and ${t.ban_expires_at} is not null)`,
+    ),
+  ],
 );
 
 /** 仅存储会话令牌的摘要（哈希），从不直接存储令牌明文。 */

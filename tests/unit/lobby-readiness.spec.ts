@@ -56,6 +56,7 @@ function stubSocket(auth: SocketAuth): { socket: RoomSocket; received: ServerMes
         role: 'user',
         tokenHash: auth.sessionHash,
         expiresAt: auth.sessionExpires,
+        ban: null,
       },
     } satisfies RoomSocketData,
   } as unknown as RoomSocket;

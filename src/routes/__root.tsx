@@ -76,6 +76,63 @@ function RootLayout() {
 /** 玩家当前所处区域（就安全刷新机制而言）。 */
 type Zone = 'room' | 'queue' | 'free';
 
+const BAN_EXPIRY_FORMAT = new Intl.DateTimeFormat('zh-CN', {
+  dateStyle: 'medium',
+  timeStyle: 'short',
+});
+
+/**
+ * 封禁账号的唯一界面：说明永久与限时封禁的区别，仅保留退出登录。
+ * 限时封禁到期后会话查询自动重查（见 sessionOptions），本组件随即卸载并恢复原界面，
+ * 因此无需提供手动刷新入口。
+ */
+function BannedNotice(props: { ctx: AppContext; logoutPending: boolean; onLogout: () => void }) {
+  return (
+    <section
+      class={stylex.props(ui.panel).className}
+      data-testid="view-banned"
+      aria-labelledby="banned-title"
+    >
+      <div class={stylex.props(ui.panelHead).className}>
+        <h1 id="banned-title" class={stylex.props(ui.title).className}>
+          账号已被封禁
+        </h1>
+        <span class={stylex.props(ui.eyebrow).className}>{props.ctx.session.user?.username}</span>
+      </div>
+      <Show
+        when={props.ctx.session.ban?.expiresAt}
+        keyed
+        fallback={
+          <p class={stylex.props(ui.muted).className}>
+            该账号已被永久封禁：无法参与对战、匹配或进入房间，也不会自动解封。如有疑问请联系管理员。
+          </p>
+        }
+      >
+        {(expiresAt) => (
+          <p class={stylex.props(ui.muted).className}>
+            该账号已被封禁，将于 {BAN_EXPIRY_FORMAT.format(expiresAt)}{' '}
+            自动解封；解封后此页面会自动恢复，无需刷新或重新登录。
+          </p>
+        )}
+      </Show>
+      <p class={stylex.props(ui.hint).className}>
+        封禁期间对局、房间与账号数据接口均已停用，仅保留退出登录。
+      </p>
+      <div class={stylex.props(ui.buttonRow).className}>
+        <button
+          type="button"
+          class={stylex.props(ui.button).className}
+          data-testid="banned-sign-out"
+          disabled={props.logoutPending}
+          onClick={props.onLogout}
+        >
+          退出登录
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function RouteError(props: ErrorComponentProps) {
   const router = useRouter();
   const location = useLocation();
@@ -167,6 +224,8 @@ function Shell(props: {
     void currentLocation().href;
     content?.focus({ preventScroll: true });
   });
+  // 封禁账号在内容层级直接替换渲染，而非路由跳转：从结构上排除重定向循环。
+  const banned = () => props.ctx.session.user !== null && props.ctx.session.ban !== null;
   return (
     <>
       <a class={stylex.props(styles.skipLink).className} href="#app">
@@ -334,7 +393,13 @@ function Shell(props: {
           data-testid="view-host"
           class={stylex.props(styles.content).className}
         >
-          {props.children}
+          <Show when={banned()} fallback={props.children}>
+            <BannedNotice
+              ctx={props.ctx}
+              logoutPending={logout.isPending}
+              onLogout={() => logout.mutate()}
+            />
+          </Show>
         </div>
       </main>
     </>

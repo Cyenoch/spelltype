@@ -297,11 +297,22 @@ export interface ActivitySummary {
 export type AccountRole = 'user' | 'admin';
 
 /**
+ * 账户封禁状态。`expiresAt` 为 `null` 表示永久封禁；
+ * 否则为权威服务器时间下的到期毫秒数，到期后封禁自动失效（服务端裁决，无需客户端配合）。
+ */
+export interface AccountBan {
+  expiresAt: number | null;
+}
+
+/**
  * `GET /api/session` — 绝不暴露机密信息或提供商内部错误细节。
+ * 被封禁的账户仍能通过登录与会话读取身份：`ban` 携带封禁状态，
+ * 界面据此区分永久封禁与到期时间；未被封禁时为 `null`。
  */
 export interface SessionInfo {
   user: User | null;
   role: AccountRole | null;
+  ban: AccountBan | null;
 }
 
 /**

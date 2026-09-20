@@ -12,11 +12,13 @@ import {
 import type { AdminOverview } from '../../shared/admin';
 import type { QueryDatabase } from '../db';
 import { accounts, ghosts, results, rooms, spellBookCache } from '../db/schema';
+import { activeBan } from '../auth/sessions';
 import { toNumber } from './page';
 import { listAdminMatches } from './matches';
 
 /** 总览：全局唯一计数与最新条目；对局计数与列表视图共用同一“历史 ∪ 当前”口径。 */
 export async function getAdminOverview(database: QueryDatabase): Promise<AdminOverview> {
+  const now = Date.now();
   const [
     [userCounts],
     [settledCount],
@@ -65,6 +67,8 @@ export async function getAdminOverview(database: QueryDatabase): Promise<AdminOv
         username: accounts.username,
         role: accounts.role,
         createdAt: accounts.created_at,
+        bannedAt: accounts.banned_at,
+        banExpiresAt: accounts.ban_expires_at,
       })
       .from(accounts)
       .orderBy(desc(accounts.created_at), desc(accounts.id))
@@ -84,6 +88,7 @@ export async function getAdminOverview(database: QueryDatabase): Promise<AdminOv
       username: row.username,
       role: row.role,
       createdAt: row.createdAt,
+      ban: activeBan(row.bannedAt, row.banExpiresAt, now),
     })),
     recentMatches: recentMatches.items.slice(0, 5),
   };

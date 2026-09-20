@@ -10,7 +10,9 @@ import { createRoom } from '../rooms/storage/room';
 import {
   authenticate,
   authenticated,
+  banRejectionMessage,
   mapGameError,
+  notBanned,
   protocolGate,
   requireRuntime,
   roomIdGate,
@@ -25,6 +27,7 @@ export const gameRoutes = new Hono<HttpEnv>({ strict: false })
     sameOrigin,
     protocolGate,
     authenticated,
+    notBanned,
     zValidator('json', createRoomSchema, zodReject),
     async (c) => {
       const { theme } = c.req.valid('json');
@@ -44,21 +47,29 @@ export const gameRoutes = new Hono<HttpEnv>({ strict: false })
       return c.json({ roomId });
     },
   )
-  .get('/rooms/:roomId', protocolGate, authenticated, roomIdGate, async (c) => {
+  .get('/rooms/:roomId', protocolGate, authenticated, notBanned, roomIdGate, async (c) => {
     try {
       return c.json(await requireRuntime(c).snapshot(c.req.param('roomId'), c.get('session').user));
     } catch (error) {
       throw mapGameError(error);
     }
   })
-  .post('/rooms/:roomId/leave', sameOrigin, protocolGate, authenticated, roomIdGate, async (c) => {
-    try {
-      await requireRuntime(c).leaveRoom(c.req.param('roomId'), c.get('session').user.id);
-    } catch (error) {
-      throw mapGameError(error);
-    }
-    return c.json({ left: true as const });
-  })
+  .post(
+    '/rooms/:roomId/leave',
+    sameOrigin,
+    protocolGate,
+    authenticated,
+    notBanned,
+    roomIdGate,
+    async (c) => {
+      try {
+        await requireRuntime(c).leaveRoom(c.req.param('roomId'), c.get('session').user.id);
+      } catch (error) {
+        throw mapGameError(error);
+      }
+      return c.json({ left: true as const });
+    },
+  )
   .get('/rooms/:roomId/ws', sameOrigin, roomIdGate, async (c) => {
     const runtime = requireRuntime(c);
     if ((c.req.header('upgrade') ?? '').toLowerCase() !== 'websocket') {
@@ -80,6 +91,9 @@ export const gameRoutes = new Hono<HttpEnv>({ strict: false })
       );
     }
     const session = await authenticate(c);
+    if (session.ban !== null) {
+      throw new HTTPException(403, { message: banRejectionMessage(session.ban) });
+    }
     const roomId = c.req.param('roomId');
     try {
       await runtime.authorizeSocket(roomId, session);
@@ -95,7 +109,7 @@ export const gameRoutes = new Hono<HttpEnv>({ strict: false })
     if (!upgraded) throw new HTTPException(426, { message: '需要 WebSocket 升级请求' });
     return new Response(null);
   })
-  .post('/match', sameOrigin, protocolGate, authenticated, async (c) => {
+  .post('/match', sameOrigin, protocolGate, authenticated, notBanned, async (c) => {
     const runtime = requireRuntime(c);
     try {
       return c.json(
@@ -107,7 +121,7 @@ export const gameRoutes = new Hono<HttpEnv>({ strict: false })
       throw mapGameError(error);
     }
   })
-  .delete('/match', sameOrigin, protocolGate, authenticated, async (c) => {
+  .delete('/match', sameOrigin, protocolGate, authenticated, notBanned, async (c) => {
     const runtime = requireRuntime(c);
     try {
       const outcome = await cancelMatch(

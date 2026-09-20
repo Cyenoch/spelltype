@@ -91,6 +91,9 @@ const runtime: RoomRuntimePort = {
   revokeSession: async (tokenHash) => {
     runtimeLog.push(`revoke:${tokenHash}`);
   },
+  revokeUser: async (userId) => {
+    runtimeLog.push(`revoke-user:${userId}`);
+  },
   refreshRoom: async (roomId) => {
     runtimeLog.push(`refresh:${roomId}`);
   },

@@ -19,6 +19,7 @@ it('防止常规的 30 天超长会话导致原生房间定时器溢出', async 
     role: 'user',
     tokenHash: 'f'.repeat(64),
     expiresAt: now + 30 * 24 * 60 * 60 * 1000,
+    ban: null,
   };
   const roomId = '1234567890abcdef12345678';
   await database.db.insert(accounts).values({

@@ -8,7 +8,12 @@ export const sessionOptions = queryOptions({
   queryFn: ({ signal }) => parseResponse(client.api.session.$get({}, { init: { signal } })),
   staleTime: 30_000,
   retry: false,
+  // 封禁中的账号以固定节奏重查会话：限时封禁到期后界面自动恢复，无需手动刷新。
+  refetchInterval: (query) => (query.state.data?.ban ? BAN_RECHECK_INTERVAL_MS : false),
 });
+
+/** 封禁账号重查会话的节奏；决定了限时封禁到期后恢复使用的最长等待。 */
+const BAN_RECHECK_INTERVAL_MS = 15_000;
 
 export const profileOptions = (userId: string) =>
   queryOptions({

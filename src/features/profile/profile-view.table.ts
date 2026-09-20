@@ -150,21 +150,4 @@ export const historyColumns = helper.columns([
     cell: (info) => formatAccuracyPercent(info.getValue()),
     meta: { testid: 'history-accuracy', num: true },
   }),
-  helper.accessor(
-    (row) => {
-      if (row.input_policy_version === 'legacy-unmeasured') return '旧记录：未测量';
-      const ratio =
-        row.input_min_completion_ratio === null
-          ? '未采样'
-          : row.input_min_completion_ratio.toFixed(2);
-      return `${row.input_policy_version} · ${row.input_policy_mode === 'enforce' ? '执行' : '观察'} · 触及规则 ${row.input_gate_hits} 条 · 恢复 ${row.input_recoveries} 次 · 最小资格比值 ${ratio} · 连接超限 ${row.input_overloads} 次 · 非真人认证`;
-    },
-    {
-      id: 'input-policy',
-      header: '输入规则',
-      enableSorting: false,
-      cell: (info) => info.getValue(),
-      meta: { testid: 'history-input-policy' },
-    },
-  ),
 ]);

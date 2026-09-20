@@ -95,6 +95,8 @@ export interface RoomScope {
   transact<T>(fn: (tx: Transaction) => Promise<T>): Promise<T>;
   /** 将已提交状态的按席位快照发布至所有已授权的套接字。 */
   push(): Promise<void>;
+  /** 普通草稿已提交；引擎可合并广播，但不能合并或丢弃输入记账。 */
+  pushProgress(): Promise<void>;
   /** 重新计算房间最早的持久化截止时间，并重新挂载运行时定时器。 */
   arm(): Promise<void>;
 }
@@ -112,6 +114,8 @@ export interface RoomScopeOptions {
   transact?<T>(fn: (tx: Transaction) => Promise<T>): Promise<T>;
   /** 默认为通过注册表进行真实的快照广播。 */
   push?(scope: RoomScope): Promise<void> | void;
+  /** 普通进度的广播调度；无调度器的领域测试仍立即发布。 */
+  pushProgress?(scope: RoomScope): Promise<void> | void;
   /** 默认为空操作 —— 仅活跃引擎拥有定时器。 */
   arm?(scope: RoomScope): Promise<void> | void;
 }
@@ -138,6 +142,10 @@ export function createRoomScope(options: RoomScopeOptions): RoomScope {
     async push(): Promise<void> {
       if (options.push) await options.push(scope);
       else await pushSnapshots(scope);
+    },
+    async pushProgress(): Promise<void> {
+      if (options.pushProgress) await options.pushProgress(scope);
+      else await scope.push();
     },
     async arm(): Promise<void> {
       if (options.arm) await options.arm(scope);

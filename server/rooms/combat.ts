@@ -24,6 +24,7 @@ type InputOutcome =
   | 'retry'
   | 'ignored'
   | 'snapshot'
+  | 'progress'
   | 'push'
   | 'arm'
   | { error: string; snapshot?: boolean; sessionExpired?: boolean };
@@ -62,6 +63,8 @@ export async function handleInput(
         await sendSnapshotTo(scope.db, scope.roomId, scope.registry, socket, meta);
     } else if (outcome === 'snapshot') {
       await sendSnapshotTo(scope.db, scope.roomId, scope.registry, socket, meta);
+    } else if (outcome === 'progress') {
+      await scope.pushProgress();
     } else if (outcome === 'push' || outcome === 'arm') {
       await scope.push();
       if (outcome === 'arm') await scope.arm();
@@ -131,7 +134,7 @@ async function judge(
       error_total: errorTotal,
       input_reset_reason: text === self.last_input ? self.input_reset_reason : null,
     });
-    return 'push';
+    return 'progress';
   }
 
   if (players.every((row) => row.user_id === self.user_id || row.eliminated_at !== null)) {

@@ -14,7 +14,7 @@ import {
   formatDate,
 } from './common';
 import { adminStyles } from './admin.styles';
-import { RoleBadge } from './views.shared';
+import { BanBadge, RoleBadge } from './views.shared';
 
 export function AdminUsersView(props: {
   search: () => AdminListSearch;
@@ -25,7 +25,7 @@ export function AdminUsersView(props: {
     <div class={stylex.props(adminStyles.stack).className} data-testid="view-admin-users">
       <AdminHeading
         title="用户管理"
-        description="按用户名或 ID 检索账号；点击用户名可查看角色、注册信息、战绩汇总与对局历史。"
+        description="按用户名或 ID 检索账号；点击用户名可查看角色、注册信息、封禁状态、战绩汇总与对局历史。"
       />
       <AdminQueryState query={query}>
         <Show when={query.data} keyed>
@@ -77,6 +77,9 @@ function UsersTable(props: { search: () => AdminListSearch; page: AdminPage<Admi
                 角色
               </th>
               <th scope="col" class={stylex.props(adminStyles.th).className}>
+                封禁
+              </th>
+              <th scope="col" class={stylex.props(adminStyles.th).className}>
                 注册时间
               </th>
             </tr>
@@ -97,6 +100,9 @@ function UsersTable(props: { search: () => AdminListSearch; page: AdminPage<Admi
                   </td>
                   <td class={stylex.props(adminStyles.td).className}>
                     <RoleBadge role={user.role} />
+                  </td>
+                  <td class={stylex.props(adminStyles.td).className}>
+                    <BanBadge ban={user.ban} />
                   </td>
                   <td class={stylex.props(adminStyles.td, adminStyles.mono).className}>
                     {formatDate(user.createdAt)}

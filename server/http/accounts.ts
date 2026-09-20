@@ -22,7 +22,14 @@ import {
 } from '../auth/wechat';
 import { readActivitySummary } from '../activity';
 import { results } from '../db/schema';
-import { authenticated, authRateLimit, sameOrigin, zodReject, type HttpEnv } from './context';
+import {
+  authenticated,
+  authRateLimit,
+  notBanned,
+  sameOrigin,
+  zodReject,
+  type HttpEnv,
+} from './context';
 import { revokeSession } from './revocation';
 
 function cookieAttributes(c: Context<HttpEnv>) {
@@ -45,7 +52,11 @@ export const accountRoutes = new Hono<HttpEnv>({ strict: false })
   .get('/session', async (c) => {
     const { database } = c.get('services');
     const session = await loadSession(database, sessionHashFromToken(getCookie(c, SESSION_COOKIE)));
-    const body: SessionInfo = { user: session?.user ?? null, role: session?.role ?? null };
+    const body: SessionInfo = {
+      user: session?.user ?? null,
+      role: session?.role ?? null,
+      ban: session?.ban ?? null,
+    };
     return c.json(body);
   })
   .get('/activity', async (c) => {
@@ -110,7 +121,7 @@ export const accountRoutes = new Hono<HttpEnv>({ strict: false })
     deleteCookie(c, SESSION_COOKIE, cookieAttributes(c));
     return c.json({ ok: true as const });
   })
-  .get('/profile', authenticated, async (c) => {
+  .get('/profile', authenticated, notBanned, async (c) => {
     const user = c.get('session').user;
     const { database } = c.get('services');
     const [stats] = await database

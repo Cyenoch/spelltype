@@ -3,7 +3,7 @@ import { and, eq, notExists } from 'drizzle-orm';
 import type { AuthenticatedSession } from '../contracts';
 import type { QueryDatabase } from '../db';
 import { accounts, roomSessions, sessions } from '../db/schema';
-import { SESSION_TTL_MS, type User } from '../../shared/protocol';
+import { SESSION_TTL_MS, type AccountBan, type User } from '../../shared/protocol';
 
 export const SESSION_COOKIE = 'spelltype_session';
 
@@ -14,6 +14,20 @@ export function hashToken(token: string): string {
 export interface SessionTicket {
   token: string;
   expiresAt: number;
+}
+
+/**
+ * 账户在给定时刻的生效封禁。定时封禁以服务器时间为准自动到期：
+ * 无需任何清理任务，过期的那一刻起读取为 `null`。
+ */
+export function activeBan(
+  bannedAt: number | null,
+  banExpiresAt: number | null,
+  now: number,
+): AccountBan | null {
+  if (bannedAt === null) return null;
+  if (banExpiresAt !== null && banExpiresAt <= now) return null;
+  return { expiresAt: banExpiresAt };
 }
 
 export async function createSession(
@@ -58,6 +72,8 @@ export async function loadSession(
       expiresAt: sessions.expires_at,
       username: accounts.username,
       role: accounts.role,
+      bannedAt: accounts.banned_at,
+      banExpiresAt: accounts.ban_expires_at,
     })
     .from(sessions)
     .innerJoin(accounts, eq(accounts.id, sessions.user_id))
@@ -77,7 +93,13 @@ export async function loadSession(
     return null;
   }
   const user: User = { id: row.id, username: row.username };
-  return { user, role: row.role, tokenHash, expiresAt: row.expiresAt };
+  return {
+    user,
+    role: row.role,
+    tokenHash,
+    expiresAt: row.expiresAt,
+    ban: activeBan(row.bannedAt, row.banExpiresAt, now),
+  };
 }
 
 /**

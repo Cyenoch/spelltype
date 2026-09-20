@@ -5,7 +5,7 @@ import { getCookie } from 'hono/cookie';
 import { createMiddleware } from 'hono/factory';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
-import { MAX_API_BODY_BYTES, WS_PROTOCOL } from '../../shared/protocol';
+import { MAX_API_BODY_BYTES, WS_PROTOCOL, type AccountBan } from '../../shared/protocol';
 import { MaintenanceError } from '../../shared/maintenance';
 import { SESSION_COOKIE, loadSession, sessionHashFromToken } from '../auth/sessions';
 import type {
@@ -56,6 +56,26 @@ export async function authenticate(c: Context<HttpEnv>): Promise<AuthenticatedSe
 
 export const authenticated = createMiddleware<HttpEnv>(async (c, next) => {
   c.set('session', await authenticate(c));
+  await next();
+});
+
+/**
+ * 封禁账户的统一拒绝提示：永久与定时封禁分别说明；
+ * 到期时间以 ISO-8601 UTC 呈现，与 `SessionInfo.ban` 携带的数据一致。
+ */
+export function banRejectionMessage(ban: AccountBan): string {
+  return ban.expiresAt === null
+    ? '该账号已被永久封禁。'
+    : `该账号已被封禁，将于 ${new Date(ban.expiresAt).toISOString()} 解封。`;
+}
+
+/**
+ * 受保护接口的封禁闸门：封禁中的账户仅保留会话读取与登出。
+ * 判定依据是本请求刚从数据库读取的会话 —— 封禁提交后的下一次请求立即生效。
+ */
+export const notBanned = createMiddleware<HttpEnv>(async (c, next) => {
+  const { ban } = c.get('session');
+  if (ban !== null) throw new HTTPException(403, { message: banRejectionMessage(ban) });
   await next();
 });
 

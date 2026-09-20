@@ -1,4 +1,5 @@
 import type {
+  AccountBan,
   AccountRole,
   EndReason,
   MatchResult,
@@ -8,6 +9,12 @@ import type {
   Spell,
   User,
 } from './protocol';
+
+/**
+ * 管理端封禁时长的上限：100 年。并非业务预测，只是给“定时”封禁一个
+ * 有界的输入上限，永久封禁以 `durationMs: null` 表达，与超长时长无关。
+ */
+export const MAX_BAN_DURATION_MS = 100 * 365 * 24 * 60 * 60 * 1000;
 
 export interface AdminPage<T> {
   items: T[];
@@ -21,9 +28,11 @@ export interface AdminListSearch {
   q: string;
 }
 
+/** 管理端账户视图。`ban` 为响应时刻仍生效的封禁；过期的定时封禁读取为 `null`。 */
 export interface AdminUser extends User {
   role: AccountRole;
   createdAt: number;
+  ban: AccountBan | null;
 }
 
 export interface AdminUserStats {

@@ -295,9 +295,29 @@ function ResultCard(props: { result: AdminResult }) {
             </span>
           </DetailItem>
           <DetailItem label="触及规则">
-            <span class={stylex.props(adminStyles.mono).className}>
-              {formatNumber(result.input_gate_hits)}
-            </span>
+            <Show
+              when={result.input_gate_hits !== null && result.input_gate_hits > 0}
+              fallback={result.input_gate_hits === null ? '未测量' : '未触及'}
+            >
+              <details>
+                <summary>触及 {formatNumber(result.input_gate_hits)} 次 · 查看规则</summary>
+                <Show
+                  when={result.input_policy_version === 'ascii-floor-v1'}
+                  fallback={
+                    <p class={stylex.props(adminStyles.muted).className}>
+                      此版本仅保留触及次数，无法还原具体规则。
+                    </p>
+                  }
+                >
+                  <p>完成过快（completion_too_early）</p>
+                  <p class={stylex.props(adminStyles.muted).className}>
+                    首次完成咒文时，耗时短于目标字符数 × 35 毫秒的服务端下限。
+                    同一咒文只计一次；观察模式仅记录，执行模式要求重新输入。
+                    此记录不等同于作弊认定。
+                  </p>
+                </Show>
+              </details>
+            </Show>
           </DetailItem>
           <DetailItem label="恢复次数">
             <span class={stylex.props(adminStyles.mono).className}>

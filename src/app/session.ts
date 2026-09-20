@@ -1,5 +1,5 @@
 import { useQuery, type QueryClient } from '@tanstack/solid-query';
-import type { SessionInfo, User } from '../../shared/protocol';
+import type { AccountBan, SessionInfo, User } from '../../shared/protocol';
 import { sessionOptions } from './queries';
 
 /** 账户角色，由会话文档提供（访客为 `null`）。 */
@@ -9,6 +9,8 @@ export interface Session {
   readonly user: User | null;
   /** 已登录账户为 'user' | 'admin'，访客为 null。仅供前端 UI 使用：服务端负责强制鉴权。 */
   readonly role: SessionRole | null;
+  /** 当前生效的账号封禁；`null` 表示未被封禁。封禁期间服务端会拒绝游戏与受保护接口。 */
+  readonly ban: AccountBan | null;
   readonly pending: boolean;
   readonly error: Error | null;
   refresh(): Promise<SessionInfo>;
@@ -29,6 +31,9 @@ export function createSession(client: QueryClient): Session {
     get role() {
       return query.data?.role ?? null;
     },
+    get ban() {
+      return query.data?.ban ?? null;
+    },
     get pending() {
       return query.isPending;
     },
@@ -38,7 +43,7 @@ export function createSession(client: QueryClient): Session {
     refresh: () => client.fetchQuery({ ...sessionOptions, staleTime: 0 }),
     clear() {
       discardPrivateData();
-      client.setQueryData(sessionOptions.queryKey, { user: null, role: null });
+      client.setQueryData(sessionOptions.queryKey, { user: null, role: null, ban: null });
     },
   };
 }
