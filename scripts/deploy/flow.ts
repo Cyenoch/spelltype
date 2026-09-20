@@ -222,21 +222,22 @@ export async function cmdSecrets(): Promise<number> {
   const ctx = await loadContext({ requireOrigin: false });
   const password = process.env.POSTGRES_PASSWORD?.trim();
   const bridgeAppKey = process.env.WECHAT_BRIDGE_APP_KEY?.trim();
-  const deepseekKey = process.env.DEEPSEEK_API_KEY?.trim();
+  const openrouterKey = process.env.OPENROUTER_API_KEY?.trim();
   if (!password) throw new Error('Export POSTGRES_PASSWORD, then re-run: bun run deploy secrets');
   if (!bridgeAppKey || bridgeAppKey.length < 16) {
     throw new Error(
       'Export WECHAT_BRIDGE_APP_KEY (16+ characters), then re-run: bun run deploy secrets',
     );
   }
-  if (!deepseekKey) throw new Error('Export DEEPSEEK_API_KEY, then re-run: bun run deploy secrets');
+  if (!openrouterKey)
+    throw new Error('Export OPENROUTER_API_KEY, then re-run: bun run deploy secrets');
   const databaseUrl =
     `postgres://${encodeURIComponent(ctx.postgresUser)}:${encodeURIComponent(password)}` +
     `@database:5432/${encodeURIComponent(ctx.postgresDb)}`;
   const secrets: Array<[string, string]> = [
     ['postgres_password', password],
     ['wechat_bridge_app_key', bridgeAppKey],
-    ['deepseek_api_key', deepseekKey],
+    ['openrouter_api_key', openrouterKey],
     ['database_url', databaseUrl],
   ];
   // 用于 /api/ops/maintenance API（供 CI/自动化脚本使用）的可选机器令牌。

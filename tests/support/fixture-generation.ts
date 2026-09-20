@@ -23,7 +23,7 @@ export interface FixtureGeneration {
   at: number;
 }
 
-/** SDK 所请求的 JSON 结构，从其注入的 schema 中恢复。 */
+/** 请求体 `response_format.json_schema` 所携带 JSON schema 中恢复出的结构。 */
 export interface FixtureShape {
   wrapperKey: string | null;
   itemProps: string[] | null;
@@ -34,13 +34,11 @@ export interface GenerationRequest {
   model: string;
   /** 截断后的提示词文本，便于测试用例查看送达模型的主题/长度目标。 */
   prompt: string;
-  /** 是否检测到了 SDK 注入的 JSON schema，即结构化输出路径是否成功运行。 */
+  /** 是否携带了原生 `json_schema` 响应格式，即结构化输出路径是否成功运行。 */
   schemaDetected: boolean;
   /** 测试夹具遵循的长度区间契约，从房间自身的提示词中反解。 */
   range: [number, number];
   shape: FixtureShape;
-  /** SDK 是否请求了流式生成。 */
-  stream: boolean;
 }
 
 /** 房间的硬编码提示词目标；当提示词未声明区间时的默认兜底。 */
@@ -111,8 +109,6 @@ const ROMAN_STEPS: ReadonlyArray<readonly [number, string]> = [
   [4, 'IV'],
   [1, 'I'],
 ];
-const SCHEMA_MARKER = 'Return JSON that conforms to the following schema: ';
-
 interface FixtureSpell {
   name: string;
   text: string;
@@ -187,58 +183,19 @@ function detectShape(schema: unknown): FixtureShape {
 }
 
 /**
- * 恢复 SDK 在 `json_object` 模式下注入到系统消息中的 JSON schema。
- * 标记后可能跟随更多文本，因此提取首个括号匹配闭合的完整 JSON 对象，而非假定 JSON 一直延续到消息末尾。
+ * 单条消息的纯文本内容。请求体里的消息有两种线上形态：
+ * 文本字符串，或 `{ type: 'text', text }` 分片数组（系统消息始终是后者）。
  */
-function firstJsonObject(text: string): unknown {
-  const start = text.indexOf('{');
-  if (start === -1) return null;
-  let depth = 0;
-  let inString = false;
-  let escaped = false;
-  for (let index = start; index < text.length; index += 1) {
-    const char = text[index];
-    if (inString) {
-      if (escaped) escaped = false;
-      else if (char === '\\') escaped = true;
-      else if (char === '"') inString = false;
-      continue;
-    }
-    if (char === '"') {
-      inString = true;
-      continue;
-    }
-    if (char === '{') depth += 1;
-    else if (char === '}') {
-      depth -= 1;
-      if (depth === 0) {
-        try {
-          return JSON.parse(text.slice(start, index + 1));
-        } catch {
-          return null;
-        }
-      }
-    }
-  }
-  return null;
-}
-
-function schemaFromMessages(messages: unknown): unknown {
-  if (!Array.isArray(messages)) return null;
-  for (const message of messages) {
-    const content = asObject(message)?.content;
-    if (typeof content !== 'string') continue;
-    const at = content.indexOf(SCHEMA_MARKER);
-    if (at === -1) continue;
-    const schema = firstJsonObject(content.slice(at + SCHEMA_MARKER.length));
-    if (schema !== null) return schema;
-  }
-  return null;
-}
-
 function messageContent(message: unknown): string {
   const content = asObject(message)?.content;
-  return typeof content === 'string' ? content : '';
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((part) => {
+      const text = asObject(part)?.text;
+      return typeof text === 'string' ? text : '';
+    })
+    .join('\n');
 }
 
 /** SDK 发送的消息列表（文本形式）：房间自身的提示词包含在其中。 */
@@ -249,19 +206,23 @@ function promptText(messages: unknown): string {
 /** 读取单次 `/chat/completions` 请求体：模型、提示词以及提示词所要求的内容。 */
 export function readGenerationRequest(body: unknown): GenerationRequest {
   const request = asObject(body);
-  const schema = schemaFromMessages(request?.messages);
+  // 原生结构化输出路径把 JSON schema 放在 `response_format.json_schema.schema`。
+  const responseFormat = asObject(request?.response_format);
+  const schema =
+    responseFormat?.type === 'json_schema'
+      ? (asObject(responseFormat.json_schema)?.schema ?? null)
+      : null;
   const prompt = promptText(request?.messages);
   // 房间自身提示词声明的区间（`N to M characters`），或未声明时的硬编码默认值 ——
   // 这些数字与提示词用于自身生成目标的数字完全一致。
   const found = RANGE_IN_PROMPT.exec(prompt);
   const range: [number, number] = found ? [Number(found[1]), Number(found[2])] : DEFAULT_RANGE;
   return {
-    model: typeof request?.model === 'string' ? request.model : 'deepseek-flash',
+    model: typeof request?.model === 'string' ? request.model : 'unknown',
     prompt: prompt.slice(0, 4000),
     schemaDetected: schema !== null,
     range,
     shape: detectShape(schema),
-    stream: request?.stream === true,
   };
 }
 

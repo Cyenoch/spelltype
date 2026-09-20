@@ -2,7 +2,7 @@
  * E2E 测试环境：在进程内启动整套原生技术栈，并向各测试用例交出真实的 HTTP 界面。
  *
  * 一切都在本地、在同一个 Bun 进程中运行：没有远程调用、没有密钥、没有产品后门。
- *  - 确定性的 DeepSeek 兼容夹具（`fixture-server.ts`），
+ *  - 确定性的 OpenRouter 兼容夹具（`fixture-server.ts`），
  *    真实 AI SDK 通过服务端所组合的 `GenerateSpells` 接缝访问它；
  *  - 确定性的微信桥接（`wechat.ts`），它签发出服务端登录流程所校验的真实中继令牌；
  *  - 一个通过服务端自身 `openDatabase` 打开的 PGlite 数据库（含迁移）。
@@ -27,6 +27,7 @@ import { createServer, type ProxyOptions, type ViteDevServer } from 'vite';
 import { SESSION_COOKIE, createSession } from '../../server/auth/sessions';
 import { openDatabase, type OpenedDatabase } from '../../server/db';
 import { accounts } from '../../server/db/schema';
+import { DEFAULT_OPENROUTER_MODEL } from '../../server/generation/provider';
 import type { ServerConfig } from '../../server/config';
 import { generateSpellSet, type GenerationInput } from '../../server/generation/spells';
 import { startServer, type RunningServer } from '../../server/start';
@@ -247,7 +248,7 @@ export async function startHarness(): Promise<Harness> {
       trustForwardedFor: false,
       wechatBridge: { ...TEST_WECHAT_BRIDGE, baseUrl: bridge.origin },
       ...policy,
-      ai: { apiKey: TEST_AI_KEY, model: 'deepseek-flash' },
+      ai: { apiKey: TEST_AI_KEY, model: DEFAULT_OPENROUTER_MODEL },
     });
 
     const writeInfo = (): RuntimeInfo => {

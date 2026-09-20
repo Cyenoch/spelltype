@@ -27,9 +27,9 @@
     "test:e2e": "BUN_JSC_useFTLJIT=false bun --bun run playwright test --config tests/playwright.config.ts"
   },
   "dependencies": {
-    "@ai-sdk/deepseek": "latest",
     "@electric-sql/pglite": "0.5.8",
     "@hono/zod-validator": "^0.9.1",
+    "@openrouter/ai-sdk-provider": "3.1.0",
     "@stylexjs/stylex": "^0.19.1",
     "@tanstack/solid-form": "^1.33.5",
     "@tanstack/solid-query": "^5.103.1",

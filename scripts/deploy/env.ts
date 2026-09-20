@@ -19,7 +19,7 @@ const SECRET_FILE_DOCS: Record<string, string> = {
   postgres_password: 'database superuser password',
   wechat_bridge_app_key:
     'WeChat bridge App Key from the xsg-website /developers App (server-side only)',
-  deepseek_api_key: 'DeepSeek API key for spell generation',
+  openrouter_api_key: 'OpenRouter API key for spell generation',
   maintenance_token:
     'optional 64 lowercase hex bearer token for the /api/ops/maintenance machine API; absent disables only the ops API',
 };
@@ -29,7 +29,7 @@ export const SECRET_NAMES = [
   'database_url',
   'postgres_password',
   'wechat_bridge_app_key',
-  'deepseek_api_key',
+  'openrouter_api_key',
 ];
 
 const OPS_TOKEN_PATTERN = /^[0-9a-f]{64}$/;

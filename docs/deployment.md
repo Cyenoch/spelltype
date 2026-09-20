@@ -62,7 +62,7 @@ PostgreSQL 数据位于项目专属的 `postgres_data` 命名卷；`SPELLTYPE_ST
 | --- | --- |
 | `POSTGRES_PASSWORD` | 数据库密码 |
 | `WECHAT_BRIDGE_APP_KEY` | 桥接应用 App Key，至少 16 个字符 |
-| `DEEPSEEK_API_KEY` | 咒文生成 |
+| `OPENROUTER_API_KEY` | 咒文生成 |
 | `MAINTENANCE_TOKEN`（可选） | 32 随机字节的 64 位小写十六进制编码，仅用于 CI 维护 API |
 
 ```sh
@@ -70,6 +70,16 @@ bun run deploy secrets
 ```
 
 该命令创建缺失的 `0600` 文件，并生成 `database_url`；**已有文件保持不变**，重新导出环境变量不会轮换旧密钥。轮换需维护窗口内显式更新对应文件并重建应用。数据库密码还需同步修改数据库本身，不能只替换文件。
+
+> **从 DeepSeek 切换到 OpenRouter（既有安装必读）**：咒文生成提供方已更换为 OpenRouter，模型默认 `google/gemini-3.8-flash`（`OPENROUTER_MODEL`）。既有安装不能复用旧的 DeepSeek 密钥，必须在下一次发布前完成迁移：
+>
+> 1. 在 OpenRouter 创建一个**全新**的 API 密钥，通过凭据存储导出 `OPENROUTER_API_KEY`，运行 `bun run deploy secrets` 生成新的 `openrouter_api_key` 密钥文件。新文件名与既有密钥文件不冲突；该命令只创建缺失文件，不会改写 `postgres_password` 等既有密钥。
+> 2. 确认 `deploy/compose.env` 中的 `OPENROUTER_MODEL`（默认 `google/gemini-3.8-flash`）符合预期。
+> 3. 按第 3 节流程重新部署（排空 → 停止旧应用 → 迁移 → 启动新应用 → 恢复入口），使新密钥与新模型生效。
+>
+> 替换后的镜像不再读取旧的环境变量或 `secrets/deepseek_api_key`；确认新配置生效后可删除该残留密钥文件。
+
+咒文生成通过官方 `@openrouter/ai-sdk-provider` 发送严格的 `json_schema` 响应格式，并要求路由端点支持请求参数（`require_parameters: true`）；不使用提示词注入 schema 或 JSON 修复插件。本地仍校验法术数量、字符范围与重复内容。Gemini 3.8 Flash 使用最低支持的 `low` 思考档位；隐藏思考文本不代表关闭思考或免除计费。采样使用模型默认值，不传 `temperature` / `top_p`，避免排除不声明支持它们的 Google 端点。
 
 应用支持对应的 `*_FILE` 配置。直接配置应用或远程 CLI 时，同一个密钥的内联值和文件形式只能选一种；维护令牌显式为空是配置错误，不是禁用接口的方式。
 

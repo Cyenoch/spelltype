@@ -110,7 +110,7 @@ describe('生成尝试策略', () => {
   });
 
   it('未配置密钥时不发起模型调用', async () => {
-    const keyless = () => createSpellModel({ apiKey: null, model: 'deepseek-flash' });
+    const keyless = () => createSpellModel({ apiKey: null, model: 'google/gemini-3.8-flash' });
     expect(await generateSpellSet(keyless, input)).toMatchObject({
       ok: false,
       reason: 'unconfigured',

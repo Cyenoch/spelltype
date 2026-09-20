@@ -1,10 +1,11 @@
 /**
- * 确定性的 DeepSeek 兼容 HTTP 测试夹具。
+ * 确定性的 OpenRouter 兼容 HTTP 测试夹具。
  *
  * 仅作为测试端基础设施：绝不被产品代码引用。
  * 测试脚手架通过 `tests/support/test-provider.ts` 提供的 `generateSpellSet` 组装服务端的 `GenerateSpells` 接缝，
- * 后者构建真实的 `@ai-sdk/deepseek` provider 并将 `baseURL` 指向此处。
- * 因此，咒文生成流程走的是真实的 SDK 网络与结构化输出路径；仅有远程对端被替换为本地确定性实现。
+ * 后者构建真实的 `@openrouter/ai-sdk-provider` provider 并将 `baseURL` 指向此处。
+ * 因此，咒文生成流程走的是真实的 SDK 网络与原生 JSON-schema 结构化输出路径；
+ * 仅有远程对端被替换为本地确定性实现。
  * 法术书本身在 `fixture-generation.ts` 中构建。
  *
  * 测试夹具响应固定的数据结构：针对房间提示词声明的长度区间返回一本完整且合规的法术书。
@@ -27,7 +28,7 @@ export interface FixtureRequestLog {
   model: string;
   /** 截断后的提示词文本，便于测试用例查看到达模型的具体主题。 */
   prompt: string;
-  /** 是否检测到了 SDK 注入的 JSON schema，即结构化输出路径是否成功运行。 */
+  /** 是否检测到了原生 response_format 中的 JSON schema。 */
   schemaDetected: boolean;
   /** 本次请求测试夹具遵循的长度区间契约。 */
   lengthRange: [number, number];
@@ -64,36 +65,8 @@ function completionBody(payload: string, model: string): unknown {
     choices: [
       { index: 0, message: { role: 'assistant', content: payload }, finish_reason: 'stop' },
     ],
-    usage: {
-      prompt_tokens: 12,
-      completion_tokens: 34,
-      total_tokens: 46,
-      prompt_cache_hit_tokens: 0,
-      prompt_cache_miss_tokens: 12,
-    },
+    usage: { prompt_tokens: 12, completion_tokens: 34, total_tokens: 46 },
   };
-}
-
-function writeSseChunks(response: ServerResponse, payload: string, model: string): void {
-  if (response.writableEnded || response.destroyed) return;
-  response.writeHead(200, {
-    'content-type': 'text/event-stream; charset=utf-8',
-    'cache-control': 'no-cache',
-    connection: 'keep-alive',
-  });
-  const id = `chatcmpl-fixture-${Math.random().toString(36).slice(2, 10)}`;
-  const created = Math.floor(Date.now() / 1000);
-  const send = (delta: unknown, finishReason: string | null) => {
-    response.write(
-      `data: ${JSON.stringify({ id, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta, finish_reason: finishReason }] })}\n\n`,
-    );
-  };
-  send({ role: 'assistant', content: '' }, null);
-  for (let at = 0; at < payload.length; at += 24)
-    send({ content: payload.slice(at, at + 24) }, null);
-  send({}, 'stop');
-  response.write('data: [DONE]\n\n');
-  response.end();
 }
 
 async function readBody(request: IncomingMessage): Promise<string> {
@@ -128,8 +101,7 @@ async function handleCompletion(
   state.generations.push(generation);
   if (state.delayMs > 0) await delay(state.delayMs);
 
-  if (request.stream) writeSseChunks(response, generation.content, request.model);
-  else writeJson(response, 200, completionBody(generation.content, request.model));
+  writeJson(response, 200, completionBody(generation.content, request.model));
 }
 
 function handleControl(
@@ -166,7 +138,7 @@ function handleControl(
 }
 
 export interface FixtureServer {
-  /** 测试提供者所指向的 DeepSeek 兼容基础 URL。 */
+  /** 测试提供者所指向的 OpenRouter 兼容基础 URL。 */
   url: string;
   origin: string;
   close(): Promise<void>;

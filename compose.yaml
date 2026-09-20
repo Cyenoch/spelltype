@@ -30,8 +30,8 @@ secrets:
     file: ${SPELLTYPE_STATE_DIR}/secrets/postgres_password
   wechat_bridge_app_key:
     file: ${SPELLTYPE_STATE_DIR}/secrets/wechat_bridge_app_key
-  deepseek_api_key:
-    file: ${SPELLTYPE_STATE_DIR}/secrets/deepseek_api_key
+  openrouter_api_key:
+    file: ${SPELLTYPE_STATE_DIR}/secrets/openrouter_api_key
 
 services:
   app:
@@ -55,8 +55,8 @@ services:
       # App Key itself never passes through compose interpolation or the env.
       WECHAT_BRIDGE_APP_ID: ${WECHAT_BRIDGE_APP_ID:?set WECHAT_BRIDGE_APP_ID in deploy/compose.env}
       WECHAT_BRIDGE_APP_KEY_FILE: /run/secrets/wechat_bridge_app_key
-      DEEPSEEK_API_KEY_FILE: /run/secrets/deepseek_api_key
-      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-flash}
+      OPENROUTER_API_KEY_FILE: /run/secrets/openrouter_api_key
+      OPENROUTER_MODEL: ${OPENROUTER_MODEL:-google/gemini-3.8-flash}
       INPUT_POLICY_MODE: ${INPUT_POLICY_MODE:-observe}
       # Empty/false uses the connection IP; true trusts X-Forwarded-For;
       # a header name (e.g. EO-Client-IP) trusts that ingress-controlled header.
@@ -67,7 +67,7 @@ services:
     secrets:
       - database_url
       - wechat_bridge_app_key
-      - deepseek_api_key
+      - openrouter_api_key
     ports:
       # Loopback only: the deploy CLI's public /health and /api/status probes.
       # Dokploy domain routing reaches app:3000 over the internal network and

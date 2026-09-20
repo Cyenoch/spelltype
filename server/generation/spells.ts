@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { SPELL_BOOK_SIZE } from '../../shared/protocol';
 import type { Spell } from '../../shared/protocol';
 import { elementSchema } from '../../shared/validation';
-import { MissingDeepSeekKeyError } from './provider';
+import { MissingOpenRouterKeyError } from './provider';
 import { charCount } from '../scoring';
 
 export interface GenerationInput {
@@ -47,14 +47,13 @@ export const GENERATION_ATTEMPT_TIMEOUT_MS = 45_000;
 export const GENERATION_BUDGET_MS = 95_000;
 
 /**
- * 失控兜底保护，而非质量调节杠杆。一本包含 SPELL_BOOK_SIZE 条法术的法术书大约消耗
- * 2000-3000 tokens（包含法术名称、句子文本和 JSON 结构体），设置此上限仅为防止模型陷入死循环
- * 产生无休止的（且会被计费的）响应。
+ * 单次请求的输出费用上限，而非质量调节杠杆；思考与法术书正文共用此预算。
+ * 保留足够空间生成完整的 SPELL_BOOK_SIZE 条法术，避免思考耗尽预算后正文被截断。
  */
 const MAX_OUTPUT_TOKENS = 8_192;
 
 export const FAILURE_MESSAGES: Record<GenerationFailureReason, string> = {
-  unconfigured: 'AI 未配置：请设置 DEEPSEEK_API_KEY 后重试。',
+  unconfigured: 'AI 未配置：请设置 OPENROUTER_API_KEY 后重试。',
   timeout: 'AI 出题超时，请重试。',
   upstream: 'AI 服务暂时不可用，请稍后重试。',
   invalid: 'AI 返回的咒文不符合要求，请重试。',
@@ -178,14 +177,14 @@ async function attemptOnce(
         description: `一场比赛的 ${SPELL_BOOK_SIZE} 条法术`,
         schema: spellBookSchema,
       }),
-      // 关闭思考过程（thinking），使采样参数（temperature/topP）能真正生效，
-      // 并保持输出精简短小受控；DeepSeek 在开启思考时会忽略这两项参数。
-      // 公共 DeepSeek 端点没有原生 JSON-schema 响应格式，
-      // 因此使用 SDK 的 json_object 兼容模式（schema 注入系统提示词）是官方文档推荐的做法；
-      // 输出结果在流入房间之前仍会在此处严格根据 schema 解析与校验。
-      providerOptions: { deepseek: { thinking: { type: 'disabled' }, strictJsonSchema: false } },
-      temperature: 1.15,
-      topP: 0.95,
+      // 只路由到支持请求参数（含原生 JSON Schema）的端点，不静默降级为提示词约束。
+      // Gemini 3.8 Flash 最低支持 low；exclude 仅隐藏思考文本，不关闭思考或免除计费。
+      providerOptions: {
+        openrouter: {
+          provider: { require_parameters: true },
+          reasoning: { effort: 'low', exclude: true },
+        },
+      },
       maxOutputTokens: MAX_OUTPUT_TOKENS,
       // 模型提供商层面的自动重试会导致同一场比赛被静默重复计费。
       maxRetries: 0,
@@ -194,7 +193,7 @@ async function attemptOnce(
     return { ok: true, output: result.output };
   } catch (error) {
     if (controller.signal.aborted) return { ok: false, reason: 'timeout' };
-    if (error instanceof MissingDeepSeekKeyError) return { ok: false, reason: 'unconfigured' };
+    if (error instanceof MissingOpenRouterKeyError) return { ok: false, reason: 'unconfigured' };
     if (NoObjectGeneratedError.isInstance(error)) return { ok: false, reason: 'invalid' };
     if (APICallError.isInstance(error)) return { ok: false, reason: 'upstream' };
     if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {

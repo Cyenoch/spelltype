@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { z } from 'zod';
 import type { InputPolicyMode } from '../shared/protocol';
-import { DEFAULT_DEEPSEEK_MODEL } from './generation/provider';
+import { DEFAULT_OPENROUTER_MODEL } from './generation/provider';
 
 declare const __SPELLTYPE_BUILD_ID__: string;
 
@@ -71,7 +71,7 @@ export async function readServerConfig(environment: Environment = Bun.env): Prom
   const production = environment.NODE_ENV === 'production';
   const [databaseUrl, apiKey, bridgeAppKey, configuredMaintenanceToken] = await Promise.all([
     readDatabaseUrl(environment),
-    secret(environment, 'DEEPSEEK_API_KEY'),
+    secret(environment, 'OPENROUTER_API_KEY'),
     secret(environment, 'WECHAT_BRIDGE_APP_KEY'),
     secret(environment, 'MAINTENANCE_TOKEN'),
   ]);
@@ -148,7 +148,7 @@ export async function readServerConfig(environment: Environment = Bun.env): Prom
     inputPolicyMode: inputPolicySchema.parse(environment.INPUT_POLICY_MODE ?? 'observe'),
     ai: {
       apiKey: apiKey || null,
-      model: environment.DEEPSEEK_MODEL?.trim() || DEFAULT_DEEPSEEK_MODEL,
+      model: environment.OPENROUTER_MODEL?.trim() || DEFAULT_OPENROUTER_MODEL,
     },
   };
 }
